@@ -1,0 +1,92 @@
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# compiled output
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+.expo
+.expo-shared
+
+# dependencies
+node_modules
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
+.DS_Store
+Thumbs.db
+
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# Replit
+.cache/
+.local/
+
+# Personal, local, and credential-bearing files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+**/local.properties
+**/build-profile.json5
+!**/build-profile.example.json5
+**/debug.keystore
+
+# Local tools and generated native build state
+.agents/
+.hvigor/
+.idea/
+*.iml
+**/.gradle/
+**/.cxx/
+**/build/
+**/dist/
+**/.expo/
+**/.replit-artifact/
+
+# Local-only records and packaged binaries
+AGENTS.md
+audit/
+release/
+artifacts/harmonyos-next-spike/.idea/
+artifacts/harmonyos-next-spike/.hvigor/
+artifacts/harmonyos-next-spike/build/
+artifacts/harmonyos-next-spike/entry/build/
+artifacts/harmonyos-next-spike/oh_modules/
+artifacts/harmonyos-next-spike/entry/oh_modules/
+artifacts/harmonyos-next-spike/oh-package-lock.json5
+.replit
+.replitignore
+replit.md
