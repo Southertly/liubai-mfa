@@ -1,0 +1,8 @@
+/build/
+/entry/build/
+/oh_modules/
+/entry/oh_modules/
+/.hvigor/
+/entry/.hvigor/
+/oh-package-lock.json5
+/build-profile.json5

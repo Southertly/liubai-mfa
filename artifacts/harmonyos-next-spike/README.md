@@ -1,0 +1,66 @@
+# MFA Verifier for HarmonyOS NEXT
+
+MFA Verifier 的 HarmonyOS NEXT 原生客户端，使用 ArkTS、ArkUI 和系统安全能力实现。
+
+示例 Bundle ID：`com.mfaverifier.app`。正式发布前请替换为你已在 AppGallery Connect 注册的 Bundle ID。
+
+## 当前能力
+
+- TOTP 账户列表、搜索、分组和颜色标签。
+- 手动添加、`otpauth://` 导入和系统 Scan Kit 扫码。
+- 账户编辑与删除。
+- Asset Store 加密保存 MFA 密钥。
+- User Authentication Kit 保护验证码解锁、密钥查看/复制和备份导出。
+- 与 Android 版兼容的 v2 加密备份导出与导入。
+- 浅色、深色及跟随系统主题。
+- 本地隐私说明与应用锁。
+- 隐私窗口保护，系统截图和最近任务预览不显示账户内容。
+- 验证码复制 30 秒后自动清除；密钥和恢复密钥复制 60 秒后自动清除。
+
+应用申请 `ohos.permission.ACCESS_BIOMETRIC` 和 `ohos.permission.PRIVACY_WINDOW`，不申请网络或剪贴板读取权限。MFA 密钥不会写入普通偏好设置、日志或测试输出；复制内容仅限本机剪贴板，并在用户未覆盖剪贴板时按时自动清除。
+
+## 构建
+
+优先使用 DevEco Studio 自带的 Hvigor。日常调试继续使用 `default` 产品和调试签名：
+
+```bash
+/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw \
+  assembleApp -p product=default -p buildMode=debug --no-daemon
+```
+
+调试签名 HAP 输出位置：
+
+```text
+entry/build/default/outputs/default/entry-default-signed.hap
+```
+
+正式发布使用独立的 `release` 产品和发布签名：
+
+```bash
+/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw \
+  assembleApp -p product=release -p buildMode=release --no-daemon
+```
+
+正式产物输出位置：
+
+```text
+entry/build/release/outputs/default/entry-default-signed.hap
+build/outputs/release/harmonyos-next-spike-release-signed.app
+```
+
+`build-profile.json5` 包含本机 DevEco 调试和发布签名配置，应保持在本地；发布私钥、证书和 Profile 位于本机 `~/.ohos/release/`，不得提交到仓库。可共享配置以 `build-profile.example.json5` 为准。
+
+## 真机安装
+
+连接并授权设备后，使用 DevEco Studio 运行，或通过 DevEco 自带的 `hdc` 覆盖安装：
+
+```bash
+/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc \
+  -t <device-id> install -r entry/build/default/outputs/default/entry-default-signed.hap
+```
+
+覆盖安装不会清除已有账户。不要用真实账户执行破坏性恢复测试。
+
+## 从开发包迁移
+
+早期开发包使用 `com.tickmfa.harmonyosnext.spike`，与正式包是两个独立应用，系统不会自动迁移账户。迁移时保留旧包，通过旧包导出加密备份，再在正式包中输入单独保存的恢复密钥完成导入；确认账户数量与验证码正常后，再由用户决定是否卸载旧包。

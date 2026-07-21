@@ -1,0 +1,17 @@
+{
+  "name": "tick-mfa-harmonyos-next-spike",
+  "version": "0.0.1",
+  "ohos": {
+    "org": "huawei",
+    "buildTool": "hvigor",
+    "directoryLevel": "project"
+  },
+  "description": "留白 MFA HarmonyOS NEXT 原生应用。",
+  "repository": {},
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@ohos/hypium": "1.0.21",
+    "@ohos/hvigor": "6.24.3",
+    "@ohos/hvigor-ohos-plugin": "6.24.3"
+  }
+}
