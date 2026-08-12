@@ -75,6 +75,12 @@ Thumbs.db
 **/dist/
 **/.expo/
 **/.replit-artifact/
+**/bin/
+**/obj/
+**/.vs/
+**/AppPackages/
+**/BundleArtifacts/
+artifacts/windows/local-signing/
 
 # Local-only records and packaged binaries
 AGENTS.md

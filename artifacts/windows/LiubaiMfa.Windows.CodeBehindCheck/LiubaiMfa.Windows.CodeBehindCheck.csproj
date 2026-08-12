@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <WindowsPackageType>None</WindowsPackageType>
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <EnableCoreMrtTooling>false</EnableCoreMrtTooling>
+    <ExpandPriResources>false</ExpandPriResources>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../LiubaiMfa.Windows/App.xaml.cs" Link="App.xaml.cs" />
+    <Compile Include="../LiubaiMfa.Windows/MainWindow.xaml.cs" Link="MainWindow.xaml.cs" />
+    <Compile Include="GeneratedXamlStubs.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../LiubaiMfa.Core/LiubaiMfa.Core.csproj" />
+    <ProjectReference Include="../LiubaiMfa.Windows.Platform/LiubaiMfa.Windows.Platform.csproj" />
+  </ItemGroup>
+</Project>
