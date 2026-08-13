@@ -10,7 +10,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly IAccountRepository _repository;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly object _stateGate = new();
     private readonly List<MfaAccount> _accounts = [];
+    private long _lifecycleEpoch;
     private string _searchText = string.Empty;
     private string? _selectedGroup;
     private bool _isLoaded;
@@ -36,73 +38,144 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string SearchText
     {
-        get => _searchText;
+        get
+        {
+            lock (_stateGate)
+            {
+                return _searchText;
+            }
+        }
         set
         {
-            var normalized = value?.Trim() ?? string.Empty;
-            if (SetField(ref _searchText, normalized))
+            lock (_stateGate)
             {
-                RefreshDerivedState();
+                var normalized = value?.Trim() ?? string.Empty;
+                if (SetField(ref _searchText, normalized))
+                {
+                    RefreshDerivedState();
+                }
             }
         }
     }
 
     public string? SelectedGroup
     {
-        get => _selectedGroup;
+        get
+        {
+            lock (_stateGate)
+            {
+                return _selectedGroup;
+            }
+        }
         set
         {
-            var normalized = NormalizeGroup(value);
-            if (SetField(ref _selectedGroup, normalized))
+            lock (_stateGate)
             {
-                RefreshDerivedState();
+                var normalized = NormalizeGroup(value);
+                if (SetField(ref _selectedGroup, normalized))
+                {
+                    RefreshDerivedState();
+                }
             }
         }
     }
 
     public bool IsLoaded
     {
-        get => _isLoaded;
+        get
+        {
+            lock (_stateGate)
+            {
+                return _isLoaded;
+            }
+        }
         private set => SetField(ref _isLoaded, value);
     }
 
-    public bool HasAccounts => _accounts.Count > 0;
+    public bool HasAccounts
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _accounts.Count > 0;
+            }
+        }
+    }
 
-    public bool HasVisibleAccounts => VisibleAccounts.Count > 0;
+    public bool HasVisibleAccounts
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return VisibleAccounts.Count > 0;
+            }
+        }
+    }
 
     public bool HasLoadFailure
     {
-        get => _hasLoadFailure;
+        get
+        {
+            lock (_stateGate)
+            {
+                return _hasLoadFailure;
+            }
+        }
         private set => SetField(ref _hasLoadFailure, value);
     }
 
-    internal IReadOnlyList<MfaAccount> AccountsSnapshot => _accounts.ToArray();
+    internal IReadOnlyList<MfaAccount> AccountsSnapshot
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _accounts.ToArray();
+            }
+        }
+    }
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
+        var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
-            if (IsLoaded)
+            lock (_stateGate)
             {
-                return;
+                ThrowIfLifecycleInvalid(operationEpoch);
+                if (_isLoaded)
+                {
+                    return;
+                }
             }
 
             try
             {
                 var accounts = await _repository.LoadAsync(cancellationToken);
-                _accounts.Clear();
-                _accounts.AddRange(accounts);
-                HasLoadFailure = false;
-                IsLoaded = true;
-                RefreshDerivedState();
+                lock (_stateGate)
+                {
+                    ThrowIfLifecycleInvalid(operationEpoch);
+                    _accounts.Clear();
+                    _accounts.AddRange(accounts);
+                    HasLoadFailure = false;
+                    IsLoaded = true;
+                    RefreshDerivedState();
+                }
             }
             catch
             {
-                _accounts.Clear();
-                IsLoaded = false;
-                HasLoadFailure = true;
-                RefreshDerivedState();
+                lock (_stateGate)
+                {
+                    ThrowIfLifecycleInvalid(operationEpoch);
+                    _accounts.Clear();
+                    IsLoaded = false;
+                    HasLoadFailure = true;
+                    RefreshDerivedState();
+                }
+
                 throw;
             }
         }
@@ -112,56 +185,88 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public Task AddAsync(MfaAccount account, CancellationToken cancellationToken = default) =>
-        ExecuteWriteAsync(async () =>
+    public Task AddAsync(MfaAccount account, CancellationToken cancellationToken = default)
+    {
+        var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
+        return ExecuteWriteAsync(async () =>
         {
-            EnsureWritesAllowed();
-            if (_accounts.Any(item => item.Secret == account.Secret))
+            MfaAccount[] candidate;
+            lock (_stateGate)
             {
-                throw new InvalidOperationException("该 MFA 密钥已经存在。");
+                EnsureWritesAllowed(operationEpoch);
+                if (_accounts.Any(item => item.Secret == account.Secret))
+                {
+                    throw new InvalidOperationException("该 MFA 密钥已经存在。");
+                }
+
+                candidate = _accounts.Append(account).ToArray();
             }
 
-            await CommitAsync(_accounts.Append(account).ToArray(), cancellationToken);
+            await CommitAsync(candidate, operationEpoch, cancellationToken);
         }, cancellationToken);
+    }
 
-    public Task UpdateAsync(MfaAccount account, CancellationToken cancellationToken = default) =>
-        ExecuteWriteAsync(async () =>
+    public Task UpdateAsync(MfaAccount account, CancellationToken cancellationToken = default)
+    {
+        var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
+        return ExecuteWriteAsync(async () =>
         {
-            EnsureWritesAllowed();
-            var existingIndex = _accounts.FindIndex(item => item.Id == account.Id);
-            if (existingIndex < 0)
+            MfaAccount[] candidate;
+            lock (_stateGate)
             {
-                throw new InvalidOperationException("账户不存在。");
+                EnsureWritesAllowed(operationEpoch);
+                var existingIndex = _accounts.FindIndex(item => item.Id == account.Id);
+                if (existingIndex < 0)
+                {
+                    throw new InvalidOperationException("账户不存在。");
+                }
+
+                candidate = _accounts.ToArray();
+                candidate[existingIndex] = account;
             }
 
-            var candidate = _accounts.ToArray();
-            candidate[existingIndex] = account;
-            await CommitAsync(candidate, cancellationToken);
+            await CommitAsync(candidate, operationEpoch, cancellationToken);
         }, cancellationToken);
+    }
 
-    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
-        ExecuteWriteAsync(async () =>
+    public Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
+        return ExecuteWriteAsync(async () =>
         {
-            EnsureWritesAllowed();
-            var existingIndex = _accounts.FindIndex(item => item.Id == id);
-            if (existingIndex < 0)
+            List<MfaAccount>? candidate;
+            lock (_stateGate)
             {
-                RefreshDerivedState();
-                return;
+                EnsureWritesAllowed(operationEpoch);
+                var existingIndex = _accounts.FindIndex(item => item.Id == id);
+                if (existingIndex < 0)
+                {
+                    RefreshDerivedState();
+                    return;
+                }
+
+                candidate = _accounts.ToList();
+                candidate.RemoveAt(existingIndex);
             }
 
-            var candidate = _accounts.ToList();
-            candidate.RemoveAt(existingIndex);
-            await CommitAsync(candidate, cancellationToken);
+            await CommitAsync(candidate, operationEpoch, cancellationToken);
         }, cancellationToken);
+    }
 
     public Task<(int Imported, int Skipped)> ImportAsync(
         IEnumerable<MfaAccount> incoming,
-        CancellationToken cancellationToken = default) =>
-        ExecuteWriteAsync(async () =>
+        CancellationToken cancellationToken = default)
+    {
+        var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
+        return ExecuteWriteAsync(async () =>
         {
-            EnsureWritesAllowed();
-            var candidate = _accounts.ToList();
+            List<MfaAccount> candidate;
+            lock (_stateGate)
+            {
+                EnsureWritesAllowed(operationEpoch);
+                candidate = _accounts.ToList();
+            }
+
             var existingSecrets = candidate.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
             var imported = 0;
             var skipped = 0;
@@ -183,19 +288,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             if (imported > 0)
             {
-                await CommitAsync(candidate, cancellationToken);
+                await CommitAsync(candidate, operationEpoch, cancellationToken);
             }
             else
             {
-                RefreshDerivedState();
+                lock (_stateGate)
+                {
+                    ThrowIfLifecycleInvalid(operationEpoch);
+                    RefreshDerivedState();
+                }
             }
 
             return (imported, skipped);
         }, cancellationToken);
+    }
 
     public void UpdateCodes()
     {
-        foreach (var account in VisibleAccounts)
+        AccountItemViewModel[] accounts;
+        lock (_stateGate)
+        {
+            accounts = VisibleAccounts.ToArray();
+        }
+
+        foreach (var account in accounts)
         {
             account.UpdateCode();
         }
@@ -205,17 +321,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public void Unload()
     {
-        _accounts.Clear();
-        IsLoaded = false;
-        RefreshDerivedState();
+        Interlocked.Increment(ref _lifecycleEpoch);
+        lock (_stateGate)
+        {
+            _accounts.Clear();
+            VisibleAccounts.Clear();
+            Groups.Clear();
+            IsLoaded = false;
+            OnPropertyChanged(nameof(HasAccounts));
+            OnPropertyChanged(nameof(HasVisibleAccounts));
+        }
     }
 
-    private async Task CommitAsync(IReadOnlyCollection<MfaAccount> candidate, CancellationToken cancellationToken)
+    private async Task CommitAsync(
+        IReadOnlyCollection<MfaAccount> candidate,
+        long operationEpoch,
+        CancellationToken cancellationToken)
     {
+        lock (_stateGate)
+        {
+            ThrowIfLifecycleInvalid(operationEpoch);
+        }
+
         await _repository.SaveAsync(candidate, cancellationToken);
-        _accounts.Clear();
-        _accounts.AddRange(candidate);
-        RefreshDerivedState();
+        lock (_stateGate)
+        {
+            ThrowIfLifecycleInvalid(operationEpoch);
+            _accounts.Clear();
+            _accounts.AddRange(candidate);
+            RefreshDerivedState();
+        }
     }
 
     private async Task ExecuteWriteAsync(Func<Task> write, CancellationToken cancellationToken)
@@ -271,13 +406,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasVisibleAccounts));
     }
 
-    private void EnsureWritesAllowed()
+    private void EnsureWritesAllowed(long operationEpoch)
     {
-        if (HasLoadFailure)
+        ThrowIfLifecycleInvalid(operationEpoch);
+        if (_hasLoadFailure)
         {
             throw new InvalidOperationException("本地账户数据加载失败，已禁止写入以避免覆盖数据。");
         }
+
+        if (!_isLoaded)
+        {
+            throw CreateLifecycleCanceledException();
+        }
     }
+
+    private void ThrowIfLifecycleInvalid(long operationEpoch)
+    {
+        if (Volatile.Read(ref _lifecycleEpoch) != operationEpoch)
+        {
+            throw CreateLifecycleCanceledException();
+        }
+    }
+
+    private static OperationCanceledException CreateLifecycleCanceledException() =>
+        new("账户操作已因应用锁定而取消。");
 
     private static string? NormalizeGroup(string? group) =>
         string.IsNullOrWhiteSpace(group) ? null : group.Trim();

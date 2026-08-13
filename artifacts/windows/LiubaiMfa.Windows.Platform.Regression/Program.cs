@@ -20,6 +20,8 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("无可导入账户时不保存", VerifyImportWithoutNewAccountsDoesNotSaveAsync),
     ("并发添加不会丢失已保存账户", VerifyConcurrentAddsAreSerializedAsync),
     ("并发添加重复账户只允许一个成功", VerifyConcurrentDuplicateAddsAllowOnlyOneAsync),
+    ("卸载后保存完成不得回填账户状态", VerifyUnloadPreventsInFlightWritePublicationAsync),
+    ("卸载后排队写不得保存或发布账户状态", VerifyUnloadCancelsQueuedWriteAsync),
 };
 
 foreach (var check in checks)
@@ -273,6 +275,43 @@ static async Task VerifyConcurrentDuplicateAddsAllowOnlyOneAsync()
     Assert(repository.SaveCallCount == 1, "并发重复添加不应进行第二次保存。");
 }
 
+static async Task VerifyUnloadPreventsInFlightWritePublicationAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+
+    var add = viewModel.AddAsync(CreateNewAccount());
+    await repository.FirstSaveStarted;
+    viewModel.Unload();
+    AssertUnloaded(viewModel, "卸载后立即");
+
+    repository.ReleaseFirstSave();
+    await AssertThrowsAsync<OperationCanceledException>(() => add);
+    AssertUnloaded(viewModel, "保存完成后");
+    Assert(repository.SaveCallCount == 1, "已开始的保存应只调用一次。");
+}
+
+static async Task VerifyUnloadCancelsQueuedWriteAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+
+    var firstAdd = viewModel.AddAsync(CreateNewAccount());
+    await repository.FirstSaveStarted;
+    var queuedAdd = viewModel.AddAsync(CreateAdditionalNewAccount());
+    viewModel.Unload();
+    AssertUnloaded(viewModel, "排队写卸载后立即");
+
+    repository.ReleaseFirstSave();
+    await AssertThrowsAsync<OperationCanceledException>(() => firstAdd);
+    await AssertThrowsAsync<OperationCanceledException>(() => queuedAdd);
+    AssertUnloaded(viewModel, "排队写释放后");
+    Assert(repository.SaveCallCount == 1, "排队写不应调用保存。");
+    Assert(!repository.SecondSaveStarted.IsCompleted, "排队写不应进入第二次保存。");
+}
+
 static MfaAccount[] CreateFixture() =>
 [
     new MfaAccount { Id = "1", Issuer = "GitHub", Account = "alice", Secret = "A", Group = "个人", CreatedAt = 1 },
@@ -340,6 +379,16 @@ static void AssertAccountIds(IEnumerable<MfaAccount> actual, params string[] exp
     var actualIds = actual.Select(account => account.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
     var expectedIds = expected.OrderBy(id => id, StringComparer.Ordinal).ToArray();
     Assert(actualIds.SequenceEqual(expectedIds), "账户 ID 不匹配。");
+}
+
+static void AssertUnloaded(MainViewModel viewModel, string stage)
+{
+    Assert(!viewModel.IsLoaded, $"{stage}仍处于已加载状态。");
+    Assert(viewModel.AccountsSnapshot.Count == 0, $"{stage}账户快照未清空。");
+    Assert(viewModel.VisibleAccounts.Count == 0, $"{stage}可见账户未清空。");
+    Assert(viewModel.Groups.Count == 0, $"{stage}分组未清空。");
+    Assert(!viewModel.HasAccounts, $"{stage}账户状态未清空。");
+    Assert(!viewModel.HasVisibleAccounts, $"{stage}可见账户状态未清空。");
 }
 
 static void Assert(bool condition, string message)
