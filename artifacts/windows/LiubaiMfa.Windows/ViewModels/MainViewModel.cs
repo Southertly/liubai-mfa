@@ -1,74 +1,156 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using LiubaiMfa.Core.Models;
 using LiubaiMfa.Windows.Services;
 
 namespace LiubaiMfa.Windows.ViewModels;
 
-public sealed class MainViewModel
+public sealed class MainViewModel : INotifyPropertyChanged
 {
-    private readonly EncryptedAccountRepository _repository;
+    private readonly IAccountRepository _repository;
+    private readonly List<MfaAccount> _accounts = [];
+    private string _searchText = string.Empty;
+    private string? _selectedGroup;
+    private bool _isLoaded;
+    private bool _hasLoadFailure;
 
     public MainViewModel(EncryptedAccountRepository repository)
+        : this((IAccountRepository)repository)
+    {
+    }
+
+    internal MainViewModel(IAccountRepository repository)
     {
         _repository = repository;
     }
 
-    public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
-    public bool IsLoaded { get; private set; }
+    public event PropertyChangedEventHandler? PropertyChanged;
 
-    public async Task LoadAsync()
+    public ObservableCollection<AccountItemViewModel> VisibleAccounts { get; } = new();
+
+    public ObservableCollection<GroupFilterItemViewModel> Groups { get; } = new();
+
+    public ObservableCollection<AccountItemViewModel> Accounts => VisibleAccounts;
+
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            if (SetField(ref _searchText, normalized))
+            {
+                RefreshDerivedState();
+            }
+        }
+    }
+
+    public string? SelectedGroup
+    {
+        get => _selectedGroup;
+        set
+        {
+            var normalized = NormalizeGroup(value);
+            if (SetField(ref _selectedGroup, normalized))
+            {
+                RefreshDerivedState();
+            }
+        }
+    }
+
+    public bool IsLoaded
+    {
+        get => _isLoaded;
+        private set => SetField(ref _isLoaded, value);
+    }
+
+    public bool HasAccounts => _accounts.Count > 0;
+
+    public bool HasVisibleAccounts => VisibleAccounts.Count > 0;
+
+    public bool HasLoadFailure
+    {
+        get => _hasLoadFailure;
+        private set => SetField(ref _hasLoadFailure, value);
+    }
+
+    internal IReadOnlyList<MfaAccount> AccountsSnapshot => _accounts.ToArray();
+
+    public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         if (IsLoaded)
         {
             return;
         }
 
-        var accounts = await _repository.LoadAsync();
-        Accounts.Clear();
-        foreach (var account in accounts.OrderBy(item => item.Issuer).ThenBy(item => item.Account))
+        try
         {
-            Accounts.Add(new AccountItemViewModel(account));
+            var accounts = await _repository.LoadAsync(cancellationToken);
+            _accounts.Clear();
+            _accounts.AddRange(accounts);
+            HasLoadFailure = false;
+            IsLoaded = true;
+            RefreshDerivedState();
         }
-
-        IsLoaded = true;
+        catch
+        {
+            _accounts.Clear();
+            IsLoaded = false;
+            HasLoadFailure = true;
+            RefreshDerivedState();
+            throw;
+        }
     }
 
-    public async Task AddAsync(MfaAccount account)
+    public async Task AddAsync(MfaAccount account, CancellationToken cancellationToken = default)
     {
-        if (Accounts.Any(item => item.Model.Secret == account.Secret))
+        EnsureWritesAllowed();
+        if (_accounts.Any(item => item.Secret == account.Secret))
         {
             throw new InvalidOperationException("该 MFA 密钥已经存在。");
         }
 
-        Accounts.Add(new AccountItemViewModel(account));
-        SortAccounts();
-        await SaveAsync();
+        _accounts.Add(account);
+        await SaveAsync(cancellationToken);
+        RefreshDerivedState();
     }
 
-    public async Task UpdateAsync(MfaAccount account)
+    public async Task UpdateAsync(MfaAccount account, CancellationToken cancellationToken = default)
     {
-        var existing = Accounts.FirstOrDefault(item => item.Id == account.Id)
-            ?? throw new InvalidOperationException("账户不存在。");
-        existing.ReplaceModel(account);
-        SortAccounts();
-        await SaveAsync();
-    }
-
-    public async Task DeleteAsync(string id)
-    {
-        var existing = Accounts.FirstOrDefault(item => item.Id == id);
-        if (existing is null)
+        EnsureWritesAllowed();
+        var existingIndex = _accounts.FindIndex(item => item.Id == account.Id);
+        if (existingIndex < 0)
         {
+            throw new InvalidOperationException("账户不存在。");
+        }
+
+        _accounts[existingIndex] = account;
+        await SaveAsync(cancellationToken);
+        RefreshDerivedState();
+    }
+
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        EnsureWritesAllowed();
+        var existingIndex = _accounts.FindIndex(item => item.Id == id);
+        if (existingIndex < 0)
+        {
+            RefreshDerivedState();
             return;
         }
 
-        Accounts.Remove(existing);
-        await SaveAsync();
+        _accounts.RemoveAt(existingIndex);
+        await SaveAsync(cancellationToken);
+        RefreshDerivedState();
     }
 
-    public async Task<(int Imported, int Skipped)> ImportAsync(IEnumerable<MfaAccount> incoming)
+    public async Task<(int Imported, int Skipped)> ImportAsync(
+        IEnumerable<MfaAccount> incoming,
+        CancellationToken cancellationToken = default)
     {
-        var existingSecrets = Accounts.Select(item => item.Model.Secret).ToHashSet(StringComparer.Ordinal);
+        EnsureWritesAllowed();
+        var existingSecrets = _accounts.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
         var imported = 0;
         var skipped = 0;
         foreach (var account in incoming)
@@ -79,47 +161,89 @@ public sealed class MainViewModel
                 continue;
             }
 
-            Accounts.Add(new AccountItemViewModel(account with
+            _accounts.Add(account with
             {
                 Id = string.IsNullOrWhiteSpace(account.Id) ? Guid.NewGuid().ToString("N") : account.Id,
                 CreatedAt = account.CreatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : account.CreatedAt,
-            }));
+            });
             imported++;
         }
 
-        SortAccounts();
-        await SaveAsync();
+        await SaveAsync(cancellationToken);
+        RefreshDerivedState();
         return (imported, skipped);
     }
 
     public void UpdateCodes()
     {
-        foreach (var account in Accounts)
+        foreach (var account in VisibleAccounts)
         {
             account.UpdateCode();
         }
     }
 
-    public IReadOnlyList<MfaAccount> Snapshot() => Accounts.Select(item => item.Model).ToList();
+    public IReadOnlyList<MfaAccount> Snapshot() => AccountsSnapshot;
 
     public void Unload()
     {
-        Accounts.Clear();
+        _accounts.Clear();
         IsLoaded = false;
+        RefreshDerivedState();
     }
 
-    private async Task SaveAsync() => await _repository.SaveAsync(Snapshot());
+    private async Task SaveAsync(CancellationToken cancellationToken) =>
+        await _repository.SaveAsync(_accounts.ToArray(), cancellationToken);
 
-    private void SortAccounts()
+    private void RefreshDerivedState()
     {
-        var sorted = Accounts.OrderBy(item => item.Issuer).ThenBy(item => item.Account).ToList();
-        for (var targetIndex = 0; targetIndex < sorted.Count; targetIndex++)
+        var groupCounts = AccountQuery.BuildGroupCounts(_accounts);
+        if (_selectedGroup is not null && !groupCounts.Any(group =>
+            group.Value is not null
+            && string.Equals(group.Value, _selectedGroup, StringComparison.CurrentCultureIgnoreCase)))
         {
-            var currentIndex = Accounts.IndexOf(sorted[targetIndex]);
-            if (currentIndex != targetIndex)
-            {
-                Accounts.Move(currentIndex, targetIndex);
-            }
+            _selectedGroup = null;
+            OnPropertyChanged(nameof(SelectedGroup));
+        }
+
+        VisibleAccounts.Clear();
+        foreach (var account in AccountQuery.FilterAndSort(_accounts, SearchText, SelectedGroup))
+        {
+            VisibleAccounts.Add(new AccountItemViewModel(account));
+        }
+
+        Groups.Clear();
+        foreach (var group in groupCounts)
+        {
+            Groups.Add(new GroupFilterItemViewModel(group.Value, group.Label, group.Count));
+        }
+
+        OnPropertyChanged(nameof(HasAccounts));
+        OnPropertyChanged(nameof(HasVisibleAccounts));
+    }
+
+    private void EnsureWritesAllowed()
+    {
+        if (HasLoadFailure)
+        {
+            throw new InvalidOperationException("本地账户数据加载失败，已禁止写入以避免覆盖数据。");
         }
     }
+
+    private static string? NormalizeGroup(string? group) =>
+        string.IsNullOrWhiteSpace(group) ? null : group.Trim();
+
+    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return false;
+        }
+
+        field = value;
+        OnPropertyChanged(propertyName);
+        return true;
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

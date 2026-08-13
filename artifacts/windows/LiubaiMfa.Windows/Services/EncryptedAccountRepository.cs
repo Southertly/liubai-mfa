@@ -5,7 +5,7 @@ using LiubaiMfa.Core.Models;
 
 namespace LiubaiMfa.Windows.Services;
 
-public sealed class EncryptedAccountRepository
+public sealed class EncryptedAccountRepository : IAccountRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -23,15 +23,16 @@ public sealed class EncryptedAccountRepository
         _keyStore = new WindowsSecureKeyStore(dataDirectory);
     }
 
-    public async Task<IReadOnlyList<MfaAccount>> LoadAsync()
+    public async Task<IReadOnlyList<MfaAccount>> LoadAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var key = await _keyStore.GetOrCreateAsync();
         if (!File.Exists(_accountPath))
         {
             return Array.Empty<MfaAccount>();
         }
 
-        var serializedEnvelope = await File.ReadAllTextAsync(_accountPath);
+        var serializedEnvelope = await File.ReadAllTextAsync(_accountPath, cancellationToken);
         var envelope = JsonSerializer.Deserialize<SecureEnvelope>(serializedEnvelope, JsonOptions)
             ?? throw new CryptographicException("本地账户数据格式无效。");
         var accountJson = BackupCrypto.Decrypt(envelope, Convert.ToBase64String(key));
@@ -39,8 +40,9 @@ public sealed class EncryptedAccountRepository
             ?? throw new CryptographicException("本地账户数据无法解锁。");
     }
 
-    public async Task SaveAsync(IReadOnlyCollection<MfaAccount> accounts)
+    public async Task SaveAsync(IReadOnlyCollection<MfaAccount> accounts, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var key = await _keyStore.GetOrCreateAsync();
         var accountJson = JsonSerializer.Serialize(accounts, JsonOptions);
         var envelope = BackupCrypto.Encrypt(accountJson, Convert.ToBase64String(key));
@@ -48,7 +50,7 @@ public sealed class EncryptedAccountRepository
 
         Directory.CreateDirectory(Path.GetDirectoryName(_accountPath)!);
         var temporaryPath = _accountPath + ".tmp";
-        await File.WriteAllTextAsync(temporaryPath, serializedEnvelope);
+        await File.WriteAllTextAsync(temporaryPath, serializedEnvelope, cancellationToken);
         File.Move(temporaryPath, _accountPath, true);
     }
 }
