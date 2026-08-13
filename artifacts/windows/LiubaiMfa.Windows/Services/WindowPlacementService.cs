@@ -69,12 +69,8 @@ public sealed class WindowPlacementService
     public void SaveNormalPlacement(AppWindow appWindow, AppWindowChangedEventArgs args, uint dpi)
     {
         _dpi = NormalizeDpi(dpi);
-        if (_isApplyingPlacement || (!args.DidPositionChange && !args.DidSizeChange))
-        {
-            return;
-        }
-
-        if (appWindow.Presenter is not OverlappedPresenter { State: OverlappedPresenterState.Restored })
+        var isRestored = appWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored };
+        if (_isApplyingPlacement || !ShouldSave(args.DidPositionChange, args.DidSizeChange, isRestored))
         {
             return;
         }
@@ -88,17 +84,6 @@ public sealed class WindowPlacementService
         }
 
         Save(placement);
-    }
-
-    public void SaveCurrentNormalPlacement(AppWindow appWindow)
-    {
-        if (_isApplyingPlacement ||
-            appWindow.Presenter is not OverlappedPresenter { State: OverlappedPresenterState.Restored })
-        {
-            return;
-        }
-
-        Save(FromAppWindow(appWindow));
     }
 
     internal static PixelRect Clamp(
@@ -132,6 +117,9 @@ public sealed class WindowPlacementService
         var physicalPixels = ((safeEffectivePixels * safeDpi) + (DefaultDpi / 2)) / DefaultDpi;
         return physicalPixels >= int.MaxValue ? int.MaxValue : (int)Math.Max(1UL, physicalPixels);
     }
+
+    internal static bool ShouldSave(bool didPositionChange, bool didSizeChange, bool isRestored) =>
+        isRestored && (didPositionChange || didSizeChange);
 
     internal static PixelRect ToScreenWorkArea(PixelRect outerBounds, PixelRect relativeWorkArea)
     {

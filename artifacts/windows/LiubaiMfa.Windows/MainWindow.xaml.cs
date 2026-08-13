@@ -41,7 +41,6 @@ public sealed partial class MainWindow : Window
         _placementService.Configure(AppWindow, GetWindowDpi());
         _placementService.RestoreOrApplyDefault(AppWindow, GetWindowDpi);
         AppWindow.Changed += (_, args) => _placementService.SaveNormalPlacement(AppWindow, args, GetWindowDpi());
-        AppWindow.Closing += (_, _) => _placementService.SaveCurrentNormalPlacement(AppWindow);
         AppWindow.TitleBar.ExtendsContentIntoTitleBar = false;
         AppWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
         AppWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;

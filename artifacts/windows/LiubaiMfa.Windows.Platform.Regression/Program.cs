@@ -38,6 +38,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("窗口尺寸不超出工作区", () => RunSync(VerifyWindowPlacementFitsWorkArea)),
     ("窗口位置计算防止整数溢出", () => RunSync(VerifyWindowPlacementHandlesExtremeValues)),
     ("窗口有效像素安全换算为物理像素", () => RunSync(VerifyEffectivePixelConversion)),
+    ("窗口位置仅在普通状态发生变化时保存", () => RunSync(VerifyWindowPlacementSavePolicy)),
 };
 
 foreach (var check in checks)
@@ -128,6 +129,15 @@ static void VerifyEffectivePixelConversion()
     Assert(WindowPlacementService.EffectiveToPhysical(520, 0) == 520, "0 DPI 应回退到 96 DPI。");
     Assert(WindowPlacementService.EffectiveToPhysical(0, 144) >= 1, "换算结果至少应为 1 像素。");
     Assert(WindowPlacementService.EffectiveToPhysical(int.MaxValue, uint.MaxValue) == int.MaxValue, "极端 DPI 换算应防止溢出。");
+}
+
+static void VerifyWindowPlacementSavePolicy()
+{
+    Assert(!WindowPlacementService.ShouldSave(false, false, true), "位置和尺寸均未变化时不应保存。");
+    Assert(WindowPlacementService.ShouldSave(true, false, true), "普通状态下位置变化应保存。");
+    Assert(WindowPlacementService.ShouldSave(false, true, true), "普通状态下尺寸变化应保存。");
+    Assert(!WindowPlacementService.ShouldSave(true, false, false), "最小化状态不应保存。");
+    Assert(!WindowPlacementService.ShouldSave(false, true, false), "最大化状态不应保存。");
 }
 
 static void VerifySearch()
