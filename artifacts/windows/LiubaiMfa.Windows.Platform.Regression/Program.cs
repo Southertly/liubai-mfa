@@ -1,3 +1,4 @@
+using LiubaiMfa.Core;
 using LiubaiMfa.Core.Models;
 using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
@@ -32,6 +33,13 @@ foreach (var check in checks)
     await check.Run();
     Console.WriteLine($"PASS {check.Name}");
 }
+
+VerifyCompactAccountRowFormatting();
+Console.WriteLine("PASS 紧凑账户行格式化与进度安全计算");
+VerifyServiceIconResolution();
+Console.WriteLine("PASS 紧凑账户行服务图标本地回退");
+VerifyCompactAccountRowRefreshAndReplacement();
+Console.WriteLine("PASS 紧凑账户行刷新通知与替换模型");
 
 Console.WriteLine($"{checks.Count} 项 Windows 平台账户查询回归检查通过。");
 
@@ -102,6 +110,62 @@ static void VerifyNullSearchFields()
 
     AssertIds(AccountQuery.FilterAndSort([missingIssuer], "alice", null), "8");
     AssertIds(AccountQuery.FilterAndSort([missingAccount], "missing", null));
+}
+
+static void VerifyCompactAccountRowFormatting()
+{
+    Assert(AccountItemViewModel.FormatCode("123456") == "123 456", "6 位验证码格式错误。");
+    Assert(AccountItemViewModel.FormatCode("12345678") == "12 345 678", "8 位验证码格式错误。");
+    Assert(AccountItemViewModel.FormatCode("12345") == "12345", "非 6/8 位验证码不应改写。");
+    Assert(AccountItemViewModel.CalculateProgress(15, 30) == 0.5, "剩余时间进度计算错误。");
+    Assert(AccountItemViewModel.CalculateProgress(0, 30) == 0, "0 秒剩余时间应为 0 进度。");
+    Assert(AccountItemViewModel.CalculateProgress(30, 30) == 1, "完整周期应被限制为 1 进度。");
+    Assert(AccountItemViewModel.CalculateProgress(31, 30) == 1, "超出周期应被限制为 1 进度。");
+    Assert(AccountItemViewModel.CalculateProgress(15, 0) == 0, "非法周期应安全返回 0 进度。");
+}
+
+static void VerifyServiceIconResolution()
+{
+    Assert(ServiceIconResolver.Resolve("Google").FallbackText == "G", "Google 图标回退文字错误。");
+    Assert(ServiceIconResolver.Resolve("unknown service").Kind == ServiceIconKind.FallbackText, "未知服务必须使用文字回退图标。");
+    Assert(ServiceIconResolver.Resolve("   ").FallbackText == "?", "空白服务应使用安全默认字符。");
+}
+
+static void VerifyCompactAccountRowRefreshAndReplacement()
+{
+    const string secret = "JBSWY3DPEHPK3PXP";
+    var item = new AccountItemViewModel(new MfaAccount
+    {
+        Id = "compact", Issuer = "Google", Account = "alice@example.com", Secret = secret, Group = "工作", CreatedAt = 1,
+    });
+    var atStart = DateTimeOffset.FromUnixTimeSeconds(0);
+    var atNextPeriod = DateTimeOffset.FromUnixTimeSeconds(30);
+    var midPeriod = DateTimeOffset.FromUnixTimeSeconds(45);
+
+    item.Refresh(atStart);
+    var changes = new HashSet<string?>();
+    item.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+    item.Refresh(atNextPeriod);
+    Assert(item.Code == TotpService.Generate(secret, atNextPeriod), "刷新未更新验证码。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.FormattedCode)), "验证码变化未通知格式化值。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.AccessibleName)), "验证码变化未通知无障碍名称。");
+
+    changes.Clear();
+    item.Refresh(midPeriod);
+    Assert(item.Code == TotpService.Generate(secret, midPeriod), "固定时间戳的验证码错误。");
+    Assert(item.FormattedCode == AccountItemViewModel.FormatCode(item.Code), "格式化验证码未同步。");
+    Assert(item.SecondsRemaining == TotpService.GetTimeRemaining(midPeriod), "剩余秒数未使用同一时间戳。");
+    Assert(item.ProgressValue == AccountItemViewModel.CalculateProgress(item.SecondsRemaining, 30), "进度值未同步。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.RemainingLabel)), "秒数变化未通知剩余时间文本。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.ProgressValue)), "秒数变化未通知进度值。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.AccessibleName)), "秒数变化未通知无障碍名称。");
+
+    changes.Clear();
+    item.ReplaceModel(item.Model with { Issuer = "Microsoft", Account = "bob@example.com", Group = "个人" });
+    Assert(changes.IsSupersetOf([
+        nameof(AccountItemViewModel.Icon), nameof(AccountItemViewModel.AccessibleName), nameof(AccountItemViewModel.Issuer),
+        nameof(AccountItemViewModel.Account), nameof(AccountItemViewModel.GroupLabel),
+    ]), "替换模型未通知所有相关展示属性。");
 }
 
 static async Task VerifyMainViewModelDerivedStateAsync()

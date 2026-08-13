@@ -7,13 +7,14 @@ namespace LiubaiMfa.Windows.ViewModels;
 
 public sealed class AccountItemViewModel : INotifyPropertyChanged
 {
+    private const int TotpPeriod = 30;
     private string _code = "------";
     private int _secondsRemaining;
 
     public AccountItemViewModel(MfaAccount model)
     {
         Model = model;
-        UpdateCode();
+        Refresh();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -23,11 +24,22 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     public string Issuer => Model.Issuer;
     public string Account => Model.Account;
     public string GroupLabel => string.IsNullOrWhiteSpace(Model.Group) ? "未分组" : Model.Group;
+    public ServiceIconDescriptor Icon => ServiceIconResolver.Resolve(Model.Issuer);
+    public string FormattedCode => FormatCode(Code);
+    public double ProgressValue => CalculateProgress(SecondsRemaining, TotpPeriod);
+    public string AccessibleName => $"{DisplayIssuer} {DisplayAccount}，验证码 {FormattedCode}，剩余 {SecondsRemaining} 秒";
 
     public string Code
     {
         get => _code;
-        private set => SetField(ref _code, value);
+        private set
+        {
+            if (SetField(ref _code, value))
+            {
+                OnPropertyChanged(nameof(FormattedCode));
+                OnPropertyChanged(nameof(AccessibleName));
+            }
+        }
     }
 
     public int SecondsRemaining
@@ -38,6 +50,8 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
             if (SetField(ref _secondsRemaining, value))
             {
                 OnPropertyChanged(nameof(RemainingLabel));
+                OnPropertyChanged(nameof(ProgressValue));
+                OnPropertyChanged(nameof(AccessibleName));
             }
         }
     }
@@ -47,18 +61,23 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     public void ReplaceModel(MfaAccount model)
     {
         Model = model;
+        OnPropertyChanged(nameof(Model));
+        OnPropertyChanged(nameof(Id));
         OnPropertyChanged(nameof(Issuer));
         OnPropertyChanged(nameof(Account));
         OnPropertyChanged(nameof(GroupLabel));
-        UpdateCode();
+        OnPropertyChanged(nameof(Icon));
+        OnPropertyChanged(nameof(AccessibleName));
+        Refresh();
     }
 
-    public void UpdateCode()
+    public void Refresh(DateTimeOffset? now = null)
     {
+        var timestamp = now ?? DateTimeOffset.UtcNow;
         try
         {
-            Code = TotpService.Generate(Model.Secret);
-            SecondsRemaining = TotpService.GetTimeRemaining();
+            Code = TotpService.Generate(Model.Secret, timestamp, TotpPeriod);
+            SecondsRemaining = TotpService.GetTimeRemaining(timestamp, TotpPeriod);
         }
         catch (FormatException)
         {
@@ -66,6 +85,29 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
             SecondsRemaining = 0;
         }
     }
+
+    public void UpdateCode() => Refresh();
+
+    public static string FormatCode(string code) => code.Length switch
+    {
+        6 => $"{code[..3]} {code[3..]}",
+        8 => $"{code[..2]} {code[2..5]} {code[5..]}",
+        _ => code,
+    };
+
+    public static double CalculateProgress(int secondsRemaining, int period)
+    {
+        if (period <= 0)
+        {
+            return 0;
+        }
+
+        return Math.Clamp((double)secondsRemaining / period, 0, 1);
+    }
+
+    private string DisplayIssuer => string.IsNullOrWhiteSpace(Issuer) ? "未知服务" : Issuer;
+
+    private string DisplayAccount => string.IsNullOrWhiteSpace(Account) ? "未命名账户" : Account;
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
