@@ -22,6 +22,9 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("并发添加重复账户只允许一个成功", VerifyConcurrentDuplicateAddsAllowOnlyOneAsync),
     ("卸载后保存完成不得回填账户状态", VerifyUnloadPreventsInFlightWritePublicationAsync),
     ("卸载后排队写不得保存或发布账户状态", VerifyUnloadCancelsQueuedWriteAsync),
+    ("等待写门的外部取消必须传播且保持可用", VerifyExternalCancellationWhileWaitingForWriteGateAsync),
+    ("仓库保存的调用方取消必须传播", VerifyRepositoryCancellationPropagatesAsync),
+    ("锁定期间导入返回中性结果", VerifyLockedImportReturnsNeutralResultAsync),
 };
 
 foreach (var check in checks)
@@ -280,14 +283,19 @@ static async Task VerifyUnloadPreventsInFlightWritePublicationAsync()
     var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
     var viewModel = new MainViewModel(repository);
     await viewModel.LoadAsync();
+    viewModel.SelectedGroup = "工作";
+    var selectedGroupCleared = false;
+    viewModel.PropertyChanged += (_, args) =>
+        selectedGroupCleared |= args.PropertyName == nameof(MainViewModel.SelectedGroup);
 
     var add = viewModel.AddAsync(CreateNewAccount());
     await repository.FirstSaveStarted;
     viewModel.Unload();
     AssertUnloaded(viewModel, "卸载后立即");
+    Assert(selectedGroupCleared, "卸载未通知分组选择已清空。");
 
     repository.ReleaseFirstSave();
-    await AssertThrowsAsync<OperationCanceledException>(() => add);
+    await add;
     AssertUnloaded(viewModel, "保存完成后");
     Assert(repository.SaveCallCount == 1, "已开始的保存应只调用一次。");
 }
@@ -305,11 +313,65 @@ static async Task VerifyUnloadCancelsQueuedWriteAsync()
     AssertUnloaded(viewModel, "排队写卸载后立即");
 
     repository.ReleaseFirstSave();
-    await AssertThrowsAsync<OperationCanceledException>(() => firstAdd);
-    await AssertThrowsAsync<OperationCanceledException>(() => queuedAdd);
+    await firstAdd;
+    await queuedAdd;
     AssertUnloaded(viewModel, "排队写释放后");
     Assert(repository.SaveCallCount == 1, "排队写不应调用保存。");
     Assert(!repository.SecondSaveStarted.IsCompleted, "排队写不应进入第二次保存。");
+}
+
+static async Task VerifyExternalCancellationWhileWaitingForWriteGateAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+
+    var firstAdd = viewModel.AddAsync(CreateNewAccount());
+    await repository.FirstSaveStarted;
+    using var cancellation = new CancellationTokenSource();
+    var canceledAdd = viewModel.AddAsync(CreateAdditionalNewAccount(), cancellation.Token);
+    cancellation.Cancel();
+    await AssertThrowsAsync<OperationCanceledException>(() => canceledAdd);
+
+    repository.ReleaseFirstSave();
+    await firstAdd;
+    AssertAccountIds(viewModel.AccountsSnapshot, "1", "2", "3", "4", "5");
+    Assert(repository.SaveCallCount == 1, "等待门时取消不应进入第二次保存。");
+    await viewModel.AddAsync(CreateAdditionalNewAccount());
+    AssertAccountIds(viewModel.AccountsSnapshot, "1", "2", "3", "4", "5", "6");
+}
+
+static async Task VerifyRepositoryCancellationPropagatesAsync()
+{
+    using var cancellation = new CancellationTokenSource();
+    var repository = new FakeAccountRepository(CreateViewModelFixture())
+    {
+        CancelSaveTokenSource = cancellation,
+    };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    var expectedState = CaptureState(viewModel);
+
+    await AssertThrowsAsync<OperationCanceledException>(() => viewModel.AddAsync(CreateNewAccount(), cancellation.Token));
+    AssertStateUnchanged(expectedState, viewModel, repository, "仓库保存取消");
+    Assert(repository.SaveCallCount == 1, "仓库保存取消调用次数错误。");
+}
+
+static async Task VerifyLockedImportReturnsNeutralResultAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+
+    var import = viewModel.ImportAsync([CreateNewAccount()]);
+    await repository.FirstSaveStarted;
+    viewModel.Unload();
+    repository.ReleaseFirstSave();
+
+    var result = await import;
+    Assert(result == (0, 0), "锁定期间导入不应报告成功或跳过数量。");
+    AssertUnloaded(viewModel, "锁定期间导入完成后");
+    Assert(repository.SaveCallCount == 1, "已开始的导入保存应只调用一次。");
 }
 
 static MfaAccount[] CreateFixture() =>
@@ -387,6 +449,7 @@ static void AssertUnloaded(MainViewModel viewModel, string stage)
     Assert(viewModel.AccountsSnapshot.Count == 0, $"{stage}账户快照未清空。");
     Assert(viewModel.VisibleAccounts.Count == 0, $"{stage}可见账户未清空。");
     Assert(viewModel.Groups.Count == 0, $"{stage}分组未清空。");
+    Assert(viewModel.SelectedGroup is null, $"{stage}分组选择未清空。");
     Assert(!viewModel.HasAccounts, $"{stage}账户状态未清空。");
     Assert(!viewModel.HasVisibleAccounts, $"{stage}可见账户状态未清空。");
 }
@@ -438,6 +501,8 @@ internal sealed class FakeAccountRepository : IAccountRepository
 
     public bool BlockFirstSave { get; set; }
 
+    public CancellationTokenSource? CancelSaveTokenSource { get; set; }
+
     public IReadOnlyList<MfaAccount> LastSuccessfulSnapshot { get; private set; }
 
     public Task FirstSaveStarted => _firstSaveStarted.Task;
@@ -482,6 +547,12 @@ internal sealed class FakeAccountRepository : IAccountRepository
         if (CancelOnSave)
         {
             throw new OperationCanceledException(new CancellationToken(canceled: true));
+        }
+
+        if (CancelSaveTokenSource is not null)
+        {
+            CancelSaveTokenSource.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         LastSuccessfulSnapshot = accounts.ToArray();
