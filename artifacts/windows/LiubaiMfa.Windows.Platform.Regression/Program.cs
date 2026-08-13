@@ -13,6 +13,11 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("主视图模型派生搜索和分组状态", VerifyMainViewModelDerivedStateAsync),
     ("主视图模型删除后更新分组并回退选择", VerifyMainViewModelGroupDeletionAsync),
     ("主视图模型加载失败时禁止写入", VerifyMainViewModelLoadFailureAsync),
+    ("添加保存失败不留下幽灵状态", VerifyAddSaveFailureDoesNotChangeStateAsync),
+    ("更新保存取消不留下幽灵状态", VerifyUpdateSaveCancellationDoesNotChangeStateAsync),
+    ("删除保存失败不留下幽灵状态", VerifyDeleteSaveFailureDoesNotChangeStateAsync),
+    ("导入保存取消不留下幽灵状态", VerifyImportSaveCancellationDoesNotChangeStateAsync),
+    ("无可导入账户时不保存", VerifyImportWithoutNewAccountsDoesNotSaveAsync),
 };
 
 foreach (var check in checks)
@@ -145,6 +150,88 @@ static async Task VerifyMainViewModelLoadFailureAsync()
     Assert(repository.SaveCallCount == 0, "加载失败后不应保存账户数据。");
 }
 
+static async Task VerifyAddSaveFailureDoesNotChangeStateAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { ThrowOnSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    var expectedState = CaptureState(viewModel);
+
+    await AssertThrowsAsync<IOException>(() => viewModel.AddAsync(CreateNewAccount()));
+    AssertStateUnchanged(expectedState, viewModel, repository, "添加保存失败");
+    Assert(repository.SaveCallCount == 1, "添加失败保存调用次数错误。");
+
+    repository.ThrowOnSave = false;
+    await viewModel.AddAsync(CreateNewAccount());
+    Assert(viewModel.AccountsSnapshot.Count == expectedState.Accounts.Count + 1, "添加重试未提交账户。");
+    Assert(repository.LastSuccessfulSnapshot.SequenceEqual(viewModel.AccountsSnapshot), "添加重试后持久化快照不一致。");
+}
+
+static async Task VerifyUpdateSaveCancellationDoesNotChangeStateAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { CancelOnSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    var expectedState = CaptureState(viewModel);
+    var updated = expectedState.Accounts.Single(account => account.Id == "1") with { Account = "alice-updated" };
+
+    await AssertThrowsAsync<OperationCanceledException>(() => viewModel.UpdateAsync(updated));
+    AssertStateUnchanged(expectedState, viewModel, repository, "更新保存取消");
+    Assert(repository.SaveCallCount == 1, "更新取消保存调用次数错误。");
+
+    repository.CancelOnSave = false;
+    await viewModel.UpdateAsync(updated);
+    Assert(viewModel.AccountsSnapshot.Single(account => account.Id == "1").Account == "alice-updated", "更新重试未提交账户。");
+    Assert(repository.LastSuccessfulSnapshot.SequenceEqual(viewModel.AccountsSnapshot), "更新重试后持久化快照不一致。");
+}
+
+static async Task VerifyDeleteSaveFailureDoesNotChangeStateAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { ThrowOnSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    var expectedState = CaptureState(viewModel);
+
+    await AssertThrowsAsync<IOException>(() => viewModel.DeleteAsync("3"));
+    AssertStateUnchanged(expectedState, viewModel, repository, "删除保存失败");
+    Assert(repository.SaveCallCount == 1, "删除失败保存调用次数错误。");
+
+    repository.ThrowOnSave = false;
+    await viewModel.DeleteAsync("3");
+    Assert(viewModel.AccountsSnapshot.All(account => account.Id != "3"), "删除重试未提交账户。");
+    Assert(repository.LastSuccessfulSnapshot.SequenceEqual(viewModel.AccountsSnapshot), "删除重试后持久化快照不一致。");
+}
+
+static async Task VerifyImportSaveCancellationDoesNotChangeStateAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { CancelOnSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    var expectedState = CaptureState(viewModel);
+
+    await AssertThrowsAsync<OperationCanceledException>(() => viewModel.ImportAsync([CreateNewAccount()]));
+    AssertStateUnchanged(expectedState, viewModel, repository, "导入保存取消");
+    Assert(repository.SaveCallCount == 1, "导入取消保存调用次数错误。");
+
+    repository.CancelOnSave = false;
+    var result = await viewModel.ImportAsync([CreateNewAccount()]);
+    Assert(result == (1, 0), "导入重试的导入和跳过数量错误。");
+    Assert(repository.LastSuccessfulSnapshot.SequenceEqual(viewModel.AccountsSnapshot), "导入重试后持久化快照不一致。");
+}
+
+static async Task VerifyImportWithoutNewAccountsDoesNotSaveAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture());
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    var expectedState = CaptureState(viewModel);
+
+    var result = await viewModel.ImportAsync([CreateViewModelFixture()[0]]);
+    Assert(result == (0, 1), "重复账户的导入和跳过数量错误。");
+    Assert(repository.SaveCallCount == 0, "无可导入账户时不应保存。");
+    AssertStateUnchanged(expectedState, viewModel, repository, "无可导入账户");
+}
+
 static MfaAccount[] CreateFixture() =>
 [
     new MfaAccount { Id = "1", Issuer = "GitHub", Account = "alice", Secret = "A", Group = "个人", CreatedAt = 1 },
@@ -160,6 +247,41 @@ static MfaAccount[] CreateViewModelFixture() =>
     new MfaAccount { Id = "3", Issuer = "GitHub", Account = "charlie", Secret = "C", Group = "工作", CreatedAt = 3 },
     new MfaAccount { Id = "4", Issuer = "Microsoft", Account = "dora", Secret = "D", Group = "个人", CreatedAt = 4 },
 ];
+
+static MfaAccount CreateNewAccount() => new()
+{
+    Id = "5", Issuer = "Example", Account = "new-account", Secret = "E", Group = "工作", CreatedAt = 5,
+};
+
+static ViewModelState CaptureState(MainViewModel viewModel) => new(
+    viewModel.AccountsSnapshot.ToArray(),
+    viewModel.VisibleAccounts.Select(account => account.Model).ToArray(),
+    viewModel.Groups.Select(group => new GroupState(group.Value, group.Label, group.Count)).ToArray(),
+    viewModel.HasAccounts,
+    viewModel.HasVisibleAccounts,
+    viewModel.HasLoadFailure,
+    viewModel.IsLoaded,
+    viewModel.SearchText,
+    viewModel.SelectedGroup);
+
+static void AssertStateUnchanged(
+    ViewModelState expected,
+    MainViewModel viewModel,
+    FakeAccountRepository repository,
+    string operation)
+{
+    var actual = CaptureState(viewModel);
+    Assert(expected.Accounts.SequenceEqual(actual.Accounts), $"{operation}后账户快照发生变化。");
+    Assert(expected.VisibleAccounts.SequenceEqual(actual.VisibleAccounts), $"{operation}后可见账户发生变化。");
+    Assert(expected.Groups.SequenceEqual(actual.Groups), $"{operation}后分组状态发生变化。");
+    Assert(expected.HasAccounts == actual.HasAccounts, $"{operation}后账户状态发生变化。");
+    Assert(expected.HasVisibleAccounts == actual.HasVisibleAccounts, $"{operation}后可见账户状态发生变化。");
+    Assert(expected.HasLoadFailure == actual.HasLoadFailure, $"{operation}后加载失败状态发生变化。");
+    Assert(expected.IsLoaded == actual.IsLoaded, $"{operation}后加载状态发生变化。");
+    Assert(expected.SearchText == actual.SearchText, $"{operation}后搜索条件发生变化。");
+    Assert(expected.SelectedGroup == actual.SelectedGroup, $"{operation}后分组选择发生变化。");
+    Assert(expected.Accounts.SequenceEqual(repository.LastSuccessfulSnapshot), $"{operation}后持久化快照发生变化。");
+}
 
 static void AssertIds(IEnumerable<MfaAccount> actual, params string[] expected)
 {
@@ -198,16 +320,21 @@ static async Task AssertThrowsAsync<TException>(Func<Task> action)
 
 internal sealed class FakeAccountRepository : IAccountRepository
 {
-    private readonly IReadOnlyList<MfaAccount> _accounts;
     private readonly Exception? _loadException;
 
     public FakeAccountRepository(IReadOnlyList<MfaAccount>? accounts = null, Exception? loadException = null)
     {
-        _accounts = accounts ?? Array.Empty<MfaAccount>();
         _loadException = loadException;
+        LastSuccessfulSnapshot = (accounts ?? Array.Empty<MfaAccount>()).ToArray();
     }
 
     public int SaveCallCount { get; private set; }
+
+    public bool ThrowOnSave { get; set; }
+
+    public bool CancelOnSave { get; set; }
+
+    public IReadOnlyList<MfaAccount> LastSuccessfulSnapshot { get; private set; }
 
     public Task<IReadOnlyList<MfaAccount>> LoadAsync(CancellationToken cancellationToken = default)
     {
@@ -217,13 +344,37 @@ internal sealed class FakeAccountRepository : IAccountRepository
             return Task.FromException<IReadOnlyList<MfaAccount>>(_loadException);
         }
 
-        return Task.FromResult(_accounts);
+        return Task.FromResult<IReadOnlyList<MfaAccount>>(LastSuccessfulSnapshot.ToArray());
     }
 
     public Task SaveAsync(IReadOnlyCollection<MfaAccount> accounts, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SaveCallCount++;
+        if (ThrowOnSave)
+        {
+            return Task.FromException(new IOException("模拟保存失败"));
+        }
+
+        if (CancelOnSave)
+        {
+            return Task.FromCanceled(new CancellationToken(canceled: true));
+        }
+
+        LastSuccessfulSnapshot = accounts.ToArray();
         return Task.CompletedTask;
     }
 }
+
+internal sealed record ViewModelState(
+    IReadOnlyList<MfaAccount> Accounts,
+    IReadOnlyList<MfaAccount> VisibleAccounts,
+    IReadOnlyList<GroupState> Groups,
+    bool HasAccounts,
+    bool HasVisibleAccounts,
+    bool HasLoadFailure,
+    bool IsLoaded,
+    string SearchText,
+    string? SelectedGroup);
+
+internal sealed record GroupState(string? Value, string Label, int Count);

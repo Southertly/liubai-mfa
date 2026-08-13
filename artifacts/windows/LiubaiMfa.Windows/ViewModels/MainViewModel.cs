@@ -111,9 +111,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             throw new InvalidOperationException("该 MFA 密钥已经存在。");
         }
 
-        _accounts.Add(account);
-        await SaveAsync(cancellationToken);
-        RefreshDerivedState();
+        await CommitAsync(_accounts.Append(account).ToArray(), cancellationToken);
     }
 
     public async Task UpdateAsync(MfaAccount account, CancellationToken cancellationToken = default)
@@ -125,9 +123,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             throw new InvalidOperationException("账户不存在。");
         }
 
-        _accounts[existingIndex] = account;
-        await SaveAsync(cancellationToken);
-        RefreshDerivedState();
+        var candidate = _accounts.ToArray();
+        candidate[existingIndex] = account;
+        await CommitAsync(candidate, cancellationToken);
     }
 
     public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
@@ -140,9 +138,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
-        _accounts.RemoveAt(existingIndex);
-        await SaveAsync(cancellationToken);
-        RefreshDerivedState();
+        var candidate = _accounts.ToList();
+        candidate.RemoveAt(existingIndex);
+        await CommitAsync(candidate, cancellationToken);
     }
 
     public async Task<(int Imported, int Skipped)> ImportAsync(
@@ -150,7 +148,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CancellationToken cancellationToken = default)
     {
         EnsureWritesAllowed();
-        var existingSecrets = _accounts.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
+        var candidate = _accounts.ToList();
+        var existingSecrets = candidate.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
         var imported = 0;
         var skipped = 0;
         foreach (var account in incoming)
@@ -161,7 +160,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 continue;
             }
 
-            _accounts.Add(account with
+            candidate.Add(account with
             {
                 Id = string.IsNullOrWhiteSpace(account.Id) ? Guid.NewGuid().ToString("N") : account.Id,
                 CreatedAt = account.CreatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : account.CreatedAt,
@@ -169,8 +168,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
             imported++;
         }
 
-        await SaveAsync(cancellationToken);
-        RefreshDerivedState();
+        if (imported > 0)
+        {
+            await CommitAsync(candidate, cancellationToken);
+        }
+        else
+        {
+            RefreshDerivedState();
+        }
+
         return (imported, skipped);
     }
 
@@ -191,8 +197,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RefreshDerivedState();
     }
 
-    private async Task SaveAsync(CancellationToken cancellationToken) =>
-        await _repository.SaveAsync(_accounts.ToArray(), cancellationToken);
+    private async Task CommitAsync(IReadOnlyCollection<MfaAccount> candidate, CancellationToken cancellationToken)
+    {
+        await _repository.SaveAsync(candidate, cancellationToken);
+        _accounts.Clear();
+        _accounts.AddRange(candidate);
+        RefreshDerivedState();
+    }
 
     private void RefreshDerivedState()
     {
