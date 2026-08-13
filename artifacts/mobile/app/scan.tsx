@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
   permBtn: {
     paddingHorizontal: 28,
     paddingVertical: 12,
-    borderRadius: 24,
+    borderRadius: 8,
     marginTop: 8,
   },
   permBtnText: {
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 20,
+    borderRadius: 8,
   },
   topTitle: {
     fontSize: 17,
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(239,68,68,0.85)",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 8,
   },
   errorBadgeText: {
     fontSize: 13,

@@ -58,9 +58,6 @@ export function SensitiveAuthGate({
           {checking ? (
             <View style={styles.progress}>
               <ActivityIndicator color={colors.primary} />
-              <Text style={[styles.progressText, { color: colors.mutedForeground }]}>
-                等待系统验证…
-              </Text>
             </View>
           ) : (
             <Pressable
@@ -105,20 +102,19 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 380,
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: 8,
     padding: 22,
     alignItems: "center",
     gap: 12,
   },
-  icon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  icon: { width: 48, height: 48, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 20, fontFamily: "Inter_700Bold" },
   reason: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },
-  progress: { alignItems: "center", gap: 8, paddingVertical: 12 },
-  progressText: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  progress: { alignItems: "center", paddingVertical: 12 },
   error: { fontSize: 12, fontFamily: "Inter_500Medium", textAlign: "center" },
   primaryButton: {
     width: "100%",
-    borderRadius: 12,
+    borderRadius: 8,
     paddingVertical: 13,
     flexDirection: "row",
     alignItems: "center",

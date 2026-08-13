@@ -45,6 +45,10 @@ function RootLayoutNav() {
           options={{ headerShown: false, presentation: "modal" }}
         />
         <Stack.Screen
+          name="qr-transfer"
+          options={{ headerShown: false, presentation: "fullScreenModal" }}
+        />
+        <Stack.Screen
           name="edit/[id]"
           options={{ headerShown: false, presentation: "modal" }}
         />

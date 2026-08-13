@@ -186,11 +186,11 @@ export default function HomeScreen() {
             },
           ]}
         >
-          <View
-            style={[styles.sectionIconWrap, { backgroundColor: colors.primary + "18" }]}
-          >
-            <Feather name="folder" size={14} color={colors.primary} />
-          </View>
+          <Feather
+            name={isExpanded ? "chevron-down" : "chevron-right"}
+            size={15}
+            color={colors.mutedForeground}
+          />
           <Text style={[styles.sectionTitle, { color: colors.foreground }]} numberOfLines={1}>
             {section.title}
           </Text>
@@ -199,12 +199,6 @@ export default function HomeScreen() {
               {section.totalCount}
             </Text>
           </View>
-          <Feather
-            name={isExpanded ? "chevron-up" : "chevron-down"}
-            size={16}
-            color={colors.mutedForeground}
-            style={styles.chevron}
-          />
         </Pressable>
       );
     },
@@ -390,16 +384,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingHorizontal: 18,
+    paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  title: { fontSize: 26, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
+  title: { fontSize: 25, fontFamily: "Inter_700Bold", letterSpacing: 0 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   addBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   searchContainer: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  searchBar: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  searchBar: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
   sectionHeader: {
     flexDirection: "row",
@@ -408,29 +402,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     marginHorizontal: 16,
-    marginTop: 10,
-    borderRadius: 12,
+    marginTop: 6,
+    borderRadius: 0,
   },
-  sectionIconWrap: { width: 26, height: 26, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  sectionTitle: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  sectionTitle: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
   sectionCount: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
   sectionCountText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  chevron: { marginLeft: 2 },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, gap: 12 },
   emptyIcon: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   emptyTitle: { fontSize: 20, fontFamily: "Inter_700Bold", textAlign: "center" },
   emptySubtitle: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
-  emptyBtn: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 24, marginTop: 8 },
+  emptyBtn: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 8, marginTop: 8 },
   emptyBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#ffffff" },
   scanBtnContainer: { position: "absolute", left: 0, right: 0, alignItems: "center" },
-  scanBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24, borderWidth: 1 },
+  scanBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1 },
   scanBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   // Rename modal
   renameBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
   renameDialogWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
   renameDialog: {
     width: "100%",
-    borderRadius: 18,
+    borderRadius: 8,
     borderWidth: 1,
     padding: 20,
     gap: 16,
@@ -438,13 +430,13 @@ const styles = StyleSheet.create({
   renameTitle: { fontSize: 16, fontFamily: "Inter_700Bold", textAlign: "center" },
   renameInput: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 11,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
   },
   renameActions: { flexDirection: "row", gap: 10 },
-  renameBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  renameBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center" },
   renameBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 });

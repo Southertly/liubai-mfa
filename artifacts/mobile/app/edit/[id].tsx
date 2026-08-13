@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 20, gap: 20 },
 
   // Secret card
-  secretCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 10 },
+  secretCard: { borderRadius: 8, borderWidth: 1, padding: 14, gap: 10 },
   secretHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   secretLabelRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   secretLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.6 },
@@ -407,7 +407,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
     paddingVertical: 9,
   },
@@ -419,11 +419,11 @@ const styles = StyleSheet.create({
   form: { gap: 16 },
   fieldGroup: { gap: 6 },
   label: { fontSize: 12, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.6 },
-  input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: "Inter_400Regular" },
+  input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: "Inter_400Regular" },
   rowField: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowText: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
   colorDot: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5 },
   errorText: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-  saveBtn: { borderRadius: 14, paddingVertical: 15, alignItems: "center", marginTop: 8 },
+  saveBtn: { borderRadius: 8, paddingVertical: 15, alignItems: "center", marginTop: 8 },
   saveBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#ffffff" },
 });

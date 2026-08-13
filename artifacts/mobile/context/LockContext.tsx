@@ -11,11 +11,14 @@ import React, {
 import { AppState, Platform } from "react-native";
 
 const LEGACY_PIN_KEYS = ["lock_pin_hash", "lock_pin_length", "lock_enabled"];
+const APP_LOCK_ENABLED_KEY = "mfa_verifier_app_lock_enabled_v1";
 const BG_TIMEOUT = 60_000;
 
 interface LockContextValue {
+  appLockEnabled: boolean;
   isLocked: boolean;
   systemAuthAvailable: boolean;
+  setAppLockEnabled: (enabled: boolean) => Promise<void>;
   lock: () => void;
   unlockWithSystemAuth: () => Promise<boolean>;
   authenticateSensitiveAction: (reason: string) => Promise<boolean>;
@@ -25,13 +28,18 @@ const LockContext = createContext<LockContextValue | null>(null);
 
 export function LockProvider({ children }: { children: React.ReactNode }) {
   const isNative = Platform.OS !== "web";
-  const [isLocked, setIsLocked] = useState(isNative);
+  const [appLockEnabled, setAppLockEnabledState] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [systemAuthAvailable, setSystemAuthAvailable] = useState(false);
   const bgTimestamp = useRef<number | null>(null);
 
   useEffect(() => {
     (async () => {
       await AsyncStorage.multiRemove(LEGACY_PIN_KEYS);
+      const stored = await AsyncStorage.getItem(APP_LOCK_ENABLED_KEY);
+      const enabled = stored === "true";
+      setAppLockEnabledState(enabled);
+      setIsLocked(enabled);
       if (!isNative) return;
       const level = await LocalAuthentication.getEnrolledLevelAsync();
       setSystemAuthAvailable(level !== LocalAuthentication.SecurityLevel.NONE);
@@ -48,13 +56,19 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
           bgTimestamp.current !== null &&
           Date.now() - bgTimestamp.current >= BG_TIMEOUT
         ) {
-          setIsLocked(true);
+          if (appLockEnabled) setIsLocked(true);
         }
         bgTimestamp.current = null;
       }
     });
     return () => sub.remove();
-  }, [isNative]);
+  }, [appLockEnabled, isNative]);
+
+  const setAppLockEnabled = useCallback(async (enabled: boolean) => {
+    await AsyncStorage.setItem(APP_LOCK_ENABLED_KEY, enabled ? "true" : "false");
+    setAppLockEnabledState(enabled);
+    if (!enabled) setIsLocked(false);
+  }, []);
 
   const authenticate = useCallback(async (reason: string): Promise<boolean> => {
     if (!isNative) return true;
@@ -89,8 +103,10 @@ export function LockProvider({ children }: { children: React.ReactNode }) {
   return (
     <LockContext.Provider
       value={{
+        appLockEnabled,
         isLocked,
         systemAuthAvailable,
+        setAppLockEnabled,
         lock,
         unlockWithSystemAuth,
         authenticateSensitiveAction,

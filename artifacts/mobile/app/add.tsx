@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 24,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     width: "100%",
     justifyContent: "center",
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
   colorDot: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1.5,
   },
   errorText: {
@@ -450,7 +450,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   addBtn: {
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 15,
     alignItems: "center",
     marginTop: 8,

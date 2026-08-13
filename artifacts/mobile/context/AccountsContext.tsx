@@ -10,6 +10,7 @@ import React, {
 
 import { decryptString, encryptString, SecureEnvelope } from "@/utils/secureCrypto";
 import { getOrCreateDeviceEncryptionKey } from "@/utils/secureStorage";
+import { selectUniqueAccountsBySecret } from "@/utils/qrTransfer";
 
 export interface Account {
   id: string;
@@ -25,6 +26,7 @@ interface AccountsContextValue {
   accounts: Account[];
   groups: string[];
   addAccount: (data: Omit<Account, "id" | "createdAt">) => Promise<void>;
+  importAccounts: (data: Omit<Account, "id">[]) => Promise<{ imported: number; skipped: number }>;
   removeAccount: (id: string) => Promise<void>;
   updateAccount: (
     id: string,
@@ -115,6 +117,20 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
     [accounts, saveAccounts]
   );
 
+  const importAccounts = useCallback(
+    async (data: Omit<Account, "id">[]) => {
+      const selected = selectUniqueAccountsBySecret(accounts, data);
+      const imported: Account[] = selected.accepted.map((candidate, index) => ({
+        ...candidate,
+        id: `${generateId()}-${index}`,
+        createdAt: candidate.createdAt || Date.now(),
+      }));
+      if (imported.length > 0) await saveAccounts([...imported, ...accounts]);
+      return { imported: imported.length, skipped: selected.skipped };
+    },
+    [accounts, saveAccounts]
+  );
+
   const removeAccount = useCallback(
     async (id: string) => {
       await saveAccounts(accounts.filter((a) => a.id !== id));
@@ -170,7 +186,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AccountsContext.Provider
-      value={{ accounts, groups, addAccount, removeAccount, updateAccount, renameGroup, removeGroup, loading, storageError }}
+      value={{ accounts, groups, addAccount, importAccounts, removeAccount, updateAccount, renameGroup, removeGroup, loading, storageError }}
     >
       {children}
     </AccountsContext.Provider>

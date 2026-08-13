@@ -178,8 +178,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.45)",
   },
   sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
     paddingTop: 12,
     paddingHorizontal: 16,
     minHeight: 200,
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   newGroupInput: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
   newGroupBtn: {
     width: 40,
     height: 40,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
