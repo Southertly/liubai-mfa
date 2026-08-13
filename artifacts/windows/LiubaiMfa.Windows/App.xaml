@@ -7,9 +7,14 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-            <SolidColorBrush x:Key="AccentBrush" Color="#5B8DEF" />
-            <SolidColorBrush x:Key="CardBrush" Color="#171A21" />
-            <SolidColorBrush x:Key="MutedBrush" Color="#9CA3AF" />
+
+            <Style x:Key="CompactIconButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -1,0 +1,46 @@
+<UserControl
+    x:Class="LiubaiMfa.Windows.Views.LockView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="32">
+        <StackPanel
+            Width="360"
+            Spacing="14"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center">
+            <FontIcon
+                Glyph="&#xE72E;"
+                FontSize="34"
+                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                AutomationProperties.Name="锁定" />
+            <TextBlock
+                Text="验证码已锁定"
+                FontSize="24"
+                FontWeight="SemiBold"
+                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                HorizontalAlignment="Center" />
+            <TextBlock
+                x:Name="LockMessage"
+                Text="使用 Windows Hello 验证身份后即可查看验证码。"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                TextAlignment="Center"
+                TextWrapping="Wrap" />
+            <Button
+                x:Name="UnlockButton"
+                Content="使用 Windows Hello 解锁"
+                Style="{StaticResource AccentButtonStyle}"
+                HorizontalAlignment="Stretch"
+                AutomationProperties.Name="使用 Windows Hello 解锁"
+                Click="UnlockButton_Click" />
+            <TextBlock
+                Text="离开 1 分钟后自动重新锁定"
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                HorizontalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</UserControl>

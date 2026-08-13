@@ -2,6 +2,7 @@ using LiubaiMfa.Core;
 using LiubaiMfa.Core.Models;
 using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
+using LiubaiMfa.Windows.Views;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -31,6 +32,17 @@ public sealed partial class MainWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Liubai MFA");
         ViewModel = new MainViewModel(new EncryptedAccountRepository(dataDirectory));
+        AuthenticatorView.Initialize(ViewModel);
+        AuthenticatorView.AddRequested += AddAccount_Click;
+        AuthenticatorView.ImportQrRequested += ImportQr_Click;
+        AuthenticatorView.LockRequested += Lock_Click;
+        AuthenticatorView.ImportBackupRequested += ImportBackup_Click;
+        AuthenticatorView.ExportBackupRequested += ExportBackup_Click;
+        AuthenticatorView.CopyRequested += CopyCode_Click;
+        AuthenticatorView.EditRequested += EditAccount_Click;
+        AuthenticatorView.ShowSecretRequested += ShowSecret_Click;
+        AuthenticatorView.DeleteRequested += DeleteAccount_Click;
+        LockView.UnlockRequested += Unlock_Click;
         _windowsHello = new WindowsHelloService(this);
         _files = new NativeFileService(this);
         _placementService = new WindowPlacementService();
@@ -53,8 +65,8 @@ public sealed partial class MainWindow : Window
         RootGrid.Loaded -= RootGrid_Loaded;
         if (!await _windowsHello.IsAvailableAsync())
         {
-            LockMessage.Text = "此电脑尚未配置 Windows Hello。请先在 Windows 设置中配置系统 PIN、指纹或面容。";
-            UnlockButton.Content = "重新检测 Windows Hello";
+            LockView.Message = "此电脑尚未配置 Windows Hello。请先在 Windows 设置中配置系统 PIN、指纹或面容。";
+            LockView.ButtonContent = "重新检测 Windows Hello";
         }
     }
 
@@ -94,7 +106,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void Unlock_Click(object sender, RoutedEventArgs e)
+    private async void Unlock_Click(object? sender, EventArgs e)
     {
         await UnlockAsync();
     }
@@ -107,20 +119,20 @@ public sealed partial class MainWindow : Window
         }
 
         _unlockInProgress = true;
-        UnlockButton.IsEnabled = false;
-        LockMessage.Text = "正在等待系统验证…";
+        LockView.IsUnlockEnabled = false;
+        LockView.Message = "正在等待系统验证…";
         try
         {
             if (!await _windowsHello.IsAvailableAsync())
             {
-                LockMessage.Text = "Windows Hello 仍不可用。请先在系统设置中完成配置后重试。";
-                UnlockButton.Content = "重新检测 Windows Hello";
+                LockView.Message = "Windows Hello 仍不可用。请先在系统设置中完成配置后重试。";
+                LockView.ButtonContent = "重新检测 Windows Hello";
                 return;
             }
 
             if (!await _windowsHello.VerifyAsync("验证身份以解锁留白 MFA"))
             {
-                LockMessage.Text = "身份验证未完成，应用仍保持锁定。";
+                LockView.Message = "身份验证未完成，应用仍保持锁定。";
                 return;
             }
 
@@ -132,36 +144,39 @@ public sealed partial class MainWindow : Window
                 }
                 catch (Exception exception) when (exception is IOException or System.Security.Cryptography.CryptographicException or FormatException)
                 {
-                    LockMessage.Text = "无法解锁本地账户数据。为避免覆盖，应用保持锁定。";
+                    LockView.Message = "无法解锁本地账户数据。为避免覆盖，应用保持锁定。";
                     return;
                 }
             }
 
             _isUnlocked = true;
-            UnlockButton.Content = "使用 Windows Hello 解锁";
-            LockOverlay.Visibility = Visibility.Collapsed;
+            LockView.ButtonContent = "使用 Windows Hello 解锁";
+            LockView.Visibility = Visibility.Collapsed;
+            AuthenticatorView.Visibility = Visibility.Visible;
             _timer.Start();
-            RefreshEmptyState();
+            AuthenticatorView.RefreshState();
         }
         finally
         {
             _unlockInProgress = false;
-            UnlockButton.IsEnabled = true;
+            LockView.IsUnlockEnabled = true;
         }
     }
 
-    private void Lock_Click(object sender, RoutedEventArgs e) => Lock();
+    private void Lock_Click(object? sender, EventArgs e) => Lock();
 
     private void Lock()
     {
         _isUnlocked = false;
         _timer.Stop();
         ViewModel.Unload();
-        LockMessage.Text = "使用 Windows Hello 解锁";
-        LockOverlay.Visibility = Visibility.Visible;
+        LockView.Message = "使用 Windows Hello 验证身份后即可查看验证码。";
+        LockView.ButtonContent = "使用 Windows Hello 解锁";
+        AuthenticatorView.Visibility = Visibility.Collapsed;
+        LockView.Visibility = Visibility.Visible;
     }
 
-    private async void AddAccount_Click(object sender, RoutedEventArgs e)
+    private async void AddAccount_Click(object? sender, EventArgs e)
     {
         var input = await ShowAccountDialogAsync("添加账户", null);
         if (input is null)
@@ -172,7 +187,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await ViewModel.AddAsync(input);
-            RefreshEmptyState();
+            AuthenticatorView.RefreshState();
             ShowStatus("账户已添加。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
@@ -185,7 +200,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void ImportQr_Click(object sender, RoutedEventArgs e)
+    private async void ImportQr_Click(object? sender, EventArgs e)
     {
         try
         {
@@ -216,7 +231,7 @@ public sealed partial class MainWindow : Window
             }
 
             await ViewModel.AddAsync(input);
-            RefreshEmptyState();
+            AuthenticatorView.RefreshState();
             ShowStatus("二维码账户已导入。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
@@ -229,14 +244,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void CopyCode_Click(object sender, RoutedEventArgs e)
+    private void CopyCode_Click(object? sender, AccountRequestedEventArgs e)
     {
-        if (sender is not Button { Tag: string id })
-        {
-            return;
-        }
-
-        var account = FindAccount(id);
+        var account = AuthenticatorView.FindAccount(e.AccountId);
         if (account is null)
         {
             return;
@@ -244,17 +254,11 @@ public sealed partial class MainWindow : Window
 
         CopyText(account.Code);
         ShowStatus("验证码已复制。", InfoBarSeverity.Success);
-        await Task.CompletedTask;
     }
 
-    private async void EditAccount_Click(object sender, RoutedEventArgs e)
+    private async void EditAccount_Click(object? sender, AccountRequestedEventArgs e)
     {
-        if (sender is not Button { Tag: string id })
-        {
-            return;
-        }
-
-        var existing = FindAccount(id);
+        var existing = AuthenticatorView.FindAccount(e.AccountId);
         if (existing is null)
         {
             return;
@@ -278,14 +282,9 @@ public sealed partial class MainWindow : Window
         ShowStatus("账户已更新。", InfoBarSeverity.Success);
     }
 
-    private async void ShowSecret_Click(object sender, RoutedEventArgs e)
+    private async void ShowSecret_Click(object? sender, AccountRequestedEventArgs e)
     {
-        if (sender is not Button { Tag: string id })
-        {
-            return;
-        }
-
-        var account = FindAccount(id);
+        var account = AuthenticatorView.FindAccount(e.AccountId);
         if (account is null || !await VerifySensitiveActionAsync("验证身份以查看 MFA 密钥"))
         {
             return;
@@ -308,14 +307,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void DeleteAccount_Click(object sender, RoutedEventArgs e)
+    private async void DeleteAccount_Click(object? sender, AccountRequestedEventArgs e)
     {
-        if (sender is not Button { Tag: string id })
-        {
-            return;
-        }
-
-        var account = FindAccount(id);
+        var account = AuthenticatorView.FindAccount(e.AccountId);
         if (account is null)
         {
             return;
@@ -334,20 +328,20 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await ViewModel.DeleteAsync(id);
+            await ViewModel.DeleteAsync(e.AccountId);
         }
         catch (OperationCanceledException)
         {
             return;
         }
 
-        RefreshEmptyState();
+        AuthenticatorView.RefreshState();
         ShowStatus("账户已删除。", InfoBarSeverity.Success);
     }
 
-    private async void ExportBackup_Click(object sender, RoutedEventArgs e)
+    private async void ExportBackup_Click(object? sender, EventArgs e)
     {
-        if (ViewModel.Accounts.Count == 0)
+        if (!ViewModel.HasAccounts)
         {
             ShowStatus("暂无账户可导出。", InfoBarSeverity.Warning);
             return;
@@ -399,7 +393,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void ImportBackup_Click(object sender, RoutedEventArgs e)
+    private async void ImportBackup_Click(object? sender, EventArgs e)
     {
         string? backup;
         try
@@ -428,7 +422,7 @@ public sealed partial class MainWindow : Window
         {
             var accounts = BackupCrypto.ReadBackup(backup, keyBox.Password);
             var (imported, skipped) = await ViewModel.ImportAsync(accounts);
-            RefreshEmptyState();
+            AuthenticatorView.RefreshState();
             ShowStatus($"已导入 {imported} 个账户，跳过 {skipped} 个重复账户。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
@@ -514,8 +508,6 @@ public sealed partial class MainWindow : Window
         return false;
     }
 
-    private AccountItemViewModel? FindAccount(string id) => ViewModel.Accounts.FirstOrDefault(item => item.Id == id);
-
     private ContentDialog CreateDialog(string title, object content, string primaryText, string secondaryText)
     {
         return new ContentDialog
@@ -537,18 +529,8 @@ public sealed partial class MainWindow : Window
         Clipboard.Flush();
     }
 
-    private void RefreshEmptyState()
-    {
-        EmptyState.Visibility = ViewModel.Accounts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        AccountsList.Visibility = ViewModel.Accounts.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    private void ShowStatus(string message, InfoBarSeverity severity)
-    {
-        StatusBar.Message = message;
-        StatusBar.Severity = severity;
-        StatusBar.IsOpen = true;
-    }
+    private void ShowStatus(string message, InfoBarSeverity severity) =>
+        AuthenticatorView.ShowStatus(message, severity);
 
     private static string FormatSecret(string secret) => string.Join(' ', Enumerable.Range(0, (secret.Length + 3) / 4)
         .Select(index => secret.Substring(index * 4, Math.Min(4, secret.Length - index * 4))));
