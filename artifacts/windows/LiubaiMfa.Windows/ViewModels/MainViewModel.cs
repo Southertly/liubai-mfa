@@ -9,6 +9,7 @@ namespace LiubaiMfa.Windows.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly IAccountRepository _repository;
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly List<MfaAccount> _accounts = [];
     private string _searchText = string.Empty;
     private string? _selectedGroup;
@@ -79,106 +80,118 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        if (IsLoaded)
-        {
-            return;
-        }
-
+        await _writeGate.WaitAsync(cancellationToken);
         try
         {
-            var accounts = await _repository.LoadAsync(cancellationToken);
-            _accounts.Clear();
-            _accounts.AddRange(accounts);
-            HasLoadFailure = false;
-            IsLoaded = true;
-            RefreshDerivedState();
-        }
-        catch
-        {
-            _accounts.Clear();
-            IsLoaded = false;
-            HasLoadFailure = true;
-            RefreshDerivedState();
-            throw;
-        }
-    }
-
-    public async Task AddAsync(MfaAccount account, CancellationToken cancellationToken = default)
-    {
-        EnsureWritesAllowed();
-        if (_accounts.Any(item => item.Secret == account.Secret))
-        {
-            throw new InvalidOperationException("该 MFA 密钥已经存在。");
-        }
-
-        await CommitAsync(_accounts.Append(account).ToArray(), cancellationToken);
-    }
-
-    public async Task UpdateAsync(MfaAccount account, CancellationToken cancellationToken = default)
-    {
-        EnsureWritesAllowed();
-        var existingIndex = _accounts.FindIndex(item => item.Id == account.Id);
-        if (existingIndex < 0)
-        {
-            throw new InvalidOperationException("账户不存在。");
-        }
-
-        var candidate = _accounts.ToArray();
-        candidate[existingIndex] = account;
-        await CommitAsync(candidate, cancellationToken);
-    }
-
-    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
-    {
-        EnsureWritesAllowed();
-        var existingIndex = _accounts.FindIndex(item => item.Id == id);
-        if (existingIndex < 0)
-        {
-            RefreshDerivedState();
-            return;
-        }
-
-        var candidate = _accounts.ToList();
-        candidate.RemoveAt(existingIndex);
-        await CommitAsync(candidate, cancellationToken);
-    }
-
-    public async Task<(int Imported, int Skipped)> ImportAsync(
-        IEnumerable<MfaAccount> incoming,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureWritesAllowed();
-        var candidate = _accounts.ToList();
-        var existingSecrets = candidate.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
-        var imported = 0;
-        var skipped = 0;
-        foreach (var account in incoming)
-        {
-            if (string.IsNullOrWhiteSpace(account.Secret) || !existingSecrets.Add(account.Secret))
+            if (IsLoaded)
             {
-                skipped++;
-                continue;
+                return;
             }
 
-            candidate.Add(account with
+            try
             {
-                Id = string.IsNullOrWhiteSpace(account.Id) ? Guid.NewGuid().ToString("N") : account.Id,
-                CreatedAt = account.CreatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : account.CreatedAt,
-            });
-            imported++;
+                var accounts = await _repository.LoadAsync(cancellationToken);
+                _accounts.Clear();
+                _accounts.AddRange(accounts);
+                HasLoadFailure = false;
+                IsLoaded = true;
+                RefreshDerivedState();
+            }
+            catch
+            {
+                _accounts.Clear();
+                IsLoaded = false;
+                HasLoadFailure = true;
+                RefreshDerivedState();
+                throw;
+            }
         }
-
-        if (imported > 0)
+        finally
         {
-            await CommitAsync(candidate, cancellationToken);
+            _writeGate.Release();
         }
-        else
-        {
-            RefreshDerivedState();
-        }
-
-        return (imported, skipped);
     }
+
+    public Task AddAsync(MfaAccount account, CancellationToken cancellationToken = default) =>
+        ExecuteWriteAsync(async () =>
+        {
+            EnsureWritesAllowed();
+            if (_accounts.Any(item => item.Secret == account.Secret))
+            {
+                throw new InvalidOperationException("该 MFA 密钥已经存在。");
+            }
+
+            await CommitAsync(_accounts.Append(account).ToArray(), cancellationToken);
+        }, cancellationToken);
+
+    public Task UpdateAsync(MfaAccount account, CancellationToken cancellationToken = default) =>
+        ExecuteWriteAsync(async () =>
+        {
+            EnsureWritesAllowed();
+            var existingIndex = _accounts.FindIndex(item => item.Id == account.Id);
+            if (existingIndex < 0)
+            {
+                throw new InvalidOperationException("账户不存在。");
+            }
+
+            var candidate = _accounts.ToArray();
+            candidate[existingIndex] = account;
+            await CommitAsync(candidate, cancellationToken);
+        }, cancellationToken);
+
+    public Task DeleteAsync(string id, CancellationToken cancellationToken = default) =>
+        ExecuteWriteAsync(async () =>
+        {
+            EnsureWritesAllowed();
+            var existingIndex = _accounts.FindIndex(item => item.Id == id);
+            if (existingIndex < 0)
+            {
+                RefreshDerivedState();
+                return;
+            }
+
+            var candidate = _accounts.ToList();
+            candidate.RemoveAt(existingIndex);
+            await CommitAsync(candidate, cancellationToken);
+        }, cancellationToken);
+
+    public Task<(int Imported, int Skipped)> ImportAsync(
+        IEnumerable<MfaAccount> incoming,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWriteAsync(async () =>
+        {
+            EnsureWritesAllowed();
+            var candidate = _accounts.ToList();
+            var existingSecrets = candidate.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
+            var imported = 0;
+            var skipped = 0;
+            foreach (var account in incoming)
+            {
+                if (string.IsNullOrWhiteSpace(account.Secret) || !existingSecrets.Add(account.Secret))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                candidate.Add(account with
+                {
+                    Id = string.IsNullOrWhiteSpace(account.Id) ? Guid.NewGuid().ToString("N") : account.Id,
+                    CreatedAt = account.CreatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : account.CreatedAt,
+                });
+                imported++;
+            }
+
+            if (imported > 0)
+            {
+                await CommitAsync(candidate, cancellationToken);
+            }
+            else
+            {
+                RefreshDerivedState();
+            }
+
+            return (imported, skipped);
+        }, cancellationToken);
 
     public void UpdateCodes()
     {
@@ -203,6 +216,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _accounts.Clear();
         _accounts.AddRange(candidate);
         RefreshDerivedState();
+    }
+
+    private async Task ExecuteWriteAsync(Func<Task> write, CancellationToken cancellationToken)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            await write();
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
+    }
+
+    private async Task<T> ExecuteWriteAsync<T>(Func<Task<T>> write, CancellationToken cancellationToken)
+    {
+        await _writeGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await write();
+        }
+        finally
+        {
+            _writeGate.Release();
+        }
     }
 
     private void RefreshDerivedState()

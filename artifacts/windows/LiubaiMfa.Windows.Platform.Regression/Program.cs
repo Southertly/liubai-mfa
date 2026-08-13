@@ -18,6 +18,8 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("删除保存失败不留下幽灵状态", VerifyDeleteSaveFailureDoesNotChangeStateAsync),
     ("导入保存取消不留下幽灵状态", VerifyImportSaveCancellationDoesNotChangeStateAsync),
     ("无可导入账户时不保存", VerifyImportWithoutNewAccountsDoesNotSaveAsync),
+    ("并发添加不会丢失已保存账户", VerifyConcurrentAddsAreSerializedAsync),
+    ("并发添加重复账户只允许一个成功", VerifyConcurrentDuplicateAddsAllowOnlyOneAsync),
 };
 
 foreach (var check in checks)
@@ -232,6 +234,45 @@ static async Task VerifyImportWithoutNewAccountsDoesNotSaveAsync()
     AssertStateUnchanged(expectedState, viewModel, repository, "无可导入账户");
 }
 
+static async Task VerifyConcurrentAddsAreSerializedAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+
+    var firstAdd = viewModel.AddAsync(CreateNewAccount());
+    await repository.FirstSaveStarted;
+    var secondAdd = viewModel.AddAsync(CreateAdditionalNewAccount());
+    var secondSaveOvertookFirst = repository.SecondSaveStarted.IsCompleted;
+    repository.ReleaseFirstSave();
+    await Task.WhenAll(firstAdd, secondAdd);
+
+    Assert(!secondSaveOvertookFirst, "第二个保存不应越过第一个保存。");
+    AssertAccountIds(viewModel.AccountsSnapshot, "1", "2", "3", "4", "5", "6");
+    AssertAccountIds(viewModel.VisibleAccounts.Select(account => account.Model), "1", "2", "3", "4", "5", "6");
+    AssertAccountIds(repository.LastSuccessfulSnapshot, "1", "2", "3", "4", "5", "6");
+    Assert(repository.SaveCallCount == 2, "并发添加的保存调用次数错误。");
+}
+
+static async Task VerifyConcurrentDuplicateAddsAllowOnlyOneAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+
+    var firstAdd = viewModel.AddAsync(CreateNewAccount());
+    await repository.FirstSaveStarted;
+    var secondAdd = viewModel.AddAsync(CreateNewAccount());
+    repository.ReleaseFirstSave();
+
+    await firstAdd;
+    await AssertThrowsAsync<InvalidOperationException>(() => secondAdd);
+    Assert(viewModel.AccountsSnapshot.Count == 5, "并发重复添加后账户数量错误。");
+    AssertAccountIds(viewModel.AccountsSnapshot, "1", "2", "3", "4", "5");
+    AssertAccountIds(repository.LastSuccessfulSnapshot, "1", "2", "3", "4", "5");
+    Assert(repository.SaveCallCount == 1, "并发重复添加不应进行第二次保存。");
+}
+
 static MfaAccount[] CreateFixture() =>
 [
     new MfaAccount { Id = "1", Issuer = "GitHub", Account = "alice", Secret = "A", Group = "个人", CreatedAt = 1 },
@@ -251,6 +292,11 @@ static MfaAccount[] CreateViewModelFixture() =>
 static MfaAccount CreateNewAccount() => new()
 {
     Id = "5", Issuer = "Example", Account = "new-account", Secret = "E", Group = "工作", CreatedAt = 5,
+};
+
+static MfaAccount CreateAdditionalNewAccount() => new()
+{
+    Id = "6", Issuer = "Example", Account = "additional-account", Secret = "F", Group = "工作", CreatedAt = 6,
 };
 
 static ViewModelState CaptureState(MainViewModel viewModel) => new(
@@ -286,7 +332,14 @@ static void AssertStateUnchanged(
 static void AssertIds(IEnumerable<MfaAccount> actual, params string[] expected)
 {
     var actualIds = actual.Select(account => account.Id).ToArray();
-    Assert(actualIds.SequenceEqual(expected), $"账户 ID 不匹配。实际：{string.Join(',', actualIds)}；预期：{string.Join(',', expected)}。");
+    Assert(actualIds.SequenceEqual(expected), "账户 ID 顺序或内容不匹配。");
+}
+
+static void AssertAccountIds(IEnumerable<MfaAccount> actual, params string[] expected)
+{
+    var actualIds = actual.Select(account => account.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
+    var expectedIds = expected.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+    Assert(actualIds.SequenceEqual(expectedIds), "账户 ID 不匹配。");
 }
 
 static void Assert(bool condition, string message)
@@ -334,7 +387,17 @@ internal sealed class FakeAccountRepository : IAccountRepository
 
     public bool CancelOnSave { get; set; }
 
+    public bool BlockFirstSave { get; set; }
+
     public IReadOnlyList<MfaAccount> LastSuccessfulSnapshot { get; private set; }
+
+    public Task FirstSaveStarted => _firstSaveStarted.Task;
+
+    public Task SecondSaveStarted => _secondSaveStarted.Task;
+
+    private readonly TaskCompletionSource<bool> _firstSaveStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<bool> _secondSaveStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<bool> _releaseFirstSave = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public Task<IReadOnlyList<MfaAccount>> LoadAsync(CancellationToken cancellationToken = default)
     {
@@ -347,23 +410,35 @@ internal sealed class FakeAccountRepository : IAccountRepository
         return Task.FromResult<IReadOnlyList<MfaAccount>>(LastSuccessfulSnapshot.ToArray());
     }
 
-    public Task SaveAsync(IReadOnlyCollection<MfaAccount> accounts, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(IReadOnlyCollection<MfaAccount> accounts, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        SaveCallCount++;
+        var saveNumber = ++SaveCallCount;
+        if (BlockFirstSave && saveNumber == 1)
+        {
+            _firstSaveStarted.TrySetResult(true);
+            await _releaseFirstSave.Task.WaitAsync(cancellationToken);
+        }
+
+        if (saveNumber == 2)
+        {
+            _secondSaveStarted.TrySetResult(true);
+        }
+
         if (ThrowOnSave)
         {
-            return Task.FromException(new IOException("模拟保存失败"));
+            throw new IOException("模拟保存失败");
         }
 
         if (CancelOnSave)
         {
-            return Task.FromCanceled(new CancellationToken(canceled: true));
+            throw new OperationCanceledException(new CancellationToken(canceled: true));
         }
 
         LastSuccessfulSnapshot = accounts.ToArray();
-        return Task.CompletedTask;
     }
+
+    public void ReleaseFirstSave() => _releaseFirstSave.TrySetResult(true);
 }
 
 internal sealed record ViewModelState(
