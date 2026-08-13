@@ -1,6 +1,10 @@
 import CryptoJS from "crypto-js";
 
 import { SecureEnvelope } from "@/utils/secureCrypto";
+import {
+  normalizePortableAccounts,
+  TotpAlgorithm,
+} from "./accountSchema";
 
 export const QR_TRANSFER_VERSION = 1 as const;
 export const QR_TRANSFER_MAX_RENDERED_CHARS = 512;
@@ -50,6 +54,9 @@ export interface PortableQrAccount {
   issuer: string;
   account: string;
   secret: string;
+  algorithm: TotpAlgorithm;
+  digits: number;
+  period: number;
   createdAt: number;
   group?: string;
   color?: string;
@@ -404,26 +411,17 @@ function decodeDenseAscii(value: string): string {
 }
 
 export function validatePortableAccounts(value: unknown): PortableQrAccount[] {
-  if (!Array.isArray(value) || value.length > 500) throw new Error("Invalid account transfer payload");
-  return value.map((candidate) => {
-    if (!candidate || typeof candidate !== "object") throw new Error("Invalid account transfer payload");
-    const account = candidate as Record<string, unknown>;
-    if (typeof account.secret !== "string" || typeof account.issuer !== "string" || typeof account.account !== "string") {
-      throw new Error("Invalid account transfer payload");
-    }
-    const secret = normalizeSecret(account.secret);
-    if (!secret || account.issuer.trim().length === 0 || account.account.trim().length === 0) {
-      throw new Error("Invalid account transfer payload");
-    }
-    return {
-      issuer: account.issuer.trim(),
-      account: account.account.trim(),
-      secret,
-      createdAt: typeof account.createdAt === "number" ? account.createdAt : Date.now(),
-      group: typeof account.group === "string" ? account.group.trim() || undefined : undefined,
-      color: typeof account.color === "string" ? account.color : undefined,
-    };
-  });
+  return normalizePortableAccounts(value).map((account) => ({
+    issuer: account.issuer,
+    account: account.account,
+    secret: account.secret,
+    algorithm: account.algorithm,
+    digits: account.digits,
+    period: account.period,
+    createdAt: account.createdAt,
+    group: account.group,
+    color: account.color,
+  }));
 }
 
 export function normalizeSecret(value: string): string {

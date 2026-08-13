@@ -1,4 +1,3 @@
-import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { FontAwesome6 } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -21,6 +20,7 @@ import { resolveColor } from "@/constants/labelColors";
 import { Account, useAccounts } from "@/context/AccountsContext";
 import { useColors } from "@/hooks/useColors";
 import { generateTOTP, getTimeRemaining } from "@/utils/totp";
+import { setSensitiveClipboard } from "@/utils/sensitiveClipboard";
 
 interface Props {
   account: Account;
@@ -30,7 +30,6 @@ interface Props {
   searchQuery?: string;
 }
 
-const PERIOD = 30;
 const RING_SIZE = 40;
 const STROKE = 3;
 const RADIUS = (RING_SIZE - STROKE) / 2;
@@ -74,8 +73,14 @@ function isGoogleAccount(account: Account): boolean {
 export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQuery = "" }: Props) {
   const colors = useColors();
   const { updateAccount } = useAccounts();
-  const [code, setCode] = useState(() => generateTOTP(account.secret));
-  const [remaining, setRemaining] = useState(() => getTimeRemaining());
+  const [code, setCode] = useState(() => generateTOTP(
+    account.secret,
+    account.period,
+    account.digits,
+    account.algorithm,
+  ));
+  const [remaining, setRemaining] = useState(() => getTimeRemaining(account.period));
+  const counterRef = useRef(-1);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const copyFeedbackOpacity = useRef(new Animated.Value(0)).current;
   const copyFeedbackScale = useRef(new Animated.Value(0.8)).current;
@@ -86,21 +91,27 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
 
   useEffect(() => {
     const tick = () => {
-      const rem = getTimeRemaining(PERIOD);
+      const now = Date.now();
+      const counter = Math.floor(now / 1000 / account.period);
+      const rem = getTimeRemaining(account.period);
       setRemaining(rem);
-      if (rem === PERIOD) setCode(generateTOTP(account.secret));
+      if (counter !== counterRef.current) {
+        counterRef.current = counter;
+        setCode(generateTOTP(account.secret, account.period, account.digits, account.algorithm, now));
+      }
     };
+    tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [account.secret]);
+  }, [account.algorithm, account.digits, account.period, account.secret]);
 
-  const progress = remaining / PERIOD;
+  const progress = remaining / account.period;
   const strokeDashoffset = CIRCUMFERENCE * (1 - progress);
   const isLow = remaining <= 5;
   const ringColor = isLow ? colors.destructive : labelColor;
 
   const handleCopy = useCallback(async () => {
-    await Clipboard.setStringAsync(code);
+    await setSensitiveClipboard(code, 30_000);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     Animated.sequence([
@@ -204,7 +215,8 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
     [account, colors.destructive, onDelete]
   );
 
-  const formattedCode = code.slice(0, 3) + " " + code.slice(3);
+  const codeSplit = Math.ceil(code.length / 2);
+  const formattedCode = `${code.slice(0, codeSplit)} ${code.slice(codeSplit)}`;
   const initials = (account.issuer || account.account || "?").charAt(0).toUpperCase();
   const serviceIcon = serviceIconFor(account);
   const showGoogleIcon = isGoogleAccount(account);

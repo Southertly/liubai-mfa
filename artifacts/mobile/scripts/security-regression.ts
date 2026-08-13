@@ -17,6 +17,8 @@ import {
   utf8ToBase64Url,
   validatePortableAccounts,
 } from "../utils/qrTransfer";
+import { normalizePortableAccounts } from "../utils/accountSchema";
+import { generateTOTP, parseOtpAuthUri } from "../utils/totp";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -38,6 +40,9 @@ const secretPayload = JSON.stringify([
     issuer: "Example",
     account: "user@example.com",
     secret: "JBSWY3DPEHPK3PXP",
+    algorithm: "SHA256",
+    digits: 8,
+    period: 45,
     group: "工作",
     color: "yellow",
     createdAt: 1,
@@ -56,6 +61,36 @@ expectThrow(
   () => decryptString(encrypted, generateRecoveryKey()),
   "authentication failed",
   "wrong recovery key must fail closed",
+);
+
+assert(
+  generateTOTP("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 30, 8, "SHA1", 59_000) === "94287082",
+  "RFC 6238 SHA1 vector must match",
+);
+assert(
+  generateTOTP("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA", 30, 8, "SHA256", 59_000) === "46119246",
+  "RFC 6238 SHA256 vector must match",
+);
+assert(
+  generateTOTP("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA", 30, 8, "SHA512", 59_000) === "90693936",
+  "RFC 6238 SHA512 vector must match",
+);
+const parsedTotp = parseOtpAuthUri(
+  "otpauth://totp/Example:user%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example&algorithm=SHA256&digits=8&period=45",
+);
+assert(
+  parsedTotp.algorithm === "SHA256" && parsedTotp.digits === 8 && parsedTotp.period === 45,
+  "TOTP parser must preserve algorithm, digits, and period",
+);
+expectThrow(
+  () => parseOtpAuthUri("otpauth://hotp/Example:user?secret=JBSWY3DPEHPK3PXP&counter=1"),
+  "HOTP",
+  "HOTP must be explicitly rejected until event counters are supported",
+);
+expectThrow(
+  () => parseOtpAuthUri("otpauth://totp/Example:user?secret=JBSWY3DP!HPK3PXP"),
+  "Base32",
+  "invalid Base32 characters must fail closed",
 );
 
 const tampered = {
@@ -120,6 +155,15 @@ expectThrow(
 const validated = validatePortableAccounts(JSON.parse(secretPayload));
 assert(validated.length === 1 && validated[0].secret === "JBSWY3DPEHPK3PXP", "portable account validation must normalize secrets");
 assert(validated[0].group === "工作", "portable account validation must retain the source group name");
+assert(
+  validated[0].algorithm === "SHA256" && validated[0].digits === 8 && validated[0].period === 45,
+  "portable account validation must retain all TOTP parameters",
+);
+expectThrow(
+  () => normalizePortableAccounts([{ issuer: "Example", account: "user", secret: "JBSWY3DPEHPK3PXP", group: {} }]),
+  "分组名称",
+  "backup account fields must be validated before persistence",
+);
 
 const existingAccount = {
   issuer: "Existing",

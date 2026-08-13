@@ -11,12 +11,20 @@ import React, {
 import { decryptString, encryptString, SecureEnvelope } from "@/utils/secureCrypto";
 import { getOrCreateDeviceEncryptionKey } from "@/utils/secureStorage";
 import { selectUniqueAccountsBySecret } from "@/utils/qrTransfer";
+import {
+  normalizePortableAccounts,
+  PortableAccountData,
+  TotpAlgorithm,
+} from "@/utils/accountSchema";
 
 export interface Account {
   id: string;
   issuer: string;
   account: string;
   secret: string;
+  algorithm: TotpAlgorithm;
+  digits: number;
+  period: number;
   group?: string;
   color?: string;
   createdAt: number;
@@ -42,14 +50,41 @@ const AccountsContext = createContext<AccountsContextValue | null>(null);
 
 const STORAGE_KEY = "mfa_accounts";
 
-interface EncryptedAccountStore {
+interface LegacyEncryptedAccountStore {
   version: 2;
   encrypted: true;
   data: SecureEnvelope;
 }
 
+interface EncryptedAccountStore {
+  version: 3;
+  encrypted: true;
+  data: SecureEnvelope;
+}
+
+interface AccountStorePayload {
+  schemaVersion: 1;
+  accounts: Account[];
+}
+
 function generateId(): string {
   return Date.now().toString() + Math.random().toString(36).substring(2, 9);
+}
+
+function accountStore(next: Account[], deviceKey: string): EncryptedAccountStore {
+  const payload: AccountStorePayload = { schemaVersion: 1, accounts: next };
+  return {
+    version: 3,
+    encrypted: true,
+    data: encryptString(JSON.stringify(payload), deviceKey),
+  };
+}
+
+function normalizeStoredAccounts(value: unknown): Account[] {
+  return normalizePortableAccounts(value).map((account: PortableAccountData, index) => ({
+    ...account,
+    id: account.id ?? `${generateId()}-${index}`,
+  }));
 }
 
 export function AccountsProvider({ children }: { children: React.ReactNode }) {
@@ -66,25 +101,29 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
         ]);
         if (!raw) return;
 
-        const stored = JSON.parse(raw) as Account[] | EncryptedAccountStore;
+        const stored = JSON.parse(raw) as Account[] | LegacyEncryptedAccountStore | EncryptedAccountStore;
         if (Array.isArray(stored)) {
           // One-time migration from the legacy plaintext store.
-          const migrated: EncryptedAccountStore = {
-            version: 2,
-            encrypted: true,
-            data: encryptString(JSON.stringify(stored), deviceKey),
-          };
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-          setAccounts(stored);
+          const normalized = normalizeStoredAccounts(stored);
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(accountStore(normalized, deviceKey)));
+          setAccounts(normalized);
           return;
         }
 
-        if (stored.version !== 2 || stored.encrypted !== true) {
+        if (stored.encrypted !== true || (stored.version !== 2 && stored.version !== 3)) {
           throw new Error("Unsupported account storage format");
         }
         const decrypted = JSON.parse(decryptString(stored.data, deviceKey));
-        if (!Array.isArray(decrypted)) throw new Error("Invalid account storage");
-        setAccounts(decrypted as Account[]);
+        const decodedAccounts = stored.version === 2
+          ? decrypted
+          : decrypted?.schemaVersion === 1
+            ? decrypted.accounts
+            : null;
+        const normalized = normalizeStoredAccounts(decodedAccounts);
+        if (stored.version === 2) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(accountStore(normalized, deviceKey)));
+        }
+        setAccounts(normalized);
       } catch {
         setStorageError("无法解锁本地账户数据。为防止覆盖，账户修改已暂停。");
       } finally {
@@ -96,11 +135,7 @@ export function AccountsProvider({ children }: { children: React.ReactNode }) {
   const saveAccounts = useCallback(async (next: Account[]) => {
     if (storageError) throw new Error(storageError);
     const deviceKey = await getOrCreateDeviceEncryptionKey();
-    const encryptedStore: EncryptedAccountStore = {
-      version: 2,
-      encrypted: true,
-      data: encryptString(JSON.stringify(next), deviceKey),
-    };
+    const encryptedStore = accountStore(next, deviceKey);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(encryptedStore));
     setAccounts(next);
   }, [storageError]);

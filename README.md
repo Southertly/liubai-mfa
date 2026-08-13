@@ -5,7 +5,7 @@
 ## 当前范围
 
 - `artifacts/mobile`：Expo SDK 54 / React Native Android 客户端；应用包名为 `com.mfaverifier.app`。
-- `artifacts/harmonyos-next-spike`：HarmonyOS NEXT 原生实现；当前源码的 Bundle ID 同为 `com.mfaverifier.app`。
+- `artifacts/harmonyos-next-spike`：HarmonyOS NEXT 原生实现；Bundle ID 为 `com.sediary.liubaimfa`。
 - `lib` 与 `artifacts/api-server`：工作区共享 API 与服务端代码；不属于 MFA 密钥存储或备份的权威实现。
 
 源码已实现本地账户加密、系统身份认证后的密钥查看/复制、带独立恢复密钥的 v2 加密备份，以及 Android 与 HarmonyOS 之间的双向二维码安全迁移。Android 使用 Expo SecureStore 保存设备加密密钥；HarmonyOS 使用 Asset Store 与系统认证能力。两端都不应实现或保存自定义手机系统 PIN。
@@ -32,6 +32,14 @@ HarmonyOS NEXT 构建和真机安装说明见 [HarmonyOS README](artifacts/harmo
 - 二维码导入按规范化后的 MFA 密钥去重；相同密钥只跳过，不覆盖已有账户。
 - 复制恢复密钥后，才允许打开系统分享页。
 - 当前阶段只做本地手动备份；不实现 Google Drive 或 iCloud 自动备份，除非需求重新确认。
+- Android 明确关闭系统自动备份，跨设备恢复只使用应用内的加密备份，避免“账户密文被恢复但本设备密钥无法恢复”的断链状态。
+
+## Android 正式签名与覆盖升级
+
+- 正式 APK 必须使用长期保存的同一把签名密钥；签名文件、口令不得进入 Git。
+- 本机正式签名由 `artifacts/mobile/scripts/build-signed-android.sh` 从 macOS 钥匙串读取口令。
+- 覆盖升级前运行 `artifacts/mobile/scripts/verify-android-upgrade.sh <旧 APK> <新 APK>`；脚本会先核对签名和版本号，不一致时停止，绝不卸载应用或清除数据。
+- 每次发布仍需在专用测试账户上核对覆盖升级后的账户数量和验证码；源码和构建成功不能替代该真机验收。
 
 ## 状态说明
 

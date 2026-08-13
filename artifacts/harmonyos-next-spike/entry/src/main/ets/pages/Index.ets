@@ -75,6 +75,7 @@ interface AccountRecord {
   issuer: string;
   name: string;
   secretAlias: string;
+  algorithm: string;
   digits: number;
   period: number;
   group?: string;
@@ -82,11 +83,17 @@ interface AccountRecord {
   createdAt?: number;
 }
 
+interface AccountStorePayload {
+  version: number;
+  accounts: AccountRecord[];
+}
+
 interface MfaAccount {
   id: string;
   issuer: string;
   name: string;
   secretAlias: string;
+  algorithm: string;
   digits: number;
   period: number;
   group: string;
@@ -100,6 +107,7 @@ interface OtpAuthAccount {
   issuer: string;
   name: string;
   secret: string;
+  algorithm: string;
   digits: number;
   period: number;
   group?: string;
@@ -163,6 +171,7 @@ struct Index {
 
   private readonly preferencesName: string = 'mfa_verifier_accounts_v1';
   private readonly accountsKey: string = 'accounts';
+  private readonly pendingAliasCleanupKey: string = 'pending_alias_cleanup_v1';
   private readonly themeKey: string = 'theme_preference';
   private readonly privacyKey: string = 'mfa_verifier_privacy_consent_v1';
   private readonly appLockKey: string = 'mfa_verifier_app_lock_enabled_v1';
@@ -176,6 +185,7 @@ struct Index {
   private timerId: number = -1;
   private qrTransferTimerId: number = -1;
   private clipboardGeneration: number = 0;
+  private accountsWritable: boolean = false;
 
   aboutToAppear(): void {
     void this.initializeProductState();
@@ -205,6 +215,7 @@ struct Index {
     }
     this.consentLoaded = true;
     await this.loadAccounts();
+    await this.cleanupPendingAliases();
     if (this.privacyAccepted && this.appLockEnabled) {
       await this.unlockApplication();
     } else {
@@ -340,10 +351,10 @@ struct Index {
     return code;
   }
 
-  private async hmacSha1(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  private async hmac(key: Uint8Array, message: Uint8Array, algorithm: string): Promise<Uint8Array> {
     const keyGenerator = cryptoFramework.createSymKeyGenerator('HMAC');
     const symKey = await keyGenerator.convertKey({ data: key });
-    const macSpec: cryptoFramework.HmacSpec = { algName: 'HMAC', mdName: 'SHA1' };
+    const macSpec: cryptoFramework.HmacSpec = { algName: 'HMAC', mdName: algorithm };
     const mac = cryptoFramework.createMac(macSpec);
     await mac.init(symKey);
     await mac.update({ data: message });
@@ -351,10 +362,16 @@ struct Index {
     return result.data;
   }
 
-  private async generateTotp(secret: string, timeMs: number, period: number, digits: number): Promise<string> {
+  private async generateTotp(
+    secret: string,
+    timeMs: number,
+    period: number,
+    digits: number,
+    algorithm: string
+  ): Promise<string> {
     const key = this.base32Decode(this.normalizedSecret(secret));
     const counter = Math.floor(Math.floor(timeMs / 1000) / period);
-    const digest = await this.hmacSha1(key, this.counterBytes(counter));
+    const digest = await this.hmac(key, this.counterBytes(counter), algorithm);
     const offset = digest[digest.length - 1] & 0x0f;
     const binary =
       ((digest[offset] & 0x7f) << 24) |
@@ -431,7 +448,7 @@ struct Index {
     }
 
     const algorithm = (queryValues.get('algorithm') ?? 'SHA1').toUpperCase();
-    if (algorithm !== 'SHA1') {
+    if (algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') {
       throw new Error(`Unsupported TOTP algorithm: ${algorithm}.`);
     }
 
@@ -451,6 +468,7 @@ struct Index {
       issuer: issuer.length > 0 ? issuer : 'Imported',
       name,
       secret: this.normalizeSecretInput(rawSecret),
+      algorithm,
       digits,
       period
     };
@@ -530,12 +548,13 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: account.group,
         color: account.color,
         createdAt: account.createdAt,
-        code: await this.generateTotp(secret, this.nowMs, account.period, account.digits),
+        code: await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm),
         revealedSecret: ''
       });
     }
@@ -577,63 +596,90 @@ struct Index {
   }
 
   private async migrateAccountSecretAccessToDirectDisplay(): Promise<void> {
-    if (this.accounts.length === 0) {
-      return;
-    }
     const secrets = await this.readSecretsWithAssetAuthentication('关闭应用锁并直接显示验证码');
     const migratedAccounts: MfaAccount[] = [];
-    for (const account of this.accounts) {
-      const secret = secrets.get(account.secretAlias);
-      if (secret === undefined) {
-        throw new Error('Protected secret is missing.');
+    const createdAliases: string[] = [];
+    const oldAliases: string[] = [];
+    let committed = false;
+    try {
+      for (const account of this.accounts) {
+        const secret = secrets.get(account.secretAlias);
+        if (secret === undefined) {
+          throw new Error('Protected secret is missing.');
+        }
+        const secretAlias = this.migratedSecretAlias(account, 'direct');
+        await this.addSecret(secretAlias, secret, asset.AuthType.NONE);
+        createdAliases.push(secretAlias);
+        oldAliases.push(account.secretAlias);
+        migratedAccounts.push({
+          id: account.id,
+          issuer: account.issuer,
+          name: account.name,
+          secretAlias,
+          algorithm: account.algorithm,
+          digits: account.digits,
+          period: account.period,
+          group: account.group,
+          color: account.color,
+          createdAt: account.createdAt,
+          code: '',
+          revealedSecret: ''
+        });
       }
-      const secretAlias = this.migratedSecretAlias(account, 'direct');
-      await this.addSecret(secretAlias, secret, asset.AuthType.NONE);
-      migratedAccounts.push({
-        id: account.id,
-        issuer: account.issuer,
-        name: account.name,
-        secretAlias,
-        digits: account.digits,
-        period: account.period,
-        group: account.group,
-        color: account.color,
-        createdAt: account.createdAt,
-        code: '',
-        revealedSecret: ''
-      });
+      await this.saveAccountRecords(migratedAccounts, false);
+      committed = true;
+      this.accounts = migratedAccounts;
+      await this.cleanupAliases(oldAliases);
+    } catch (error) {
+      if (!committed) {
+        await this.cleanupAliases(createdAliases);
+      }
+      throw new Error(this.errorText(error as Object));
     }
-    await this.saveAccountRecords(migratedAccounts);
-    this.accounts = migratedAccounts;
   }
 
   private async migrateAccountSecretAccessToApplicationLock(): Promise<void> {
     const secrets = await this.readAllProtectedSecrets('开启应用锁并保护验证码');
     const migratedAccounts: MfaAccount[] = [];
-    for (const account of this.accounts) {
-      const secret = secrets.get(account.secretAlias);
-      if (secret === undefined) {
-        throw new Error('Protected secret is missing.');
+    const createdAliases: string[] = [];
+    const oldAliases: string[] = [];
+    let committed = false;
+    try {
+      for (const account of this.accounts) {
+        const secret = secrets.get(account.secretAlias);
+        if (secret === undefined) {
+          throw new Error('Protected secret is missing.');
+        }
+        const secretAlias = this.migratedSecretAlias(account, 'locked');
+        await this.addSecret(secretAlias, secret, asset.AuthType.ANY);
+        createdAliases.push(secretAlias);
+        oldAliases.push(account.secretAlias);
+        migratedAccounts.push({
+          id: account.id,
+          issuer: account.issuer,
+          name: account.name,
+          secretAlias,
+          algorithm: account.algorithm,
+          digits: account.digits,
+          period: account.period,
+          group: account.group,
+          color: account.color,
+          createdAt: account.createdAt,
+          code: '',
+          revealedSecret: ''
+        });
       }
-      const secretAlias = this.migratedSecretAlias(account, 'locked');
-      await this.addSecret(secretAlias, secret, asset.AuthType.ANY);
-      migratedAccounts.push({
-        id: account.id,
-        issuer: account.issuer,
-        name: account.name,
-        secretAlias,
-        digits: account.digits,
-        period: account.period,
-        group: account.group,
-        color: account.color,
-        createdAt: account.createdAt,
-        code: '',
-        revealedSecret: ''
-      });
+      await this.saveAccountRecords(migratedAccounts, true);
+      committed = true;
+      this.sessionSecrets.clear();
+      this.accounts = migratedAccounts;
+      await this.cleanupAliases(oldAliases);
+    } catch (error) {
+      if (!committed) {
+        await this.cleanupAliases(createdAliases);
+      }
+      throw new Error(this.errorText(error as Object));
     }
-    await this.saveAccountRecords(migratedAccounts);
-    this.sessionSecrets.clear();
-    this.accounts = migratedAccounts;
   }
 
   private async copyText(value: string, clearAfterMs: number, clearedStatus: string): Promise<void> {
@@ -816,14 +862,28 @@ struct Index {
   }
 
   private recordToAccount(record: AccountRecord): MfaAccount {
+    if (record === undefined || typeof record.id !== 'string' || record.id.length === 0 ||
+      typeof record.issuer !== 'string' || typeof record.name !== 'string' || record.name.trim().length === 0 ||
+      typeof record.secretAlias !== 'string' || record.secretAlias.length === 0) {
+      throw new Error('Account record is invalid.');
+    }
+    const algorithm = typeof record.algorithm === 'string' ? record.algorithm.toUpperCase() : 'SHA1';
+    const digits = record.digits ?? 6;
+    const period = record.period ?? 30;
+    if ((algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') ||
+      !Number.isInteger(digits) || digits < 6 || digits > 8 ||
+      !Number.isInteger(period) || period < 1 || period > 300) {
+      throw new Error('Account record contains unsupported TOTP parameters.');
+    }
     const numericId = Number(record.id.split('-')[0]);
     return {
       id: record.id,
       issuer: record.issuer,
       name: record.name,
       secretAlias: record.secretAlias,
-      digits: record.digits ?? 6,
-      period: record.period ?? 30,
+      algorithm,
+      digits,
+      period,
       group: record.group ?? '',
       color: record.color ?? 'blue',
       createdAt: record.createdAt ?? (Number.isFinite(numericId) ? numericId : Date.now()),
@@ -838,6 +898,7 @@ struct Index {
       issuer: account.issuer,
       name: account.name,
       secretAlias: account.secretAlias,
+      algorithm: account.algorithm,
       digits: account.digits,
       period: account.period,
       group: account.group,
@@ -847,32 +908,90 @@ struct Index {
   }
 
   private async loadAccounts(): Promise<void> {
+    this.accountsWritable = false;
     try {
       const prefs = await this.getPreferences();
-      const raw = await prefs.get(this.accountsKey, '[]');
-      if (typeof raw === 'string') {
-        const parsed = JSON.parse(raw) as AccountRecord[];
-        const loaded: MfaAccount[] = [];
-        for (const record of parsed) {
-          loaded.push(this.recordToAccount(record));
-        }
-        this.accounts = loaded;
+      const raw = await prefs.get(this.accountsKey, '{"version":1,"accounts":[]}');
+      if (typeof raw !== 'string') {
+        throw new Error('Account storage is not text.');
+      }
+      const parsed = JSON.parse(raw) as AccountRecord[] | AccountStorePayload;
+      const legacy = Array.isArray(parsed);
+      const records = legacy ? parsed as AccountRecord[] : (parsed as AccountStorePayload).accounts;
+      if ((!legacy && (parsed as AccountStorePayload).version !== 1) || !Array.isArray(records)) {
+        throw new Error('Unsupported account storage version.');
+      }
+      const loaded: MfaAccount[] = [];
+      for (const record of records) {
+        loaded.push(this.recordToAccount(record));
+      }
+      this.accounts = loaded;
+      this.accountsWritable = true;
+      if (legacy) {
+        await this.saveAccountRecords(loaded);
       }
       this.status = this.accounts.length > 0 ? `已安全加载 ${this.accounts.length} 个账户` : '还没有账户，点击右上角添加';
     } catch (error) {
-      this.status = `账户加载失败：${this.errorText(error)}`;
+      this.accountsWritable = false;
+      this.status = `账户加载失败，已暂停所有修改以保护旧数据：${this.errorText(error)}`;
     }
   }
 
-  private async saveAccountRecords(accounts?: MfaAccount[]): Promise<void> {
+  private async saveAccountRecords(accounts?: MfaAccount[], appLockValue?: boolean): Promise<void> {
+    if (!this.accountsWritable) {
+      throw new Error('Account storage is unavailable; writes are blocked to protect existing data.');
+    }
     const records: AccountRecord[] = [];
     const source = accounts ?? this.accounts;
     for (const account of source) {
       records.push(this.accountToRecord(account));
     }
     const prefs = await this.getPreferences();
-    await prefs.put(this.accountsKey, JSON.stringify(records));
+    const payload: AccountStorePayload = { version: 1, accounts: records };
+    await prefs.put(this.accountsKey, JSON.stringify(payload));
+    if (appLockValue !== undefined) {
+      await prefs.put(this.appLockKey, appLockValue);
+    }
     await prefs.flush();
+  }
+
+  private async cleanupAliases(aliases: string[]): Promise<void> {
+    const prefs = await this.getPreferences();
+    let pending: string[] = [];
+    try {
+      const raw = await prefs.get(this.pendingAliasCleanupKey, '[]');
+      if (typeof raw === 'string') {
+        const parsed = JSON.parse(raw) as string[];
+        if (Array.isArray(parsed)) {
+          pending = parsed.filter((value: string): boolean => typeof value === 'string');
+        }
+      }
+    } catch (error) {
+      pending = [];
+    }
+    const remaining: string[] = [];
+    const candidates = Array.from(new Set<string>(pending.concat(aliases)));
+    for (const alias of candidates) {
+      try {
+        await asset.remove(this.accountAssetQuery(alias));
+      } catch (error) {
+        remaining.push(alias);
+      }
+    }
+    try {
+      await prefs.put(this.pendingAliasCleanupKey, JSON.stringify(remaining));
+      await prefs.flush();
+    } catch (error) {
+      // Cleanup metadata is best effort and must never roll back committed account records.
+    }
+  }
+
+  private async cleanupPendingAliases(): Promise<void> {
+    try {
+      await this.cleanupAliases([]);
+    } catch (error) {
+      // Account availability takes priority over orphan cleanup.
+    }
   }
 
   private updateAccount(id: string, code: string, revealedSecret: string): void {
@@ -884,6 +1003,7 @@ struct Index {
           issuer: account.issuer,
           name: account.name,
           secretAlias: account.secretAlias,
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group,
@@ -910,26 +1030,36 @@ struct Index {
   private async saveProtectedAccount(input: OtpAuthAccount, successStatus: string): Promise<void> {
     const id = `${Date.now()}`;
     const secretAlias = `${this.assetPrefix}${id}`;
-    await this.saveSecret(secretAlias, input.secret);
-    const code = await this.generateTotp(input.secret, this.nowMs, input.period, input.digits);
-    const account: MfaAccount = {
-      id,
-      issuer: input.issuer,
-      name: input.name,
-      secretAlias,
-      digits: input.digits,
-      period: input.period,
-      group: input.group ?? '',
-      color: input.color ?? 'blue',
-      createdAt: input.createdAt ?? Date.now(),
-      code,
-      revealedSecret: ''
-    };
-    this.sessionSecrets.set(id, input.secret);
-    const updatedAccounts = [account, ...this.accounts];
-    this.accounts = updatedAccounts;
-    await this.saveAccountRecords(updatedAccounts);
-    this.status = successStatus;
+    let secretCreated = false;
+    try {
+      await this.saveSecret(secretAlias, input.secret);
+      secretCreated = true;
+      const code = await this.generateTotp(input.secret, this.nowMs, input.period, input.digits, input.algorithm);
+      const account: MfaAccount = {
+        id,
+        issuer: input.issuer,
+        name: input.name,
+        secretAlias,
+        algorithm: input.algorithm,
+        digits: input.digits,
+        period: input.period,
+        group: input.group ?? '',
+        color: input.color ?? 'blue',
+        createdAt: input.createdAt ?? Date.now(),
+        code,
+        revealedSecret: ''
+      };
+      const updatedAccounts = [account, ...this.accounts];
+      await this.saveAccountRecords(updatedAccounts);
+      this.sessionSecrets.set(id, input.secret);
+      this.accounts = updatedAccounts;
+      this.status = successStatus;
+    } catch (error) {
+      if (secretCreated) {
+        await this.cleanupAliases([secretAlias]);
+      }
+      throw new Error(this.errorText(error as Object));
+    }
   }
 
   private async addAccount(): Promise<void> {
@@ -945,6 +1075,7 @@ struct Index {
         issuer,
         name,
         secret: this.normalizeSecretInput(this.secretInput),
+        algorithm: 'SHA1',
         digits: 6,
         period: 30,
         group: this.normalizedGroupValue(this.groupInput, this.addCreatingGroup),
@@ -1035,7 +1166,7 @@ struct Index {
       await this.requestBiometricPermission();
       const secret = await this.readProtectedSecret(account.secretAlias, `生成 ${account.issuer} 验证码`);
       this.sessionSecrets.set(account.id, secret);
-      const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits);
+      const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm);
       this.updateAccount(account.id, code, account.revealedSecret);
       this.status = '验证码已安全解锁';
     } catch (error) {
@@ -1096,6 +1227,7 @@ struct Index {
         issuer,
         name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: this.normalizedGroupValue(this.editGroupInput, this.editCreatingGroup),
@@ -1127,19 +1259,19 @@ struct Index {
   private async deleteAccount(account: MfaAccount): Promise<void> {
     this.isRunning = true;
     try {
-      await asset.remove(this.accountAssetQuery(account.secretAlias));
       const next: MfaAccount[] = [];
       for (const item of this.accounts) {
         if (item.id !== account.id) {
           next.push(item);
         }
       }
+      await this.saveAccountRecords(next);
       this.accounts = next;
       this.sessionSecrets.delete(account.id);
       if (this.editingAccountId === account.id) {
         this.cancelEdit();
       }
-      await this.saveAccountRecords(next);
+      await this.cleanupAliases([account.secretAlias]);
       this.status = '账户及其安全密钥已删除';
     } catch (error) {
       this.status = `删除失败：${this.errorText(error)}`;
@@ -1153,7 +1285,7 @@ struct Index {
       let code = account.code;
       const secret = this.sessionSecrets.get(account.id);
       if (code.length === 0 && secret !== undefined) {
-        code = await this.generateTotp(secret, this.nowMs, account.period, account.digits);
+        code = await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm);
         this.updateAccount(account.id, code, account.revealedSecret);
       }
       if (code.length === 0) {
@@ -1253,6 +1385,7 @@ struct Index {
           account: account.name,
           secret,
           createdAt: account.createdAt > 0 ? account.createdAt : (Number.isFinite(numericId) ? numericId : Date.now()),
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group.length > 0 ? account.group : undefined,
@@ -1411,18 +1544,22 @@ struct Index {
     }
     const issuer = account.issuer.trim();
     const name = account.account.trim();
-    if (issuer.length === 0 || name.length === 0) {
-      throw new Error('Backup account names cannot be empty.');
+    if (name.length === 0) {
+      throw new Error('Backup account name cannot be empty.');
     }
+    const algorithm = typeof account.algorithm === 'string' ? account.algorithm.toUpperCase() : 'SHA1';
     const digits = typeof account.digits === 'number' ? account.digits : 6;
     const period = typeof account.period === 'number' ? account.period : 30;
-    if (!Number.isInteger(digits) || digits < 6 || digits > 8 || !Number.isInteger(period) || period <= 0) {
+    if ((algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') ||
+      !Number.isInteger(digits) || digits < 6 || digits > 8 ||
+      !Number.isInteger(period) || period <= 0 || period > 300) {
       throw new Error('Backup contains unsupported TOTP parameters.');
     }
     return {
       issuer,
       name,
       secret: this.normalizeSecretInput(account.secret),
+      algorithm,
       digits,
       period,
       group: typeof account.group === 'string' ? account.group.trim() : '',
@@ -1473,6 +1610,7 @@ struct Index {
           issuer: input.issuer,
           name: input.name,
           secretAlias,
+          algorithm: input.algorithm,
           digits: input.digits,
           period: input.period,
           group: input.group ?? '',
@@ -1627,6 +1765,7 @@ struct Index {
           account: account.name,
           secret,
           createdAt: account.createdAt,
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group,
@@ -1691,6 +1830,7 @@ struct Index {
           issuer: input.issuer,
           name: input.name,
           secretAlias,
+          algorithm: input.algorithm,
           digits: input.digits,
           period: input.period,
           group: input.group ?? '',
@@ -1841,9 +1981,6 @@ struct Index {
         await this.migrateAccountSecretAccessToDirectDisplay();
         await this.loadCodesWithoutApplicationLock();
       }
-      const prefs = await this.getPreferences();
-      await prefs.put(this.appLockKey, enabled);
-      await prefs.flush();
       this.appLockEnabled = enabled;
       this.lifecycleAppLockEnabled = enabled;
       if (!enabled) {
@@ -1903,12 +2040,13 @@ struct Index {
             issuer: account.issuer,
             name: account.name,
             secretAlias: account.secretAlias,
+            algorithm: account.algorithm,
             digits: account.digits,
             period: account.period,
             group: account.group,
             color: account.color,
             createdAt: account.createdAt,
-            code: await this.generateTotp(secret, this.nowMs, account.period, account.digits),
+            code: await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm),
             revealedSecret: ''
           });
         }
@@ -1933,6 +2071,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: account.group,
@@ -2193,6 +2332,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: group === undefined ? account.group : group,
@@ -2231,6 +2371,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: nextName,
@@ -2261,6 +2402,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: '',
@@ -2286,12 +2428,13 @@ struct Index {
     for (const account of this.accounts) {
       const secret = this.sessionSecrets.get(account.id);
       if (secret !== undefined) {
-        const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits);
+        const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm);
         next.push({
           id: account.id,
           issuer: account.issuer,
           name: account.name,
           secretAlias: account.secretAlias,
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group,

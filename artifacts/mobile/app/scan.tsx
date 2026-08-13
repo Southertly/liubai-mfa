@@ -33,9 +33,11 @@ export default function ScanScreen() {
     processingRef.current = true;
     setScanned(true);
 
-    const parsed = parseOtpAuthUri(data);
-    if (!parsed) {
-      setError("无效的验证码二维码，请重试");
+    let parsed;
+    try {
+      parsed = parseOtpAuthUri(data);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "无效的验证码二维码，请重试");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setTimeout(() => {
         setScanned(false);

@@ -49,7 +49,7 @@ export default function AddAccountScreen() {
       setError("请输入账户名称或服务名称");
       return;
     }
-    const testCode = generateTOTP(secret.trim().replace(/\s/g, ""));
+    const testCode = generateTOTP(secret.trim().replace(/\s/g, ""), 30, 6, "SHA1");
     if (testCode === "------") {
       setError("密钥无效，请检查后重试");
       return;
@@ -60,6 +60,9 @@ export default function AddAccountScreen() {
         issuer: issuer.trim(),
         account: account.trim() || issuer.trim(),
         secret: secret.trim().replace(/\s/g, "").toUpperCase(),
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
         group: selectedGroup,
         color: selectedColor,
       });

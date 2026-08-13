@@ -34,6 +34,8 @@ import {
   normalizeRecoveryKey,
   SecureEnvelope,
 } from "@/utils/secureCrypto";
+import { normalizePortableAccounts } from "@/utils/accountSchema";
+import { setSensitiveClipboard } from "@/utils/sensitiveClipboard";
 
 interface LegacyBackupPayload {
   version: 1;
@@ -81,8 +83,8 @@ export default function BackupScreen() {
     setExportLoading(true);
     try {
       const accountsJson = JSON.stringify(
-        accounts.map(({ id, issuer, account, secret, group, color, createdAt }) => ({
-          id, issuer, account, secret, group, color, createdAt,
+        accounts.map(({ id, issuer, account, secret, algorithm, digits, period, group, color, createdAt }) => ({
+          id, issuer, account, secret, algorithm, digits, period, group, color, createdAt,
         }))
       );
 
@@ -114,7 +116,7 @@ export default function BackupScreen() {
   };
 
   const copyRecoveryKey = async () => {
-    await Clipboard.setStringAsync(formatRecoveryKey(recoveryKey));
+    await setSensitiveClipboard(formatRecoveryKey(recoveryKey), 60_000);
     setRecoveryKeyCopied(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -169,12 +171,15 @@ export default function BackupScreen() {
         throw new Error("Unsupported backup version");
       }
 
-      if (!Array.isArray(parsed)) throw new Error("Invalid format");
+      const validated = normalizePortableAccounts(parsed);
 
-      const result = await importAccounts(parsed.map((acc) => ({
+      const result = await importAccounts(validated.map((acc) => ({
           issuer: acc.issuer ?? "",
           account: acc.account ?? "",
           secret: acc.secret,
+          algorithm: acc.algorithm,
+          digits: acc.digits,
+          period: acc.period,
           group: acc.group,
           color: acc.color,
           createdAt: acc.createdAt ?? Date.now(),

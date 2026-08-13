@@ -1,5 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -22,6 +21,7 @@ import { SensitiveAuthGate } from "@/components/SensitiveAuthGate";
 import { LABEL_COLORS, resolveColor } from "@/constants/labelColors";
 import { useAccounts } from "@/context/AccountsContext";
 import { useColors } from "@/hooks/useColors";
+import { setSensitiveClipboard } from "@/utils/sensitiveClipboard";
 
 export default function EditAccountScreen() {
   const colors = useColors();
@@ -94,7 +94,7 @@ export default function EditAccountScreen() {
   }, [secretRevealed]);
 
   const handleCopySecret = useCallback(async () => {
-    await Clipboard.setStringAsync(account.secret);
+    await setSensitiveClipboard(account.secret, 60_000);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setSecretCopied(true);
     setTimeout(() => setSecretCopied(false), 2000);

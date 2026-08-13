@@ -25,6 +25,7 @@ export interface PortableAccount {
   account: string;
   secret: string;
   createdAt: number;
+  algorithm?: string;
   digits?: number;
   period?: number;
   group?: string;

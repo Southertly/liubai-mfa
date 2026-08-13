@@ -107,8 +107,8 @@ export default function QrTransferScreen() {
     try {
       const pairing = parsePairingQr(value);
       const transferKey = generateRecoveryKey();
-      const plaintext = JSON.stringify(accounts.map(({ issuer, account, secret, createdAt, group, color }) => ({
-        issuer, account, secret, createdAt, group, color,
+      const plaintext = JSON.stringify(accounts.map(({ issuer, account, secret, algorithm, digits, period, createdAt, group, color }) => ({
+        issuer, account, secret, algorithm, digits, period, createdAt, group, color,
       })));
       const wrappedKey = await qrTransferCrypto.wrapKey(pairing.publicKey, transferKey);
       const qrs = encodeTransferPackage({

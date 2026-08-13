@@ -1,14 +1,20 @@
 import CryptoJS from "crypto-js";
 
+import {
+  normalizeBase32Secret,
+  normalizeTotpAlgorithm,
+  TotpAlgorithm,
+} from "./accountSchema";
+
 function base32Decode(base32: string): number[] {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const cleaned = base32.toUpperCase().replace(/\s|=/g, "");
+  const cleaned = normalizeBase32Secret(base32);
   const bytes: number[] = [];
   let bits = 0;
   let value = 0;
   for (const char of cleaned) {
     const idx = chars.indexOf(char);
-    if (idx === -1) continue;
+    if (idx === -1) throw new Error("Invalid Base32 secret");
     value = (value << 5) | idx;
     bits += 5;
     if (bits >= 8) {
@@ -35,9 +41,18 @@ function bytesToWordArray(bytes: number[]): CryptoJS.lib.WordArray {
   return CryptoJS.lib.WordArray.create(words as unknown as number[], bytes.length);
 }
 
-export function generateTOTP(secret: string, period = 30, digits = 6): string {
+export function generateTOTP(
+  secret: string,
+  period = 30,
+  digits = 6,
+  algorithm: TotpAlgorithm = "SHA1",
+  timeMs = Date.now(),
+): string {
   try {
-    const counter = Math.floor(Date.now() / 1000 / period);
+    if (!Number.isInteger(period) || period < 1 || period > 300) throw new Error("Invalid period");
+    if (!Number.isInteger(digits) || digits < 6 || digits > 8) throw new Error("Invalid digits");
+    const normalizedAlgorithm = normalizeTotpAlgorithm(algorithm);
+    const counter = Math.floor(timeMs / 1000 / period);
 
     // Encode counter as 8-byte big-endian (RFC 6238)
     const hi = Math.floor(counter / 0x100000000);
@@ -57,8 +72,11 @@ export function generateTOTP(secret: string, period = 30, digits = 6): string {
     const secretWordArray = bytesToWordArray(secretBytes);
     const counterWordArray = bytesToWordArray(counterBytes);
 
-    // HMAC-SHA1
-    const hmac = CryptoJS.HmacSHA1(counterWordArray, secretWordArray);
+    const hmac = normalizedAlgorithm === "SHA512"
+      ? CryptoJS.HmacSHA512(counterWordArray, secretWordArray)
+      : normalizedAlgorithm === "SHA256"
+        ? CryptoJS.HmacSHA256(counterWordArray, secretWordArray)
+        : CryptoJS.HmacSHA1(counterWordArray, secretWordArray);
 
     // Extract HMAC bytes from WordArray
     const hmacBytes: number[] = [];
@@ -89,13 +107,23 @@ export function parseOtpAuthUri(uri: string): {
   issuer: string;
   account: string;
   secret: string;
-} | null {
-  try {
-    const url = new URL(uri);
-    if (url.protocol !== "otpauth:") return null;
+  algorithm: TotpAlgorithm;
+  digits: number;
+  period: number;
+} {
+    const url = new URL(uri.trim());
+    if (url.protocol !== "otpauth:") throw new Error("不是 otpauth 二维码");
+    if (url.hostname.toLowerCase() !== "totp") {
+      throw new Error(url.hostname.toLowerCase() === "hotp" ? "暂不支持 HOTP" : "仅支持 TOTP 二维码");
+    }
     const label = decodeURIComponent(url.pathname.slice(1));
     const params = new URLSearchParams(url.search);
-    const secret = params.get("secret") ?? "";
+    const secret = normalizeBase32Secret(params.get("secret") ?? "");
+    const algorithm = normalizeTotpAlgorithm(params.get("algorithm") ?? "SHA1");
+    const digits = Number(params.get("digits") ?? "6");
+    const period = Number(params.get("period") ?? "30");
+    if (!Number.isInteger(digits) || digits < 6 || digits > 8) throw new Error("不支持的 TOTP 位数");
+    if (!Number.isInteger(period) || period < 1 || period > 300) throw new Error("不支持的 TOTP 周期");
     const issuerParam = params.get("issuer") ?? "";
     let issuer = issuerParam;
     let account = label;
@@ -104,9 +132,6 @@ export function parseOtpAuthUri(uri: string): {
       issuer = issuer || parts[0].trim();
       account = parts[1].trim();
     }
-    if (!secret) return null;
-    return { issuer, account, secret };
-  } catch {
-    return null;
-  }
+    if (!issuer.trim() || !account.trim()) throw new Error("二维码缺少服务或账户名称");
+    return { issuer: issuer.trim(), account: account.trim(), secret, algorithm, digits, period };
 }
