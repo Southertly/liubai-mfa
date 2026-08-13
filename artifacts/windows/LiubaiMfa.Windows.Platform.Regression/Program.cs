@@ -295,7 +295,7 @@ static async Task VerifyUnloadPreventsInFlightWritePublicationAsync()
     Assert(selectedGroupCleared, "卸载未通知分组选择已清空。");
 
     repository.ReleaseFirstSave();
-    await add;
+    await AssertThrowsAsync<OperationCanceledException>(() => add);
     AssertUnloaded(viewModel, "保存完成后");
     Assert(repository.SaveCallCount == 1, "已开始的保存应只调用一次。");
 }
@@ -313,8 +313,8 @@ static async Task VerifyUnloadCancelsQueuedWriteAsync()
     AssertUnloaded(viewModel, "排队写卸载后立即");
 
     repository.ReleaseFirstSave();
-    await firstAdd;
-    await queuedAdd;
+    await AssertThrowsAsync<OperationCanceledException>(() => firstAdd);
+    await AssertThrowsAsync<OperationCanceledException>(() => queuedAdd);
     AssertUnloaded(viewModel, "排队写释放后");
     Assert(repository.SaveCallCount == 1, "排队写不应调用保存。");
     Assert(!repository.SecondSaveStarted.IsCompleted, "排队写不应进入第二次保存。");
@@ -368,8 +368,7 @@ static async Task VerifyLockedImportReturnsNeutralResultAsync()
     viewModel.Unload();
     repository.ReleaseFirstSave();
 
-    var result = await import;
-    Assert(result == (0, 0), "锁定期间导入不应报告成功或跳过数量。");
+    await AssertThrowsAsync<OperationCanceledException>(() => import);
     AssertUnloaded(viewModel, "锁定期间导入完成后");
     Assert(repository.SaveCallCount == 1, "已开始的导入保存应只调用一次。");
 }

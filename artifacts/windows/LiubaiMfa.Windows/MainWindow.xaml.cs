@@ -170,6 +170,10 @@ public sealed partial class MainWindow : Window
             RefreshEmptyState();
             ShowStatus("账户已添加。", InfoBarSeverity.Success);
         }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
         catch (InvalidOperationException exception)
         {
             ShowStatus(exception.Message, InfoBarSeverity.Warning);
@@ -209,6 +213,10 @@ public sealed partial class MainWindow : Window
             await ViewModel.AddAsync(input);
             RefreshEmptyState();
             ShowStatus("二维码账户已导入。", InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or FormatException)
         {
@@ -253,7 +261,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await ViewModel.UpdateAsync(updated);
+        try
+        {
+            await ViewModel.UpdateAsync(updated);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         ShowStatus("账户已更新。", InfoBarSeverity.Success);
     }
 
@@ -311,7 +327,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await ViewModel.DeleteAsync(id);
+        try
+        {
+            await ViewModel.DeleteAsync(id);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
         RefreshEmptyState();
         ShowStatus("账户已删除。", InfoBarSeverity.Success);
     }
@@ -401,6 +425,10 @@ public sealed partial class MainWindow : Window
             var (imported, skipped) = await ViewModel.ImportAsync(accounts);
             RefreshEmptyState();
             ShowStatus($"已导入 {imported} 个账户，跳过 {skipped} 个重复账户。", InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
         catch (Exception exception) when (exception is FormatException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException)
         {

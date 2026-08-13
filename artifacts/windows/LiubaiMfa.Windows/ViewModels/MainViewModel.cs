@@ -145,10 +145,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             lock (_stateGate)
             {
-                if (!IsOperationCurrent(operationEpoch))
-                {
-                    return;
-                }
+                ThrowIfLifecycleInvalid(operationEpoch);
 
                 if (_isLoaded)
                 {
@@ -161,10 +158,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 var accounts = await _repository.LoadAsync(cancellationToken);
                 lock (_stateGate)
                 {
-                    if (!IsOperationCurrent(operationEpoch))
-                    {
-                        return;
-                    }
+                    ThrowIfLifecycleInvalid(operationEpoch);
 
                     _accounts.Clear();
                     _accounts.AddRange(accounts);
@@ -177,13 +171,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 lock (_stateGate)
                 {
-                    if (IsOperationCurrent(operationEpoch))
-                    {
-                        _accounts.Clear();
-                        IsLoaded = false;
-                        HasLoadFailure = true;
-                        RefreshDerivedState();
-                    }
+                    ThrowIfLifecycleInvalid(operationEpoch);
+                    _accounts.Clear();
+                    IsLoaded = false;
+                    HasLoadFailure = true;
+                    RefreshDerivedState();
                 }
 
                 throw;
@@ -203,10 +195,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MfaAccount[] candidate;
             lock (_stateGate)
             {
-                if (!CanWrite(operationEpoch))
-                {
-                    return;
-                }
+                EnsureWritesAllowed(operationEpoch);
 
                 if (_accounts.Any(item => item.Secret == account.Secret))
                 {
@@ -228,10 +217,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             MfaAccount[] candidate;
             lock (_stateGate)
             {
-                if (!CanWrite(operationEpoch))
-                {
-                    return;
-                }
+                EnsureWritesAllowed(operationEpoch);
 
                 var existingIndex = _accounts.FindIndex(item => item.Id == account.Id);
                 if (existingIndex < 0)
@@ -255,10 +241,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             List<MfaAccount>? candidate;
             lock (_stateGate)
             {
-                if (!CanWrite(operationEpoch))
-                {
-                    return;
-                }
+                EnsureWritesAllowed(operationEpoch);
 
                 var existingIndex = _accounts.FindIndex(item => item.Id == id);
                 if (existingIndex < 0)
@@ -285,10 +268,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             List<MfaAccount> candidate;
             lock (_stateGate)
             {
-                if (!CanWrite(operationEpoch))
-                {
-                    return (0, 0);
-                }
+                EnsureWritesAllowed(operationEpoch);
 
                 candidate = _accounts.ToList();
             }
@@ -314,20 +294,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             if (imported > 0)
             {
-                if (!await CommitAsync(candidate, operationEpoch, cancellationToken))
-                {
-                    return (0, 0);
-                }
+                await CommitAsync(candidate, operationEpoch, cancellationToken);
             }
             else
             {
                 lock (_stateGate)
                 {
-                    if (!IsOperationCurrent(operationEpoch))
-                    {
-                        return (0, 0);
-                    }
-
+                    ThrowIfLifecycleInvalid(operationEpoch);
                     RefreshDerivedState();
                 }
             }
@@ -372,31 +345,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<bool> CommitAsync(
+    private async Task CommitAsync(
         IReadOnlyCollection<MfaAccount> candidate,
         long operationEpoch,
         CancellationToken cancellationToken)
     {
         lock (_stateGate)
         {
-            if (!IsOperationCurrent(operationEpoch))
-            {
-                return false;
-            }
+            ThrowIfLifecycleInvalid(operationEpoch);
         }
 
         await _repository.SaveAsync(candidate, cancellationToken);
         lock (_stateGate)
         {
-            if (!IsOperationCurrent(operationEpoch))
-            {
-                return false;
-            }
-
+            ThrowIfLifecycleInvalid(operationEpoch);
             _accounts.Clear();
             _accounts.AddRange(candidate);
             RefreshDerivedState();
-            return true;
         }
     }
 
@@ -453,23 +418,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasVisibleAccounts));
     }
 
-    private bool CanWrite(long operationEpoch)
+    private void EnsureWritesAllowed(long operationEpoch)
     {
-        if (!IsOperationCurrent(operationEpoch))
-        {
-            return false;
-        }
-
+        ThrowIfLifecycleInvalid(operationEpoch);
         if (_hasLoadFailure)
         {
             throw new InvalidOperationException("本地账户数据加载失败，已禁止写入以避免覆盖数据。");
         }
 
-        return _isLoaded;
+        if (!_isLoaded)
+        {
+            throw CreateLifecycleCanceledException();
+        }
     }
 
-    private bool IsOperationCurrent(long operationEpoch) =>
-        Volatile.Read(ref _lifecycleEpoch) == operationEpoch;
+    private void ThrowIfLifecycleInvalid(long operationEpoch)
+    {
+        if (Volatile.Read(ref _lifecycleEpoch) != operationEpoch)
+        {
+            throw CreateLifecycleCanceledException();
+        }
+    }
+
+    private static OperationCanceledException CreateLifecycleCanceledException() =>
+        new("账户操作已因应用锁定而取消。");
 
     private static string? NormalizeGroup(string? group) =>
         string.IsNullOrWhiteSpace(group) ? null : group.Trim();
