@@ -24,8 +24,17 @@ def mfaReleaseKeyAlias = System.getenv("MFA_ANDROID_KEY_ALIAS")
 def mfaReleaseKeyPassword = System.getenv("MFA_ANDROID_KEY_PASSWORD")
 def mfaReleaseSigningReady = [mfaReleaseKeystorePath, mfaReleaseKeystorePassword, mfaReleaseKeyAlias, mfaReleaseKeyPassword]
     .every { value -> value != null && !value.isBlank() }
+def mfaLocalHomePath = System.getProperty("user.home")
 
 android {
+    defaultConfig {
+        externalNativeBuild {
+            cmake {
+                cFlags "-ffile-prefix-map=\${mfaLocalHomePath}=/build"
+                cppFlags "-ffile-prefix-map=\${mfaLocalHomePath}=/build"
+            }
+        }
+    }
     signingConfigs {
         if (mfaReleaseSigningReady) {
             create("mfaRelease") {

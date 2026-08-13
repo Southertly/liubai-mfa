@@ -2,6 +2,15 @@
 
 跨平台 MFA 验证器工作区。Android 客户端是当前优先路径；HarmonyOS NEXT 目录提供 ArkTS / ArkUI 原生实现，不能把它当作 Expo 的构建目标。
 
+## 下载
+
+正式安装包发布在 [GitHub Releases](https://github.com/Southertly/mfa-verifier/releases)。`v1.1.0` 当前提供以下文件：
+
+- `Liubai-MFA-Android-1.1.0.apk`：Android 直接安装包。
+- `SHA256SUMS.txt`：下载后完整性校验值。
+
+本次 Release 不提供 HarmonyOS 安装包。Android 覆盖升级时不要卸载旧版本或清除应用数据；首次从不同包名的早期开发版迁移时，应先导出加密备份并单独保存恢复密钥。
+
 ## 当前范围
 
 - `artifacts/mobile`：Expo SDK 54 / React Native Android 客户端；应用包名为 `com.mfaverifier.app`。
@@ -40,6 +49,13 @@ HarmonyOS NEXT 构建和真机安装说明见 [HarmonyOS README](artifacts/harmo
 - 本机正式签名由 `artifacts/mobile/scripts/build-signed-android.sh` 从 macOS 钥匙串读取口令。
 - 覆盖升级前运行 `artifacts/mobile/scripts/verify-android-upgrade.sh <旧 APK> <新 APK>`；脚本会先核对签名和版本号，不一致时停止，绝不卸载应用或清除数据。
 - 每次发布仍需在专用测试账户上核对覆盖升级后的账户数量和验证码；源码和构建成功不能替代该真机验收。
+
+## HarmonyOS 正式签名与覆盖升级
+
+- 正式 HAP/APP 必须使用长期保存的同一套发布证书、Profile 与私钥；这些材料不得进入 Git 或 Release。
+- `release` 产品和发布构建命令见 [HarmonyOS README](artifacts/harmonyos-next-spike/README.md)。
+- 覆盖安装只使用同 Bundle ID、同发布签名且版本号递增的 HAP；签名或包名不一致时停止，不通过卸载应用绕过。
+- GitHub Release 仅提供安装包下载，不代表已提交 AppGallery 审核或已上架。
 
 ## 状态说明
 
