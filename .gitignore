@@ -66,6 +66,7 @@ Thumbs.db
 
 # Local tools and generated native build state
 .agents/
+.worktrees/
 .hvigor/
 .idea/
 *.iml
