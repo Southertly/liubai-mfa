@@ -42,8 +42,8 @@ internal static class AccountQuery
     }
 
     private static bool MatchesSearch(MfaAccount account, string searchText) =>
-        account.Issuer.Contains(searchText, StringComparison.CurrentCultureIgnoreCase)
-        || account.Account.Contains(searchText, StringComparison.CurrentCultureIgnoreCase)
+        (account.Issuer?.Contains(searchText, StringComparison.CurrentCultureIgnoreCase) ?? false)
+        || (account.Account?.Contains(searchText, StringComparison.CurrentCultureIgnoreCase) ?? false)
         || (NormalizeGroup(account.Group)?.Contains(searchText, StringComparison.CurrentCultureIgnoreCase) ?? false);
 
     private static string? NormalizeGroup(string? group) =>
