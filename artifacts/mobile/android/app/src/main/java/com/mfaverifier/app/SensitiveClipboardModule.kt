@@ -19,9 +19,14 @@ class SensitiveClipboardModule(
   private val clipboard = reactContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
   private val handler = Handler(Looper.getMainLooper())
   private var lastSensitiveValue: String? = null
+  private var ownsSensitiveClip = false
+  private val clipChangedListener = ClipboardManager.OnPrimaryClipChangedListener {
+    refreshClipboardOwnership()
+  }
 
   init {
     reactContext.addLifecycleEventListener(this)
+    clipboard.addPrimaryClipChangedListener(clipChangedListener)
   }
 
   override fun getName(): String = "SensitiveClipboard"
@@ -35,6 +40,7 @@ class SensitiveClipboardModule(
       clip.description.extras = extras
       clipboard.setPrimaryClip(clip)
       lastSensitiveValue = value
+      ownsSensitiveClip = true
       handler.postDelayed({ clearIfOwned(value) }, ttlMs.toLong().coerceIn(1_000L, 300_000L))
       promise.resolve(true)
     } catch (error: Exception) {
@@ -50,28 +56,61 @@ class SensitiveClipboardModule(
 
   private fun clearIfOwned(expected: String?) {
     if (expected == null) return
-    val current = clipboard.primaryClip
+    val current = currentClipboardText()
+    if (current != expected) {
+      if (lastSensitiveValue == expected) {
+        lastSensitiveValue = null
+        ownsSensitiveClip = false
+      }
+      return
+    }
+    clearPrimaryClip()
+    if (lastSensitiveValue == expected) {
+      lastSensitiveValue = null
+      ownsSensitiveClip = false
+    }
+  }
+
+  private fun currentClipboardText(): String? = clipboard.primaryClip
       ?.takeIf { it.itemCount > 0 }
       ?.getItemAt(0)
       ?.coerceToText(reactContext)
       ?.toString()
-    if (current != expected) return
+
+  private fun refreshClipboardOwnership() {
+    val expected = lastSensitiveValue
+    if (expected == null) {
+      ownsSensitiveClip = false
+      return
+    }
+    ownsSensitiveClip = currentClipboardText() == expected
+    if (!ownsSensitiveClip) lastSensitiveValue = null
+  }
+
+  private fun clearPrimaryClip() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
       clipboard.clearPrimaryClip()
     } else {
       clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
     }
-    if (lastSensitiveValue == expected) lastSensitiveValue = null
+  }
+
+  private fun clearOwnedClipOnBackground() {
+    if (!ownsSensitiveClip || lastSensitiveValue == null) return
+    clearPrimaryClip()
+    lastSensitiveValue = null
+    ownsSensitiveClip = false
   }
 
   override fun onHostResume() = Unit
 
   override fun onHostPause() {
-    clearIfOwned(lastSensitiveValue)
+    clearOwnedClipOnBackground()
   }
 
   override fun onHostDestroy() {
-    clearIfOwned(lastSensitiveValue)
+    clearOwnedClipOnBackground()
+    clipboard.removePrimaryClipChangedListener(clipChangedListener)
     handler.removeCallbacksAndMessages(null)
   }
 }
