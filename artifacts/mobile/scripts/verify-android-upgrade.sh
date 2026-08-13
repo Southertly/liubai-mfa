@@ -16,8 +16,14 @@ aapt2="$(find "${android_sdk}/build-tools" -type f -name aapt2 2>/dev/null | sor
 adb_bin="${android_sdk}/platform-tools/adb"
 [[ -x "${apksigner}" && -x "${aapt2}" && -x "${adb_bin}" ]] || { echo "缺少 Android SDK 签名或设备工具" >&2; exit 1; }
 
-old_cert="$(${apksigner} verify --print-certs "${old_apk}" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
-new_cert="$(${apksigner} verify --print-certs "${new_apk}" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+certificate_digest() {
+  "${apksigner}" verify --print-certs "$1" |
+    sed -n 's/^.*certificate SHA-256 digest: //p' |
+    head -1
+}
+
+old_cert="$(certificate_digest "${old_apk}")"
+new_cert="$(certificate_digest "${new_apk}")"
 [[ -n "${old_cert}" && "${old_cert}" == "${new_cert}" ]] || { echo "签名不一致，已停止；不会卸载或清除设备数据" >&2; exit 1; }
 
 old_version="$(${aapt2} dump badging "${old_apk}" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1)"
