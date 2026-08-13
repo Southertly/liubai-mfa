@@ -19,7 +19,8 @@ public static class ServiceIconResolver
             return CreateFallback("?", "#FF64748B");
         }
 
-        return normalized.ToUpperInvariant() switch
+        var canonicalIssuer = normalized.ToUpperInvariant();
+        return canonicalIssuer switch
         {
             "GOOGLE" => CreateFallback("G", "#FF4285F4"),
             "MICROSOFT" => CreateFallback("M", "#FF0078D4"),
@@ -27,7 +28,7 @@ public static class ServiceIconResolver
             "META" => CreateFallback("M", "#FF0866FF"),
             "X" => CreateFallback("X", "#FF111827"),
             "VAULTWARDEN" => CreateFallback("V", "#FF175DDC"),
-            _ => CreateFallback(GetFallbackText(normalized), Palette[GetStableIndex(normalized, Palette.Length)]),
+            _ => CreateFallback(GetFallbackText(normalized), Palette[GetStableIndex(canonicalIssuer, Palette.Length)]),
         };
     }
 

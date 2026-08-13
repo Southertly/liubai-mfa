@@ -26,6 +26,11 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("等待写门的外部取消必须传播且保持可用", VerifyExternalCancellationWhileWaitingForWriteGateAsync),
     ("仓库保存的调用方取消必须传播", VerifyRepositoryCancellationPropagatesAsync),
     ("锁定期间导入返回中性结果", VerifyLockedImportReturnsNeutralResultAsync),
+    ("紧凑账户行格式化、进度和边界", () => RunSync(VerifyCompactAccountRowFormatting)),
+    ("紧凑账户行服务图标回退", () => RunSync(VerifyServiceIconResolution)),
+    ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
+    ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
+    ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
 };
 
 foreach (var check in checks)
@@ -33,13 +38,6 @@ foreach (var check in checks)
     await check.Run();
     Console.WriteLine($"PASS {check.Name}");
 }
-
-VerifyCompactAccountRowFormatting();
-Console.WriteLine("PASS 紧凑账户行格式化与进度安全计算");
-VerifyServiceIconResolution();
-Console.WriteLine("PASS 紧凑账户行服务图标本地回退");
-VerifyCompactAccountRowRefreshAndReplacement();
-Console.WriteLine("PASS 紧凑账户行刷新通知与替换模型");
 
 Console.WriteLine($"{checks.Count} 项 Windows 平台账户查询回归检查通过。");
 
@@ -121,6 +119,7 @@ static void VerifyCompactAccountRowFormatting()
     Assert(AccountItemViewModel.CalculateProgress(0, 30) == 0, "0 秒剩余时间应为 0 进度。");
     Assert(AccountItemViewModel.CalculateProgress(30, 30) == 1, "完整周期应被限制为 1 进度。");
     Assert(AccountItemViewModel.CalculateProgress(31, 30) == 1, "超出周期应被限制为 1 进度。");
+    Assert(AccountItemViewModel.CalculateProgress(-1, 30) == 0, "负数剩余时间应被限制为 0 进度。");
     Assert(AccountItemViewModel.CalculateProgress(15, 0) == 0, "非法周期应安全返回 0 进度。");
 }
 
@@ -128,7 +127,15 @@ static void VerifyServiceIconResolution()
 {
     Assert(ServiceIconResolver.Resolve("Google").FallbackText == "G", "Google 图标回退文字错误。");
     Assert(ServiceIconResolver.Resolve("unknown service").Kind == ServiceIconKind.FallbackText, "未知服务必须使用文字回退图标。");
+    Assert(ServiceIconResolver.Resolve(null).FallbackText == "?", "缺失服务应使用安全默认字符。");
     Assert(ServiceIconResolver.Resolve("   ").FallbackText == "?", "空白服务应使用安全默认字符。");
+    Assert(ServiceIconResolver.Resolve("😀 服务").FallbackText == "😀", "emoji 服务名不应截断 surrogate。");
+    Assert(ServiceIconResolver.Resolve("e\u0301 服务").FallbackText == "E\u0301", "组合字符应作为完整文本元素并大写。");
+    var normalizedOne = ServiceIconResolver.Resolve(" Example ");
+    var normalizedTwo = ServiceIconResolver.Resolve("example");
+    Assert(normalizedOne.BackgroundColor == normalizedTwo.BackgroundColor, "规范化后的未知服务颜色必须稳定一致。");
+    Assert(normalizedOne.BackgroundColor == "#FF7C3AED", "未知服务固定 FNV 调色板颜色错误。");
+    Assert(System.Text.RegularExpressions.Regex.IsMatch(normalizedOne.BackgroundColor, "^#[0-9A-F]{8}$"), "图标背景色不是 ARGB 十六进制格式。");
 }
 
 static void VerifyCompactAccountRowRefreshAndReplacement()
@@ -143,12 +150,15 @@ static void VerifyCompactAccountRowRefreshAndReplacement()
     var midPeriod = DateTimeOffset.FromUnixTimeSeconds(45);
 
     item.Refresh(atStart);
-    var changes = new HashSet<string?>();
+    var changes = new List<string?>();
     item.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
     item.Refresh(atNextPeriod);
     Assert(item.Code == TotpService.Generate(secret, atNextPeriod), "刷新未更新验证码。");
     Assert(changes.Contains(nameof(AccountItemViewModel.FormattedCode)), "验证码变化未通知格式化值。");
     Assert(changes.Contains(nameof(AccountItemViewModel.AccessibleName)), "验证码变化未通知无障碍名称。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.Code)) == 1, "验证码变化应只通知一次 Code。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.FormattedCode)) == 1, "验证码变化应只通知一次 FormattedCode。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.AccessibleName)) == 1, "仅验证码变化应只通知一次 AccessibleName。");
 
     changes.Clear();
     item.Refresh(midPeriod);
@@ -159,13 +169,55 @@ static void VerifyCompactAccountRowRefreshAndReplacement()
     Assert(changes.Contains(nameof(AccountItemViewModel.RemainingLabel)), "秒数变化未通知剩余时间文本。");
     Assert(changes.Contains(nameof(AccountItemViewModel.ProgressValue)), "秒数变化未通知进度值。");
     Assert(changes.Contains(nameof(AccountItemViewModel.AccessibleName)), "秒数变化未通知无障碍名称。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.SecondsRemaining)) == 1, "秒数变化应只通知一次 SecondsRemaining。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.RemainingLabel)) == 1, "秒数变化应只通知一次 RemainingLabel。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.ProgressValue)) == 1, "秒数变化应只通知一次 ProgressValue。");
+    Assert(changes.Count(name => name == nameof(AccountItemViewModel.AccessibleName)) == 1, "仅秒数变化应只通知一次 AccessibleName。");
+
+    changes.Clear();
+    item.Refresh(midPeriod);
+    Assert(changes.Count == 0, "相同时间戳刷新不应发送通知。");
+
+    item.Refresh(atNextPeriod);
+    Assert(item.SecondsRemaining == 30 && item.ProgressValue == 1, "周期边界应显示完整剩余周期和进度。");
 
     changes.Clear();
     item.ReplaceModel(item.Model with { Issuer = "Microsoft", Account = "bob@example.com", Group = "个人" });
-    Assert(changes.IsSupersetOf([
+    Assert(changes.ToHashSet().IsSupersetOf([
         nameof(AccountItemViewModel.Icon), nameof(AccountItemViewModel.AccessibleName), nameof(AccountItemViewModel.Issuer),
         nameof(AccountItemViewModel.Account), nameof(AccountItemViewModel.GroupLabel),
     ]), "替换模型未通知所有相关展示属性。");
+}
+
+static void VerifyCompactAccountRowNullModelSafety()
+{
+    AssertThrows<ArgumentNullException>(() => _ = new AccountItemViewModel(null!), "构造函数应拒绝空模型。");
+    var item = new AccountItemViewModel(new MfaAccount
+    {
+        Id = "safe", Issuer = "Google", Account = "alice", Secret = "JBSWY3DPEHPK3PXP", Group = "工作", CreatedAt = 1,
+    });
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(45));
+    var before = (item.Model, item.Issuer, item.Account, item.Code, item.Icon, item.AccessibleName);
+    var changes = new List<string?>();
+    item.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+
+    AssertThrows<ArgumentNullException>(() => item.ReplaceModel(null!), "ReplaceModel 应拒绝空模型。");
+    Assert(before == (item.Model, item.Issuer, item.Account, item.Code, item.Icon, item.AccessibleName), "拒绝空模型后旧状态不应改变。");
+    Assert(changes.Count == 0, "拒绝空模型后不应发送属性通知。");
+}
+
+static void VerifyCompactAccountRowInvalidSecrets()
+{
+    foreach (var secret in new string?[] { null, string.Empty })
+    {
+        var item = new AccountItemViewModel(new MfaAccount
+        {
+            Id = "invalid", Issuer = "Example", Account = "broken", Secret = secret!, CreatedAt = 1,
+        });
+        item.Refresh(DateTimeOffset.FromUnixTimeSeconds(45));
+        Assert(item.Code == "------", "损坏密钥应显示安全占位验证码。");
+        Assert(item.SecondsRemaining == 0 && item.ProgressValue == 0, "损坏密钥应显示零剩余时间和零进度。");
+    }
 }
 
 static async Task VerifyMainViewModelDerivedStateAsync()
@@ -523,6 +575,21 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static void AssertThrows<TException>(Action action, string message)
+    where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException(message);
 }
 
 static Task RunSync(Action action)

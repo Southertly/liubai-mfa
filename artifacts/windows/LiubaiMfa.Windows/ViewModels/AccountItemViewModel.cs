@@ -13,6 +13,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
 
     public AccountItemViewModel(MfaAccount model)
     {
+        ArgumentNullException.ThrowIfNull(model);
         Model = model;
         Refresh();
     }
@@ -60,6 +61,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
 
     public void ReplaceModel(MfaAccount model)
     {
+        ArgumentNullException.ThrowIfNull(model);
         Model = model;
         OnPropertyChanged(nameof(Model));
         OnPropertyChanged(nameof(Id));
@@ -74,6 +76,13 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     public void Refresh(DateTimeOffset? now = null)
     {
         var timestamp = now ?? DateTimeOffset.UtcNow;
+        if (string.IsNullOrWhiteSpace(Model.Secret))
+        {
+            Code = "------";
+            SecondsRemaining = 0;
+            return;
+        }
+
         try
         {
             Code = TotpService.Generate(Model.Secret, timestamp, TotpPeriod);
