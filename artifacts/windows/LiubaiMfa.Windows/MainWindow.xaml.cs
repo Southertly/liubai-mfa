@@ -6,8 +6,9 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System.Runtime.InteropServices;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.Graphics;
+using WinRT.Interop;
 
 namespace LiubaiMfa.Windows;
 
@@ -16,6 +17,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan BackgroundLockDelay = TimeSpan.FromMinutes(1);
     private readonly WindowsHelloService _windowsHello;
     private readonly NativeFileService _files;
+    private readonly WindowPlacementService _placementService;
     private readonly DispatcherTimer _timer;
     private DateTimeOffset? _deactivatedAt;
     private CancellationTokenSource? _backgroundLockCancellation;
@@ -31,11 +33,15 @@ public sealed partial class MainWindow : Window
         ViewModel = new MainViewModel(new EncryptedAccountRepository(dataDirectory));
         _windowsHello = new WindowsHelloService(this);
         _files = new NativeFileService(this);
+        _placementService = new WindowPlacementService();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => ViewModel.UpdateCodes();
         Activated += Window_Activated;
         RootGrid.Loaded += RootGrid_Loaded;
-        AppWindow.Resize(new SizeInt32(1080, 720));
+        _placementService.Configure(AppWindow, GetWindowDpi());
+        _placementService.RestoreOrApplyDefault(AppWindow, GetWindowDpi);
+        AppWindow.Changed += (_, args) => _placementService.SaveNormalPlacement(AppWindow, args, GetWindowDpi());
+        AppWindow.Closing += (_, _) => _placementService.SaveCurrentNormalPlacement(AppWindow);
         AppWindow.TitleBar.ExtendsContentIntoTitleBar = false;
         AppWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
         AppWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
@@ -547,4 +553,23 @@ public sealed partial class MainWindow : Window
 
     private static string FormatSecret(string secret) => string.Join(' ', Enumerable.Range(0, (secret.Length + 3) / 4)
         .Select(index => secret.Substring(index * 4, Math.Min(4, secret.Length - index * 4))));
+
+    private uint GetWindowDpi()
+    {
+        try
+        {
+            var dpi = NativeMethods.GetDpiForWindow(WindowNative.GetWindowHandle(this));
+            return dpi == 0 ? 96 : dpi;
+        }
+        catch (Exception)
+        {
+            return 96;
+        }
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll")]
+        internal static extern uint GetDpiForWindow(nint windowHandle);
+    }
 }
