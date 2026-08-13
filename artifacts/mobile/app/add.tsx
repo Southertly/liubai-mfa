@@ -49,7 +49,7 @@ export default function AddAccountScreen() {
       setError("请输入账户名称或服务名称");
       return;
     }
-    const testCode = generateTOTP(secret.trim().replace(/\s/g, ""));
+    const testCode = generateTOTP(secret.trim().replace(/\s/g, ""), 30, 6, "SHA1");
     if (testCode === "------") {
       setError("密钥无效，请检查后重试");
       return;
@@ -60,6 +60,9 @@ export default function AddAccountScreen() {
         issuer: issuer.trim(),
         account: account.trim() || issuer.trim(),
         secret: secret.trim().replace(/\s/g, "").toUpperCase(),
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
         group: selectedGroup,
         color: selectedColor,
       });
@@ -382,7 +385,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 24,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     width: "100%",
     justifyContent: "center",
@@ -418,7 +421,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -441,7 +444,7 @@ const styles = StyleSheet.create({
   colorDot: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1.5,
   },
   errorText: {
@@ -450,7 +453,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   addBtn: {
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 15,
     alignItems: "center",
     marginTop: 8,

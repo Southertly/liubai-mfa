@@ -33,9 +33,11 @@ export default function ScanScreen() {
     processingRef.current = true;
     setScanned(true);
 
-    const parsed = parseOtpAuthUri(data);
-    if (!parsed) {
-      setError("无效的验证码二维码，请重试");
+    let parsed;
+    try {
+      parsed = parseOtpAuthUri(data);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "无效的验证码二维码，请重试");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setTimeout(() => {
         setScanned(false);
@@ -186,7 +188,7 @@ const styles = StyleSheet.create({
   permBtn: {
     paddingHorizontal: 28,
     paddingVertical: 12,
-    borderRadius: 24,
+    borderRadius: 8,
     marginTop: 8,
   },
   permBtnText: {
@@ -217,7 +219,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 20,
+    borderRadius: 8,
   },
   topTitle: {
     fontSize: 17,
@@ -284,7 +286,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(239,68,68,0.85)",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 8,
   },
   errorBadgeText: {
     fontSize: 13,

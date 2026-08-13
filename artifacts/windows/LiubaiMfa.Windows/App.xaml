@@ -1,0 +1,15 @@
+<Application
+    x:Class="LiubaiMfa.Windows.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            <SolidColorBrush x:Key="AccentBrush" Color="#5B8DEF" />
+            <SolidColorBrush x:Key="CardBrush" Color="#171A21" />
+            <SolidColorBrush x:Key="MutedBrush" Color="#9CA3AF" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

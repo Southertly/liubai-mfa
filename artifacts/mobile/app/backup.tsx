@@ -11,6 +11,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   Share,
   StyleSheet,
   Text,
@@ -33,6 +34,8 @@ import {
   normalizeRecoveryKey,
   SecureEnvelope,
 } from "@/utils/secureCrypto";
+import { normalizePortableAccounts } from "@/utils/accountSchema";
+import { setSensitiveClipboard } from "@/utils/sensitiveClipboard";
 
 interface LegacyBackupPayload {
   version: 1;
@@ -52,9 +55,9 @@ interface SecureBackupPayload {
 export default function BackupScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { accounts, addAccount } = useAccounts();
+  const { accounts, importAccounts } = useAccounts();
   const { themePreference, setThemePreference } = useTheme();
-  const { systemAuthAvailable } = useLock();
+  const { appLockEnabled, setAppLockEnabled, systemAuthAvailable, lock } = useLock();
 
   const [exportLoading, setExportLoading] = useState(false);
   const [exportAuthVisible, setExportAuthVisible] = useState(false);
@@ -80,8 +83,8 @@ export default function BackupScreen() {
     setExportLoading(true);
     try {
       const accountsJson = JSON.stringify(
-        accounts.map(({ id, issuer, account, secret, group, color, createdAt }) => ({
-          id, issuer, account, secret, group, color, createdAt,
+        accounts.map(({ id, issuer, account, secret, algorithm, digits, period, group, color, createdAt }) => ({
+          id, issuer, account, secret, algorithm, digits, period, group, color, createdAt,
         }))
       );
 
@@ -113,7 +116,7 @@ export default function BackupScreen() {
   };
 
   const copyRecoveryKey = async () => {
-    await Clipboard.setStringAsync(formatRecoveryKey(recoveryKey));
+    await setSensitiveClipboard(formatRecoveryKey(recoveryKey), 60_000);
     setRecoveryKeyCopied(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -168,31 +171,25 @@ export default function BackupScreen() {
         throw new Error("Unsupported backup version");
       }
 
-      if (!Array.isArray(parsed)) throw new Error("Invalid format");
+      const validated = normalizePortableAccounts(parsed);
 
-      // Skip duplicates by secret key
-      const existingSecrets = new Set(accounts.map((a) => a.secret));
-      const newAccounts = parsed.filter(
-        (a) => a.secret && !existingSecrets.has(a.secret)
-      );
-
-      for (const acc of newAccounts) {
-        await addAccount({
+      const result = await importAccounts(validated.map((acc) => ({
           issuer: acc.issuer ?? "",
           account: acc.account ?? "",
           secret: acc.secret,
+          algorithm: acc.algorithm,
+          digits: acc.digits,
+          period: acc.period,
           group: acc.group,
           color: acc.color,
-        });
-      }
-
-      const skipped = parsed.length - newAccounts.length;
+          createdAt: acc.createdAt ?? Date.now(),
+        })));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         "导入成功",
-        skipped > 0
-          ? `已导入 ${newAccounts.length} 个账户，跳过 ${skipped} 个重复账户`
-          : `已成功导入 ${newAccounts.length} 个账户`,
+        result.skipped > 0
+          ? `已导入 ${result.imported} 个账户，跳过 ${result.skipped} 个重复账户`
+          : `已成功导入 ${result.imported} 个账户`,
         [{ text: "确定", onPress: () => router.back() }]
       );
     } catch (e: unknown) {
@@ -306,23 +303,71 @@ export default function BackupScreen() {
                 指纹、面容或手机锁屏密码
               </Text>
             </View>
-            <View style={[
-              styles.statusBadge,
-              { backgroundColor: systemAuthAvailable ? colors.success + "22" : colors.muted },
-            ]}> 
-              <Text style={[styles.statusBadgeText, { color: systemAuthAvailable ? colors.success : colors.mutedForeground }]}> 
-                {systemAuthAvailable ? "可用" : "待设置"}
-              </Text>
-            </View>
           </View>
 
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.appLockRow}>
+            <View style={styles.appLockText}>
+              <Text style={[styles.appLockTitle, { color: colors.foreground }]}>进入 App 时验证身份</Text>
+              <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>首次安装默认关闭；开启后，从后台返回超过一分钟需要验证。</Text>
+            </View>
+            <Switch
+              value={appLockEnabled}
+              onValueChange={(enabled) => void setAppLockEnabled(enabled)}
+              disabled={!systemAuthAvailable}
+              trackColor={{ false: colors.muted, true: colors.primary + "99" }}
+              thumbColor={appLockEnabled ? colors.primary : "#f4f3f4"}
+              accessibilityLabel="进入 App 时验证身份"
+            />
+          </View>
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <View style={[styles.secureNotice, { backgroundColor: colors.primary + "0D" }]}> 
             <Feather name="shield" size={16} color={colors.primary} />
             <Text style={[styles.secureNoticeText, { color: colors.mutedForeground }]}> 
-              应用不会读取或保存你的系统 PIN。所有验证均由 Android 系统完成。
+              关闭应用锁不影响查看或复制密钥、导出备份时的系统身份验证。应用不会读取或保存你的系统 PIN。
             </Text>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="立即锁定应用"
+            disabled={!systemAuthAvailable}
+            onPress={() => {
+              lock();
+              router.back();
+            }}
+            style={({ pressed }) => [
+              styles.manualLockBtn,
+              {
+                backgroundColor: colors.background,
+                borderColor: colors.border,
+                opacity: !systemAuthAvailable ? 0.45 : pressed ? 0.78 : 1,
+              },
+            ]}
+          >
+            <Feather name="lock" size={16} color={colors.foreground} />
+            <Text style={[styles.manualLockBtnText, { color: colors.foreground }]}>立即锁定应用</Text>
+          </Pressable>
+        </View>
+
+        {/* ── Export Section ── */}
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.sectionHead}>
+            <View style={[styles.iconWrap, { backgroundColor: colors.primary + "18" }]}>
+              <Feather name="refresh-cw" size={18} color={colors.primary} />
+            </View>
+            <View style={styles.sectionHeadText}>
+              <Text style={[styles.sectionTitle, { color: colors.foreground }]}>二维码安全迁移</Text>
+              <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>两台设备面对面加密传输，不经过云端</Text>
+            </View>
+          </View>
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <Pressable
+            onPress={() => router.push("/qr-transfer" as never)}
+            style={({ pressed }) => [styles.actionBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 }]}
+          >
+            <Feather name="maximize" size={16} color="#fff" />
+            <Text style={styles.actionBtnText}>开始二维码迁移</Text>
+          </Pressable>
         </View>
 
         {/* ── Export Section ── */}
@@ -533,7 +578,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
   content: { padding: 16, gap: 16 },
   card: {
-    borderRadius: 16,
+    borderRadius: 8,
     borderWidth: 1,
     padding: 16,
     gap: 10,
@@ -552,7 +597,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -560,8 +605,11 @@ const styles = StyleSheet.create({
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
   hint: { fontSize: 11, fontFamily: "Inter_400Regular" },
-  secureNotice: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 10, padding: 11 },
+  secureNotice: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 8, padding: 10 },
   secureNoticeText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  appLockRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  appLockText: { flex: 1, gap: 3 },
+  appLockTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   errorRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   errorText: { fontSize: 12, fontFamily: "Inter_400Regular" },
   themeRow: { flexDirection: "row", gap: 8 },
@@ -572,22 +620,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 6,
     paddingVertical: 10,
   },
   themeLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusBadgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
-  lockBtnsCol: { gap: 8 },
-  pinBtnsRow: { flexDirection: "row", gap: 10, marginTop: 4 },
-  pinBtn: { borderWidth: 1, borderRadius: 12, paddingVertical: 12, alignItems: "center" },
-  pinBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  manualLockBtn: { minHeight: 42, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  manualLockBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingVertical: 13,
   },
   actionBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
@@ -595,7 +639,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     padding: 12,
   },
@@ -607,11 +651,11 @@ const styles = StyleSheet.create({
     padding: 24,
     backgroundColor: "rgba(0,0,0,0.58)",
   },
-  recoveryCard: { width: "100%", maxWidth: 400, borderWidth: 1, borderRadius: 20, padding: 22, gap: 12 },
+  recoveryCard: { width: "100%", maxWidth: 400, borderWidth: 1, borderRadius: 8, padding: 22, gap: 12 },
   recoveryIcon: { width: 48, height: 48, borderRadius: 24, alignSelf: "center", alignItems: "center", justifyContent: "center" },
   recoveryTitle: { textAlign: "center", fontSize: 20, fontFamily: "Inter_700Bold" },
   recoveryDescription: { textAlign: "center", fontSize: 13, lineHeight: 19, fontFamily: "Inter_400Regular" },
-  recoveryValue: { borderWidth: 1, borderRadius: 12, padding: 12, fontSize: 14, lineHeight: 21, fontFamily: "Inter_600SemiBold", textAlign: "center" },
+  recoveryValue: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 14, lineHeight: 21, fontFamily: "Inter_600SemiBold", textAlign: "center" },
   modalCancel: { alignSelf: "center", paddingHorizontal: 18, paddingVertical: 8 },
   modalCancelText: { fontSize: 14, fontFamily: "Inter_500Medium" },
 });

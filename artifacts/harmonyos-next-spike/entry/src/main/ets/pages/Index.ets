@@ -5,6 +5,7 @@ import { asset } from '@kit.AssetStoreKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { systemShare } from '@kit.ShareKit';
 import { userAuth } from '@kit.UserAuthenticationKit';
@@ -21,12 +22,31 @@ import {
   verifyMobileV2Compatibility
 } from '../utils/BackupCrypto';
 import {
+  assembleTransferPackage,
+  buildPairingQr,
+  encodeTransferPackage,
+  EncryptedTransferPackage,
+  parsePairingQr,
+  parseTransferChunk,
+  PairingQr,
+  QR_TRANSFER_SESSION_MS,
+  TransferChunk
+} from '../utils/QrTransfer';
+import {
+  clearQrReceiveSession,
+  createQrReceiveSession,
+  QrReceiveSession,
+  unwrapQrTransferKey,
+  wrapQrTransferKey
+} from '../utils/QrTransferCrypto';
+import {
   AppColors,
   colorsFor,
   LABEL_COLORS,
   labelColor,
   LabelColorOption
 } from '../ui/ProductTheme';
+import { QrContinuousScanner } from '../components/QrContinuousScanner';
 
 interface AuthSelection {
   authTypes: userAuth.UserAuthType[];
@@ -34,11 +54,28 @@ interface AuthSelection {
   details: string;
 }
 
+interface ServiceBadge {
+  label: string;
+  foreground: string;
+  background: string;
+}
+
+interface QrImportResult {
+  imported: number;
+  skipped: number;
+}
+
+const QR_TRANSFER_LOG_DOMAIN = 0x0000;
+
+// Google Identity 官方 80x80 中性圆形品牌图标（PNG @2x）。
+const GOOGLE_ICON_DATA_URI: string = 'data:image/png;base64,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';
+
 interface AccountRecord {
   id: string;
   issuer: string;
   name: string;
   secretAlias: string;
+  algorithm: string;
   digits: number;
   period: number;
   group?: string;
@@ -46,11 +83,17 @@ interface AccountRecord {
   createdAt?: number;
 }
 
+interface AccountStorePayload {
+  version: number;
+  accounts: AccountRecord[];
+}
+
 interface MfaAccount {
   id: string;
   issuer: string;
   name: string;
   secretAlias: string;
+  algorithm: string;
   digits: number;
   period: number;
   group: string;
@@ -64,6 +107,7 @@ interface OtpAuthAccount {
   issuer: string;
   name: string;
   secret: string;
+  algorithm: string;
   digits: number;
   period: number;
   group?: string;
@@ -98,11 +142,19 @@ struct Index {
   @State importRecoveryKey: string = '';
   @State selectedBackupText: string = '';
   @State selectedBackupReady: boolean = false;
+  @State qrTransferMode: string = 'choice';
+  @State qrPairingValue: string = '';
+  @State qrTransferParts: string[] = [];
+  @State qrTransferPartIndex: number = 0;
+  @State qrTransferAutoAdvance: boolean = true;
+  @State qrReceivedParts: number = 0;
+  @State qrExpectedParts: number = 0;
   @State themePreference: string = 'system';
   @State systemDark: boolean = false;
   @State consentLoaded: boolean = false;
   @State privacyAccepted: boolean = false;
-  @State appLocked: boolean = true;
+  @State appLocked: boolean = false;
+  @State appLockEnabled: boolean = false;
   @State pendingDeleteId: string = '';
   @State editingGroupName: string = '';
   @State renameGroupInput: string = '';
@@ -115,18 +167,25 @@ struct Index {
   @State editCreatingGroup: boolean = false;
   @State moveGroupInput: string = '';
   @StorageLink('mfa_verifier_should_lock') @Watch('onLifecycleLockChanged') lifecycleShouldLock: boolean = false;
+  @StorageLink('mfa_verifier_app_lock_enabled') lifecycleAppLockEnabled: boolean = false;
 
   private readonly preferencesName: string = 'mfa_verifier_accounts_v1';
   private readonly accountsKey: string = 'accounts';
+  private readonly pendingAliasCleanupKey: string = 'pending_alias_cleanup_v1';
   private readonly themeKey: string = 'theme_preference';
   private readonly privacyKey: string = 'mfa_verifier_privacy_consent_v1';
+  private readonly appLockKey: string = 'mfa_verifier_app_lock_enabled_v1';
   private readonly privacyPolicyUrl: string = 'https://example.com/mfa-verifier/privacy';
   private readonly assetPrefix: string = 'mfa-verifier-account-secret-';
   private readonly codeClipboardTtlMs: number = 30_000;
   private readonly sensitiveClipboardTtlMs: number = 60_000;
   private sessionSecrets: Map<string, string> = new Map<string, string>();
+  private qrReceiveSession: QrReceiveSession | undefined = undefined;
+  private qrIncomingChunks: Map<number, string> = new Map<number, string>();
   private timerId: number = -1;
+  private qrTransferTimerId: number = -1;
   private clipboardGeneration: number = 0;
+  private accountsWritable: boolean = false;
 
   aboutToAppear(): void {
     void this.initializeProductState();
@@ -148,21 +207,42 @@ struct Index {
       }
       const consent = await prefs.get(this.privacyKey, false);
       this.privacyAccepted = consent === true;
+      const appLock = await prefs.get(this.appLockKey, false);
+      this.appLockEnabled = appLock === true;
+      this.lifecycleAppLockEnabled = this.appLockEnabled;
     } catch (error) {
       this.status = `读取应用设置失败：${this.errorText(error)}`;
     }
     this.consentLoaded = true;
     await this.loadAccounts();
+    await this.cleanupPendingAliases();
+    if (this.privacyAccepted && this.appLockEnabled) {
+      await this.unlockApplication();
+    } else {
+      this.appLocked = false;
+      try {
+        await this.loadCodesWithoutApplicationLock();
+      } catch (error) {
+        try {
+          await this.migrateAccountSecretAccessToDirectDisplay();
+          await this.loadCodesWithoutApplicationLock();
+          this.status = '已迁移账户安全策略，验证码现可直接显示';
+        } catch (migrationError) {
+          this.status = `无法直接显示验证码：${this.errorText(migrationError)}`;
+        }
+      }
+    }
   }
 
   aboutToDisappear(): void {
     if (this.timerId >= 0) {
       clearInterval(this.timerId);
     }
+    this.stopQrTransferAutoAdvance();
   }
 
   private onLifecycleLockChanged(): void {
-    if (!this.lifecycleShouldLock) {
+    if (!this.lifecycleShouldLock || !this.appLockEnabled) {
       return;
     }
     this.lifecycleShouldLock = false;
@@ -271,10 +351,10 @@ struct Index {
     return code;
   }
 
-  private async hmacSha1(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  private async hmac(key: Uint8Array, message: Uint8Array, algorithm: string): Promise<Uint8Array> {
     const keyGenerator = cryptoFramework.createSymKeyGenerator('HMAC');
     const symKey = await keyGenerator.convertKey({ data: key });
-    const macSpec: cryptoFramework.HmacSpec = { algName: 'HMAC', mdName: 'SHA1' };
+    const macSpec: cryptoFramework.HmacSpec = { algName: 'HMAC', mdName: algorithm };
     const mac = cryptoFramework.createMac(macSpec);
     await mac.init(symKey);
     await mac.update({ data: message });
@@ -282,10 +362,16 @@ struct Index {
     return result.data;
   }
 
-  private async generateTotp(secret: string, timeMs: number, period: number, digits: number): Promise<string> {
+  private async generateTotp(
+    secret: string,
+    timeMs: number,
+    period: number,
+    digits: number,
+    algorithm: string
+  ): Promise<string> {
     const key = this.base32Decode(this.normalizedSecret(secret));
     const counter = Math.floor(Math.floor(timeMs / 1000) / period);
-    const digest = await this.hmacSha1(key, this.counterBytes(counter));
+    const digest = await this.hmac(key, this.counterBytes(counter), algorithm);
     const offset = digest[digest.length - 1] & 0x0f;
     const binary =
       ((digest[offset] & 0x7f) << 24) |
@@ -362,7 +448,7 @@ struct Index {
     }
 
     const algorithm = (queryValues.get('algorithm') ?? 'SHA1').toUpperCase();
-    if (algorithm !== 'SHA1') {
+    if (algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') {
       throw new Error(`Unsupported TOTP algorithm: ${algorithm}.`);
     }
 
@@ -382,6 +468,7 @@ struct Index {
       issuer: issuer.length > 0 ? issuer : 'Imported',
       name,
       secret: this.normalizeSecretInput(rawSecret),
+      algorithm,
       digits,
       period
     };
@@ -404,15 +491,35 @@ struct Index {
       // Missing assets are expected when adding a new account.
     }
 
+    await this.addSecret(alias, secret, this.appLockEnabled ? asset.AuthType.ANY : asset.AuthType.NONE);
+  }
+
+  private async addSecret(alias: string, secret: string, authType: asset.AuthType): Promise<void> {
     const attributes = this.accountAssetQuery(alias);
     attributes.set(asset.Tag.SECRET, this.bytesFromString(secret));
     attributes.set(asset.Tag.ACCESSIBILITY, asset.Accessibility.DEVICE_UNLOCKED);
     attributes.set(asset.Tag.REQUIRE_PASSWORD_SET, true);
-    attributes.set(asset.Tag.AUTH_TYPE, asset.AuthType.ANY);
+    attributes.set(asset.Tag.AUTH_TYPE, authType);
     await asset.add(attributes);
   }
 
+  private async readDirectSecret(alias: string): Promise<string> {
+    const query = this.accountAssetQuery(alias);
+    query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL);
+    const results = await asset.query(query);
+    const secret = results.length > 0 ? results[0].get(asset.Tag.SECRET) : undefined;
+    if (secret instanceof Uint8Array) {
+      return this.stringFromBytes(secret);
+    }
+    throw new Error('Protected secret is missing.');
+  }
+
   private async readProtectedSecret(alias: string, title: string): Promise<string> {
+    if (!this.appLockEnabled) {
+      await this.requestBiometricPermission();
+      await this.authenticate(cryptoFramework.createRandom().generateRandomSync(32).data, title);
+      return this.readDirectSecret(alias);
+    }
     const query = this.accountAssetQuery(alias);
     const challenge = await asset.preQuery(query);
     const token = await this.authenticate(challenge, title);
@@ -429,6 +536,150 @@ struct Index {
       return this.stringFromBytes(secret);
     }
     throw new Error('Protected secret is missing.');
+  }
+
+  private async loadCodesWithoutApplicationLock(): Promise<void> {
+    const unlockedAccounts: MfaAccount[] = [];
+    for (const account of this.accounts) {
+      const secret = await this.readDirectSecret(account.secretAlias);
+      this.sessionSecrets.set(account.id, secret);
+      unlockedAccounts.push({
+        id: account.id,
+        issuer: account.issuer,
+        name: account.name,
+        secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
+        digits: account.digits,
+        period: account.period,
+        group: account.group,
+        color: account.color,
+        createdAt: account.createdAt,
+        code: await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm),
+        revealedSecret: ''
+      });
+    }
+    this.accounts = unlockedAccounts;
+  }
+
+  private migratedSecretAlias(account: MfaAccount, policy: string): string {
+    return `mfa-${account.id}-${policy}-${Date.now()}`;
+  }
+
+  private async readSecretsWithAssetAuthentication(title: string): Promise<Map<string, string>> {
+    const secrets = new Map<string, string>();
+    if (this.accounts.length === 0) {
+      return secrets;
+    }
+
+    await this.requestBiometricPermission();
+    const challenge = await asset.preQuery(this.accountAssetQuery(this.accounts[0].secretAlias));
+    try {
+      const token = await this.authenticate(challenge, title);
+      for (const account of this.accounts) {
+        const query = this.accountAssetQuery(account.secretAlias);
+        query.set(asset.Tag.AUTH_CHALLENGE, challenge);
+        query.set(asset.Tag.AUTH_TOKEN, token);
+        query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL);
+        const results = await asset.query(query);
+        const value = results.length > 0 ? results[0].get(asset.Tag.SECRET) : undefined;
+        if (!(value instanceof Uint8Array)) {
+          throw new Error('Protected secret is missing.');
+        }
+        secrets.set(account.secretAlias, this.stringFromBytes(value));
+      }
+    } finally {
+      const handle: asset.AssetMap = new Map<asset.Tag, asset.Value>();
+      handle.set(asset.Tag.AUTH_CHALLENGE, challenge);
+      await asset.postQuery(handle);
+    }
+    return secrets;
+  }
+
+  private async migrateAccountSecretAccessToDirectDisplay(): Promise<void> {
+    const secrets = await this.readSecretsWithAssetAuthentication('关闭应用锁并直接显示验证码');
+    const migratedAccounts: MfaAccount[] = [];
+    const createdAliases: string[] = [];
+    const oldAliases: string[] = [];
+    let committed = false;
+    try {
+      for (const account of this.accounts) {
+        const secret = secrets.get(account.secretAlias);
+        if (secret === undefined) {
+          throw new Error('Protected secret is missing.');
+        }
+        const secretAlias = this.migratedSecretAlias(account, 'direct');
+        await this.addSecret(secretAlias, secret, asset.AuthType.NONE);
+        createdAliases.push(secretAlias);
+        oldAliases.push(account.secretAlias);
+        migratedAccounts.push({
+          id: account.id,
+          issuer: account.issuer,
+          name: account.name,
+          secretAlias,
+          algorithm: account.algorithm,
+          digits: account.digits,
+          period: account.period,
+          group: account.group,
+          color: account.color,
+          createdAt: account.createdAt,
+          code: '',
+          revealedSecret: ''
+        });
+      }
+      await this.saveAccountRecords(migratedAccounts, false);
+      committed = true;
+      this.accounts = migratedAccounts;
+      await this.cleanupAliases(oldAliases);
+    } catch (error) {
+      if (!committed) {
+        await this.cleanupAliases(createdAliases);
+      }
+      throw new Error(this.errorText(error as Object));
+    }
+  }
+
+  private async migrateAccountSecretAccessToApplicationLock(): Promise<void> {
+    const secrets = await this.readAllProtectedSecrets('开启应用锁并保护验证码');
+    const migratedAccounts: MfaAccount[] = [];
+    const createdAliases: string[] = [];
+    const oldAliases: string[] = [];
+    let committed = false;
+    try {
+      for (const account of this.accounts) {
+        const secret = secrets.get(account.secretAlias);
+        if (secret === undefined) {
+          throw new Error('Protected secret is missing.');
+        }
+        const secretAlias = this.migratedSecretAlias(account, 'locked');
+        await this.addSecret(secretAlias, secret, asset.AuthType.ANY);
+        createdAliases.push(secretAlias);
+        oldAliases.push(account.secretAlias);
+        migratedAccounts.push({
+          id: account.id,
+          issuer: account.issuer,
+          name: account.name,
+          secretAlias,
+          algorithm: account.algorithm,
+          digits: account.digits,
+          period: account.period,
+          group: account.group,
+          color: account.color,
+          createdAt: account.createdAt,
+          code: '',
+          revealedSecret: ''
+        });
+      }
+      await this.saveAccountRecords(migratedAccounts, true);
+      committed = true;
+      this.sessionSecrets.clear();
+      this.accounts = migratedAccounts;
+      await this.cleanupAliases(oldAliases);
+    } catch (error) {
+      if (!committed) {
+        await this.cleanupAliases(createdAliases);
+      }
+      throw new Error(this.errorText(error as Object));
+    }
   }
 
   private async copyText(value: string, clearAfterMs: number, clearedStatus: string): Promise<void> {
@@ -477,6 +728,15 @@ struct Index {
     const permissions: Permissions[] = ['ohos.permission.ACCESS_BIOMETRIC'];
     const result = await atManager.requestPermissionsFromUser(context, permissions);
     this.permissionResult = `permissions=${result.permissions.join(', ')}, authResults=${result.authResults.join(', ')}`;
+  }
+
+  private async requestCameraPermission(): Promise<boolean> {
+    const atManager = abilityAccessCtrl.createAtManager();
+    const context = getContext(this) as common.UIAbilityContext;
+    const permissions: Permissions[] = ['ohos.permission.CAMERA'];
+    const result = await atManager.requestPermissionsFromUser(context, permissions);
+    return result.authResults.length > 0 &&
+      result.authResults[0] === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
   }
 
   private authTypeName(authType: userAuth.UserAuthType): string {
@@ -560,7 +820,6 @@ struct Index {
         reject(error as Error);
         return;
       }
-      this.status = `正在打开系统身份验证：${authSelection.details}`;
       const authParam: userAuth.AuthParam = {
         challenge,
         authType: authSelection.authTypes,
@@ -603,14 +862,28 @@ struct Index {
   }
 
   private recordToAccount(record: AccountRecord): MfaAccount {
+    if (record === undefined || typeof record.id !== 'string' || record.id.length === 0 ||
+      typeof record.issuer !== 'string' || typeof record.name !== 'string' || record.name.trim().length === 0 ||
+      typeof record.secretAlias !== 'string' || record.secretAlias.length === 0) {
+      throw new Error('Account record is invalid.');
+    }
+    const algorithm = typeof record.algorithm === 'string' ? record.algorithm.toUpperCase() : 'SHA1';
+    const digits = record.digits ?? 6;
+    const period = record.period ?? 30;
+    if ((algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') ||
+      !Number.isInteger(digits) || digits < 6 || digits > 8 ||
+      !Number.isInteger(period) || period < 1 || period > 300) {
+      throw new Error('Account record contains unsupported TOTP parameters.');
+    }
     const numericId = Number(record.id.split('-')[0]);
     return {
       id: record.id,
       issuer: record.issuer,
       name: record.name,
       secretAlias: record.secretAlias,
-      digits: record.digits ?? 6,
-      period: record.period ?? 30,
+      algorithm,
+      digits,
+      period,
       group: record.group ?? '',
       color: record.color ?? 'blue',
       createdAt: record.createdAt ?? (Number.isFinite(numericId) ? numericId : Date.now()),
@@ -625,6 +898,7 @@ struct Index {
       issuer: account.issuer,
       name: account.name,
       secretAlias: account.secretAlias,
+      algorithm: account.algorithm,
       digits: account.digits,
       period: account.period,
       group: account.group,
@@ -634,32 +908,90 @@ struct Index {
   }
 
   private async loadAccounts(): Promise<void> {
+    this.accountsWritable = false;
     try {
       const prefs = await this.getPreferences();
-      const raw = await prefs.get(this.accountsKey, '[]');
-      if (typeof raw === 'string') {
-        const parsed = JSON.parse(raw) as AccountRecord[];
-        const loaded: MfaAccount[] = [];
-        for (const record of parsed) {
-          loaded.push(this.recordToAccount(record));
-        }
-        this.accounts = loaded;
+      const raw = await prefs.get(this.accountsKey, '{"version":1,"accounts":[]}');
+      if (typeof raw !== 'string') {
+        throw new Error('Account storage is not text.');
+      }
+      const parsed = JSON.parse(raw) as AccountRecord[] | AccountStorePayload;
+      const legacy = Array.isArray(parsed);
+      const records = legacy ? parsed as AccountRecord[] : (parsed as AccountStorePayload).accounts;
+      if ((!legacy && (parsed as AccountStorePayload).version !== 1) || !Array.isArray(records)) {
+        throw new Error('Unsupported account storage version.');
+      }
+      const loaded: MfaAccount[] = [];
+      for (const record of records) {
+        loaded.push(this.recordToAccount(record));
+      }
+      this.accounts = loaded;
+      this.accountsWritable = true;
+      if (legacy) {
+        await this.saveAccountRecords(loaded);
       }
       this.status = this.accounts.length > 0 ? `已安全加载 ${this.accounts.length} 个账户` : '还没有账户，点击右上角添加';
     } catch (error) {
-      this.status = `账户加载失败：${this.errorText(error)}`;
+      this.accountsWritable = false;
+      this.status = `账户加载失败，已暂停所有修改以保护旧数据：${this.errorText(error)}`;
     }
   }
 
-  private async saveAccountRecords(accounts?: MfaAccount[]): Promise<void> {
+  private async saveAccountRecords(accounts?: MfaAccount[], appLockValue?: boolean): Promise<void> {
+    if (!this.accountsWritable) {
+      throw new Error('Account storage is unavailable; writes are blocked to protect existing data.');
+    }
     const records: AccountRecord[] = [];
     const source = accounts ?? this.accounts;
     for (const account of source) {
       records.push(this.accountToRecord(account));
     }
     const prefs = await this.getPreferences();
-    await prefs.put(this.accountsKey, JSON.stringify(records));
+    const payload: AccountStorePayload = { version: 1, accounts: records };
+    await prefs.put(this.accountsKey, JSON.stringify(payload));
+    if (appLockValue !== undefined) {
+      await prefs.put(this.appLockKey, appLockValue);
+    }
     await prefs.flush();
+  }
+
+  private async cleanupAliases(aliases: string[]): Promise<void> {
+    const prefs = await this.getPreferences();
+    let pending: string[] = [];
+    try {
+      const raw = await prefs.get(this.pendingAliasCleanupKey, '[]');
+      if (typeof raw === 'string') {
+        const parsed = JSON.parse(raw) as string[];
+        if (Array.isArray(parsed)) {
+          pending = parsed.filter((value: string): boolean => typeof value === 'string');
+        }
+      }
+    } catch (error) {
+      pending = [];
+    }
+    const remaining: string[] = [];
+    const candidates = Array.from(new Set<string>(pending.concat(aliases)));
+    for (const alias of candidates) {
+      try {
+        await asset.remove(this.accountAssetQuery(alias));
+      } catch (error) {
+        remaining.push(alias);
+      }
+    }
+    try {
+      await prefs.put(this.pendingAliasCleanupKey, JSON.stringify(remaining));
+      await prefs.flush();
+    } catch (error) {
+      // Cleanup metadata is best effort and must never roll back committed account records.
+    }
+  }
+
+  private async cleanupPendingAliases(): Promise<void> {
+    try {
+      await this.cleanupAliases([]);
+    } catch (error) {
+      // Account availability takes priority over orphan cleanup.
+    }
   }
 
   private updateAccount(id: string, code: string, revealedSecret: string): void {
@@ -671,6 +1003,7 @@ struct Index {
           issuer: account.issuer,
           name: account.name,
           secretAlias: account.secretAlias,
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group,
@@ -697,26 +1030,36 @@ struct Index {
   private async saveProtectedAccount(input: OtpAuthAccount, successStatus: string): Promise<void> {
     const id = `${Date.now()}`;
     const secretAlias = `${this.assetPrefix}${id}`;
-    await this.saveSecret(secretAlias, input.secret);
-    const code = await this.generateTotp(input.secret, this.nowMs, input.period, input.digits);
-    const account: MfaAccount = {
-      id,
-      issuer: input.issuer,
-      name: input.name,
-      secretAlias,
-      digits: input.digits,
-      period: input.period,
-      group: input.group ?? '',
-      color: input.color ?? 'blue',
-      createdAt: input.createdAt ?? Date.now(),
-      code,
-      revealedSecret: ''
-    };
-    this.sessionSecrets.set(id, input.secret);
-    const updatedAccounts = [account, ...this.accounts];
-    this.accounts = updatedAccounts;
-    await this.saveAccountRecords(updatedAccounts);
-    this.status = successStatus;
+    let secretCreated = false;
+    try {
+      await this.saveSecret(secretAlias, input.secret);
+      secretCreated = true;
+      const code = await this.generateTotp(input.secret, this.nowMs, input.period, input.digits, input.algorithm);
+      const account: MfaAccount = {
+        id,
+        issuer: input.issuer,
+        name: input.name,
+        secretAlias,
+        algorithm: input.algorithm,
+        digits: input.digits,
+        period: input.period,
+        group: input.group ?? '',
+        color: input.color ?? 'blue',
+        createdAt: input.createdAt ?? Date.now(),
+        code,
+        revealedSecret: ''
+      };
+      const updatedAccounts = [account, ...this.accounts];
+      await this.saveAccountRecords(updatedAccounts);
+      this.sessionSecrets.set(id, input.secret);
+      this.accounts = updatedAccounts;
+      this.status = successStatus;
+    } catch (error) {
+      if (secretCreated) {
+        await this.cleanupAliases([secretAlias]);
+      }
+      throw new Error(this.errorText(error as Object));
+    }
   }
 
   private async addAccount(): Promise<void> {
@@ -732,6 +1075,7 @@ struct Index {
         issuer,
         name,
         secret: this.normalizeSecretInput(this.secretInput),
+        algorithm: 'SHA1',
         digits: 6,
         period: 30,
         group: this.normalizedGroupValue(this.groupInput, this.addCreatingGroup),
@@ -822,7 +1166,7 @@ struct Index {
       await this.requestBiometricPermission();
       const secret = await this.readProtectedSecret(account.secretAlias, `生成 ${account.issuer} 验证码`);
       this.sessionSecrets.set(account.id, secret);
-      const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits);
+      const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm);
       this.updateAccount(account.id, code, account.revealedSecret);
       this.status = '验证码已安全解锁';
     } catch (error) {
@@ -883,6 +1227,7 @@ struct Index {
         issuer,
         name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: this.normalizedGroupValue(this.editGroupInput, this.editCreatingGroup),
@@ -895,14 +1240,14 @@ struct Index {
       for (const item of this.accounts) {
         updatedAccounts.push(item.id === account.id ? updatedAccount : item);
       }
-      this.accounts = updatedAccounts;
+      await this.saveAccountRecords(updatedAccounts);
+      this.accounts = [...updatedAccounts];
       this.editingAccountId = '';
       this.editIssuerInput = '';
       this.editNameInput = '';
       this.editGroupInput = '';
       this.editCreatingGroup = false;
       this.editColorInput = 'blue';
-      await this.saveAccountRecords(updatedAccounts);
       this.status = '账户信息已保存';
       this.pathStack.pop();
     } catch (error) {
@@ -914,19 +1259,19 @@ struct Index {
   private async deleteAccount(account: MfaAccount): Promise<void> {
     this.isRunning = true;
     try {
-      await asset.remove(this.accountAssetQuery(account.secretAlias));
       const next: MfaAccount[] = [];
       for (const item of this.accounts) {
         if (item.id !== account.id) {
           next.push(item);
         }
       }
+      await this.saveAccountRecords(next);
       this.accounts = next;
       this.sessionSecrets.delete(account.id);
       if (this.editingAccountId === account.id) {
         this.cancelEdit();
       }
-      await this.saveAccountRecords(next);
+      await this.cleanupAliases([account.secretAlias]);
       this.status = '账户及其安全密钥已删除';
     } catch (error) {
       this.status = `删除失败：${this.errorText(error)}`;
@@ -940,7 +1285,7 @@ struct Index {
       let code = account.code;
       const secret = this.sessionSecrets.get(account.id);
       if (code.length === 0 && secret !== undefined) {
-        code = await this.generateTotp(secret, this.nowMs, account.period, account.digits);
+        code = await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm);
         this.updateAccount(account.id, code, account.revealedSecret);
       }
       if (code.length === 0) {
@@ -980,6 +1325,16 @@ struct Index {
   private async readAllProtectedSecrets(title: string): Promise<Map<string, string>> {
     const secrets = new Map<string, string>();
     if (this.accounts.length === 0) {
+      return secrets;
+    }
+    if (!this.appLockEnabled) {
+      await this.requestBiometricPermission();
+      await this.authenticate(cryptoFramework.createRandom().generateRandomSync(32).data, title);
+      for (const account of this.accounts) {
+        const secret = await this.readDirectSecret(account.secretAlias);
+        secrets.set(account.secretAlias, secret);
+        this.sessionSecrets.set(account.id, secret);
+      }
       return secrets;
     }
     const challenge = await asset.preQuery(this.accountAssetQuery(this.accounts[0].secretAlias));
@@ -1030,6 +1385,7 @@ struct Index {
           account: account.name,
           secret,
           createdAt: account.createdAt > 0 ? account.createdAt : (Number.isFinite(numericId) ? numericId : Date.now()),
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group.length > 0 ? account.group : undefined,
@@ -1188,18 +1544,22 @@ struct Index {
     }
     const issuer = account.issuer.trim();
     const name = account.account.trim();
-    if (issuer.length === 0 || name.length === 0) {
-      throw new Error('Backup account names cannot be empty.');
+    if (name.length === 0) {
+      throw new Error('Backup account name cannot be empty.');
     }
+    const algorithm = typeof account.algorithm === 'string' ? account.algorithm.toUpperCase() : 'SHA1';
     const digits = typeof account.digits === 'number' ? account.digits : 6;
     const period = typeof account.period === 'number' ? account.period : 30;
-    if (!Number.isInteger(digits) || digits < 6 || digits > 8 || !Number.isInteger(period) || period <= 0) {
+    if ((algorithm !== 'SHA1' && algorithm !== 'SHA256' && algorithm !== 'SHA512') ||
+      !Number.isInteger(digits) || digits < 6 || digits > 8 ||
+      !Number.isInteger(period) || period <= 0 || period > 300) {
       throw new Error('Backup contains unsupported TOTP parameters.');
     }
     return {
       issuer,
       name,
       secret: this.normalizeSecretInput(account.secret),
+      algorithm,
       digits,
       period,
       group: typeof account.group === 'string' ? account.group.trim() : '',
@@ -1250,6 +1610,7 @@ struct Index {
           issuer: input.issuer,
           name: input.name,
           secretAlias,
+          algorithm: input.algorithm,
           digits: input.digits,
           period: input.period,
           group: input.group ?? '',
@@ -1278,6 +1639,299 @@ struct Index {
       this.status = `导入备份失败：${this.errorText(error)}`;
     }
     this.isRunning = false;
+  }
+
+  private async authenticateQrTransfer(title: string): Promise<void> {
+    await this.requestBiometricPermission();
+    const challenge = cryptoFramework.createRandom().generateRandomSync(32).data;
+    await this.authenticate(challenge, title);
+  }
+
+  private async scanTransferQrValue(): Promise<string> {
+    const hostContext = this.getUIContext().getHostContext();
+    if (hostContext === undefined) {
+      throw new Error('Cannot open scanner without an ArkUI host context.');
+    }
+    const options: scanBarcode.ScanOptions = {
+      scanTypes: [scanCore.ScanType.QR_CODE],
+      enableMultiMode: false,
+      enableAlbum: false
+    };
+    const result = await scanBarcode.startScanForResult(hostContext, options);
+    const value = result.originalValue.trim();
+    if (value.length === 0) {
+      throw new Error('Scanned QR code is empty.');
+    }
+    return value;
+  }
+
+  private async startReceivingQrTransfer(): Promise<void> {
+    this.isRunning = true;
+    try {
+      await this.authenticateQrTransfer('创建一次性二维码接收密钥');
+      clearQrReceiveSession(this.qrReceiveSession);
+      this.qrReceiveSession = await createQrReceiveSession();
+      this.qrPairingValue = buildPairingQr({
+        sessionId: this.qrReceiveSession.sessionId,
+        publicKey: this.qrReceiveSession.publicKey,
+        expiresAt: this.qrReceiveSession.expiresAt
+      });
+      this.qrIncomingChunks.clear();
+      this.qrReceivedParts = 0;
+      this.qrExpectedParts = 0;
+      this.qrTransferMode = 'receive';
+      this.status = '一次性配对二维码已生成，5 分钟后失效';
+      const expiringSession: QrReceiveSession = this.qrReceiveSession;
+      setTimeout(() => {
+        if (this.qrReceiveSession?.sessionId === expiringSession.sessionId && Date.now() >= expiringSession.expiresAt) {
+          clearQrReceiveSession(expiringSession);
+          this.qrReceiveSession = undefined;
+          this.qrPairingValue = '';
+          this.qrIncomingChunks.clear();
+          this.qrTransferMode = 'choice';
+          this.status = '二维码接收会话已过期，请重新开始';
+        }
+      }, QR_TRANSFER_SESSION_MS + 1000);
+    } catch (error) {
+      this.status = `无法开始接收：${this.errorText(error)}`;
+    }
+    this.isRunning = false;
+  }
+
+  private async openQrContinuousScanner(): Promise<void> {
+    this.isRunning = true;
+    try {
+      const session = this.qrReceiveSession;
+      if (session === undefined || session.expiresAt < Date.now()) {
+        throw new Error('QR receive session has expired.');
+      }
+      if (!await this.requestCameraPermission()) {
+        throw new Error('Camera permission was not granted.');
+      }
+      this.qrTransferMode = 'receive-scan';
+      this.status = '连续扫码已启动，请保持镜头对准旧设备';
+    } catch (error) {
+      this.status = `无法启动连续扫码：${this.errorText(error)}`;
+    }
+    this.isRunning = false;
+  }
+
+  private stopQrTransferAutoAdvance(): void {
+    if (this.qrTransferTimerId >= 0) {
+      clearInterval(this.qrTransferTimerId);
+      this.qrTransferTimerId = -1;
+    }
+  }
+
+  private startQrTransferAutoAdvance(): void {
+    this.stopQrTransferAutoAdvance();
+    this.qrTransferAutoAdvance = true;
+    if (this.qrTransferParts.length <= 1) {
+      return;
+    }
+    this.qrTransferTimerId = setInterval(() => {
+      if (this.qrTransferMode === 'send' && this.qrTransferAutoAdvance && this.qrTransferParts.length > 1) {
+        this.qrTransferPartIndex = (this.qrTransferPartIndex + 1) % this.qrTransferParts.length;
+      }
+    }, 1500);
+  }
+
+  private toggleQrTransferAutoAdvance(): void {
+    if (this.qrTransferAutoAdvance) {
+      this.qrTransferAutoAdvance = false;
+      this.stopQrTransferAutoAdvance();
+    } else {
+      this.startQrTransferAutoAdvance();
+    }
+  }
+
+  private async startSendingQrTransfer(): Promise<void> {
+    this.isRunning = true;
+    try {
+      if (this.accounts.length === 0) {
+        throw new Error('No accounts to transfer.');
+      }
+      const secrets = await this.readAllProtectedSecrets('发送 MFA 账户到新设备');
+      const pairing: PairingQr = parsePairingQr(await this.scanTransferQrValue());
+      const portable: PortableAccount[] = [];
+      for (const account of this.accounts) {
+        const secret = secrets.get(account.secretAlias);
+        if (secret === undefined) {
+          throw new Error(`Protected secret is missing for ${account.issuer}.`);
+        }
+        portable.push({
+          id: account.id,
+          issuer: account.issuer,
+          account: account.name,
+          secret,
+          createdAt: account.createdAt,
+          algorithm: account.algorithm,
+          digits: account.digits,
+          period: account.period,
+          group: account.group,
+          color: account.color
+        });
+      }
+      const portableJson = JSON.stringify(portable);
+      const plaintextBytes = new util.TextEncoder().encodeInto(portableJson).length;
+      const transferKey = generateRecoveryKey();
+      const payload: EncryptedTransferPackage = {
+        version: 1,
+        sessionId: pairing.sessionId,
+        wrappedKey: await wrapQrTransferKey(pairing.publicKey, transferKey),
+        data: await encryptString(portableJson, transferKey)
+      };
+      this.qrTransferParts = encodeTransferPackage(payload);
+      hilog.info(QR_TRANSFER_LOG_DOMAIN, 'MfaVerifier',
+        'QR send metadata accounts=%{public}d plaintextBytes=%{public}d ciphertextChars=%{public}d parts=%{public}d renderer=%{public}s',
+        portable.length, plaintextBytes, payload.data.ciphertext.length, this.qrTransferParts.length, 'native');
+      this.qrTransferPartIndex = 0;
+      this.qrTransferMode = 'send';
+      this.startQrTransferAutoAdvance();
+      this.status = `紧凑二维码已准备，共 ${this.qrTransferParts.length} 张，将自动轮播`;
+    } catch (error) {
+      this.stopQrTransferAutoAdvance();
+      const maybeBusinessError = error as Record<string, Object>;
+      if (maybeBusinessError['code'] === scanCore.ScanErrorCode.SCAN_SERVICE_CANCELED) {
+        this.status = '已取消二维码迁移';
+      } else {
+        this.status = `无法准备账户二维码：${this.errorText(error)}`;
+      }
+    }
+    this.isRunning = false;
+  }
+
+  private async importQrPortableAccounts(portableAccounts: PortableAccount[]): Promise<QrImportResult> {
+    if (!Array.isArray(portableAccounts) || portableAccounts.length > 500) {
+      throw new Error('Invalid account transfer payload.');
+    }
+    const createdAliases: string[] = [];
+    try {
+      const existingSecretMap = await this.readAllProtectedSecrets('导入二维码账户前检查重复密钥');
+      const knownSecrets = new Set<string>();
+      existingSecretMap.forEach((secret: string): void => {
+        knownSecrets.add(this.normalizedSecret(secret));
+      });
+      const importedAccounts: MfaAccount[] = [];
+      let skipped = 0;
+      for (let index = 0; index < portableAccounts.length; index++) {
+        const input = this.validatedPortableAccount(portableAccounts[index]);
+        if (knownSecrets.has(input.secret)) {
+          skipped += 1;
+          continue;
+        }
+        knownSecrets.add(input.secret);
+        const id = `${Date.now()}-qr-${index}`;
+        const secretAlias = `${this.assetPrefix}${id}`;
+        await this.saveSecret(secretAlias, input.secret);
+        createdAliases.push(secretAlias);
+        importedAccounts.push({
+          id,
+          issuer: input.issuer,
+          name: input.name,
+          secretAlias,
+          algorithm: input.algorithm,
+          digits: input.digits,
+          period: input.period,
+          group: input.group ?? '',
+          color: input.color ?? 'blue',
+          createdAt: input.createdAt ?? Date.now(),
+          code: '',
+          revealedSecret: ''
+        });
+      }
+      const nextAccounts = [...importedAccounts, ...this.accounts];
+      await this.saveAccountRecords(nextAccounts);
+      this.accounts = nextAccounts;
+      return { imported: importedAccounts.length, skipped };
+    } catch (error) {
+      for (const alias of createdAliases) {
+        try {
+          await asset.remove(this.accountAssetQuery(alias));
+        } catch (cleanupError) {
+          // Orphan cleanup is best effort; no saved record points at these aliases.
+        }
+      }
+      throw new Error(this.errorText(error));
+    }
+  }
+
+  private async consumeQrTransferPart(value: string): Promise<boolean> {
+    try {
+      const session = this.qrReceiveSession;
+      if (session === undefined) {
+        throw new Error('QR receive session has expired.');
+      }
+      if (session.expiresAt < Date.now()) {
+        clearQrReceiveSession(session);
+        this.qrReceiveSession = undefined;
+        this.qrIncomingChunks.clear();
+        this.qrPairingValue = '';
+        this.qrReceivedParts = 0;
+        this.qrExpectedParts = 0;
+        this.qrTransferMode = 'choice';
+        this.status = '二维码接收会话已过期，请重新开始';
+        return false;
+      }
+      const chunk: TransferChunk = parseTransferChunk(value);
+      if (chunk.sessionId !== session.sessionId) {
+        this.status = '已忽略其他接收设备的二维码，继续等待本次迁移';
+        return true;
+      }
+      if (this.qrExpectedParts !== 0 && this.qrExpectedParts !== chunk.total) {
+        this.status = '已忽略其他迁移序列的二维码，继续等待本次迁移';
+        return true;
+      }
+      this.qrIncomingChunks.set(chunk.index, chunk.data);
+      this.qrExpectedParts = chunk.total;
+      this.qrReceivedParts = this.qrIncomingChunks.size;
+      if (this.qrIncomingChunks.size === chunk.total) {
+        const payload = assembleTransferPackage(session.sessionId, this.qrIncomingChunks, chunk.total);
+        this.qrReceiveSession = undefined;
+        const transferKey = await unwrapQrTransferKey(session, payload.wrappedKey);
+        if (!isValidRecoveryKey(transferKey)) {
+          throw new Error('Temporary transfer key is invalid.');
+        }
+        const plaintext = await decryptString(payload.data, transferKey);
+        const portable = JSON.parse(plaintext) as PortableAccount[];
+        const result = await this.importQrPortableAccounts(portable);
+        this.qrIncomingChunks.clear();
+        this.qrPairingValue = '';
+        this.qrTransferMode = 'choice';
+        this.status = `二维码迁移完成：新增 ${result.imported} 个，跳过 ${result.skipped} 个重复账户`;
+        return false;
+      } else {
+        this.status = `已接收 ${this.qrReceivedParts}/${this.qrExpectedParts} 张，正在自动等待其余二维码`;
+        return true;
+      }
+    } catch (error) {
+      if (this.qrReceiveSession === undefined) {
+        this.qrIncomingChunks.clear();
+        this.qrPairingValue = '';
+        this.qrReceivedParts = 0;
+        this.qrExpectedParts = 0;
+        this.qrTransferMode = 'choice';
+        this.status = `二维码迁移失败：${this.errorText(error)}`;
+        return false;
+      }
+      this.status = `未识别为本次账户二维码，继续扫描：${this.errorText(error)}`;
+      return true;
+    }
+  }
+
+  private resetQrTransfer(): void {
+    this.stopQrTransferAutoAdvance();
+    clearQrReceiveSession(this.qrReceiveSession);
+    this.qrReceiveSession = undefined;
+    this.qrIncomingChunks.clear();
+    this.qrPairingValue = '';
+    this.qrTransferParts = [];
+    this.qrTransferPartIndex = 0;
+    this.qrTransferAutoAdvance = true;
+    this.qrReceivedParts = 0;
+    this.qrExpectedParts = 0;
+    this.qrTransferMode = 'choice';
+    this.status = '本次二维码迁移数据已清除';
   }
 
   private isDarkMode(): boolean {
@@ -1317,12 +1971,40 @@ struct Index {
     this.status = preference === 'system' ? '主题已设为跟随系统' : `已切换为${preference === 'dark' ? '深色' : '浅色'}主题`;
   }
 
+  private async setAppLockEnabled(enabled: boolean): Promise<void> {
+    this.isRunning = true;
+    try {
+      if (enabled) {
+        this.availableAuthSelection();
+        await this.migrateAccountSecretAccessToApplicationLock();
+      } else {
+        await this.migrateAccountSecretAccessToDirectDisplay();
+        await this.loadCodesWithoutApplicationLock();
+      }
+      this.appLockEnabled = enabled;
+      this.lifecycleAppLockEnabled = enabled;
+      if (!enabled) {
+        this.appLocked = false;
+      }
+      this.status = enabled ? '已开启进入应用时的身份验证' : '已关闭进入应用时的身份验证';
+    } catch (error) {
+      this.status = `更新应用锁失败：${this.errorText(error)}`;
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
   private async acceptPrivacy(): Promise<void> {
     const prefs = await this.getPreferences();
     await prefs.put(this.privacyKey, true);
     await prefs.flush();
     this.privacyAccepted = true;
     this.status = '隐私设置已保存在本机';
+    if (this.appLockEnabled) {
+      await this.unlockApplication();
+    } else {
+      this.appLocked = false;
+    }
   }
 
   private async openPrivacyPolicy(): Promise<void> {
@@ -1358,12 +2040,13 @@ struct Index {
             issuer: account.issuer,
             name: account.name,
             secretAlias: account.secretAlias,
+            algorithm: account.algorithm,
             digits: account.digits,
             period: account.period,
             group: account.group,
             color: account.color,
             createdAt: account.createdAt,
-            code: await this.generateTotp(secret, this.nowMs, account.period, account.digits),
+            code: await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm),
             revealedSecret: ''
           });
         }
@@ -1388,6 +2071,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: account.group,
@@ -1541,6 +2225,65 @@ struct Index {
     return source.length > 0 ? source.substring(0, Math.min(2, source.length)).toUpperCase() : 'M';
   }
 
+  private serviceBadge(account: MfaAccount): ServiceBadge | undefined {
+    const source = `${account.issuer} ${account.name}`.toLowerCase();
+    if (source.includes('google') || source.includes('gmail') || source.includes('谷歌')) {
+      return { label: 'G', foreground: '#4285F4', background: '#E8F0FE' };
+    }
+    if (source.includes('microsoft') || source.includes('outlook') || source.includes('office 365') ||
+      source.includes('azure') || source.includes('微软')) {
+      return { label: '⊞', foreground: '#737373', background: '#F3F4F6' };
+    }
+    if (source.includes('apple') || source.includes('icloud') || source.includes('苹果')) {
+      return { label: 'A', foreground: '#111111', background: '#F4F4F5' };
+    }
+    if (source.includes('github')) {
+      return { label: 'GH', foreground: '#FFFFFF', background: '#24292F' };
+    }
+    if (source.includes('amazon') || source.includes('aws')) {
+      return { label: 'aws', foreground: '#FF9900', background: '#232F3E' };
+    }
+    if (source.includes('cloudflare')) {
+      return { label: 'CF', foreground: '#F48120', background: '#FFF2E6' };
+    }
+    if (source.includes('facebook')) {
+      return { label: 'f', foreground: '#FFFFFF', background: '#1877F2' };
+    }
+    if (source.includes('twitter') || source.includes('x.com')) {
+      return { label: 'X', foreground: '#FFFFFF', background: '#111111' };
+    }
+    return undefined;
+  }
+
+  private isGoogleAccount(account: MfaAccount): boolean {
+    const source = `${account.issuer} ${account.name}`.toLowerCase();
+    return source.includes('google') || source.includes('gmail') || source.includes('谷歌');
+  }
+
+  private accountIconText(account: MfaAccount): string {
+    const badge = this.serviceBadge(account);
+    return badge === undefined ? this.accountInitials(account) : badge.label;
+  }
+
+  private accountIconForeground(account: MfaAccount): string {
+    const badge = this.serviceBadge(account);
+    return badge === undefined ? '#FFFFFF' : badge.foreground;
+  }
+
+  private accountIconBackground(account: MfaAccount): string {
+    const badge = this.serviceBadge(account);
+    return badge === undefined ? labelColor(account.color, this.colors().primarySoft) : badge.background;
+  }
+
+  private accountIconFontSize(account: MfaAccount): number {
+    const length = this.accountIconText(account).length;
+    return length > 2 ? 10 : length > 1 ? 12 : 18;
+  }
+
+  private accountPresentationKey(account: MfaAccount): string {
+    return `${account.id}|${account.issuer}|${account.name}|${account.group}|${account.color}|${account.code}`;
+  }
+
   private formattedCode(account: MfaAccount): string {
     if (account.code.length === 0) {
       return '••• •••';
@@ -1589,6 +2332,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: group === undefined ? account.group : group,
@@ -1627,6 +2371,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: nextName,
@@ -1657,6 +2402,7 @@ struct Index {
         issuer: account.issuer,
         name: account.name,
         secretAlias: account.secretAlias,
+        algorithm: account.algorithm,
         digits: account.digits,
         period: account.period,
         group: '',
@@ -1682,12 +2428,13 @@ struct Index {
     for (const account of this.accounts) {
       const secret = this.sessionSecrets.get(account.id);
       if (secret !== undefined) {
-        const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits);
+        const code = await this.generateTotp(secret, this.nowMs, account.period, account.digits, account.algorithm);
         next.push({
           id: account.id,
           issuer: account.issuer,
           name: account.name,
           secretAlias: account.secretAlias,
+          algorithm: account.algorithm,
           digits: account.digits,
           period: account.period,
           group: account.group,
@@ -1765,27 +2512,34 @@ struct Index {
       Row({ space: 12 }) {
         Stack() {
           Circle({ width: 44, height: 44 })
-            .fill(labelColor(account.color, this.colors().primarySoft));
-          Text(this.accountInitials(account))
-            .fontSize(15)
+            .fill(this.accountIconBackground(account));
+          Text(this.accountIconText(account))
+            .fontSize(this.accountIconFontSize(account))
             .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF');
+            .fontColor(this.accountIconForeground(account));
+          if (this.isGoogleAccount(account)) {
+            Image(GOOGLE_ICON_DATA_URI)
+              .width(44)
+              .height(44)
+              .objectFit(ImageFit.Contain)
+              .accessibilityText('Google');
+          }
         }
         .width(44)
         .height(44);
 
         Column({ space: 2 }) {
-          Text(account.issuer.toUpperCase())
-            .fontSize(11)
+          Text(account.issuer)
+            .fontSize(15)
             .fontWeight(FontWeight.Bold)
-            .fontColor(this.colors().mutedForeground)
+            .fontColor(this.colors().foreground)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%');
           Text(account.name)
-            .fontSize(14)
+            .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor(this.colors().foreground)
+            .fontColor(this.colors().mutedForeground)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%');
@@ -1902,7 +2656,7 @@ struct Index {
           },
           edgeEffect: SwipeEdgeEffect.Spring
         });
-      }, (account: MfaAccount) => account.id);
+      }, (account: MfaAccount) => this.accountPresentationKey(account));
     } else {
       ForEach(this.accountGroups(this.accounts), (group: string) => {
         ListItem() {
@@ -1954,7 +2708,7 @@ struct Index {
               },
               edgeEffect: SwipeEdgeEffect.Spring
             });
-          }, (account: MfaAccount) => account.id);
+          }, (account: MfaAccount) => this.accountPresentationKey(account));
         }
       }, (group: string) => group);
 
@@ -1973,7 +2727,7 @@ struct Index {
           },
           edgeEffect: SwipeEdgeEffect.Spring
         });
-      }, (account: MfaAccount) => account.id);
+      }, (account: MfaAccount) => this.accountPresentationKey(account));
     }
 
     ListItem() {
@@ -2437,6 +3191,35 @@ struct Index {
               .lineHeight(20)
               .fontColor(this.colors().mutedForeground)
               .width('100%');
+            Row({ space: 12 }) {
+              Column({ space: 3 }) {
+                Text('进入 App 时验证身份')
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.colors().foreground)
+                  .width('100%');
+                Text('首次安装默认关闭；开启后，从后台返回超过一分钟需要验证。')
+                  .fontSize(12)
+                  .lineHeight(18)
+                  .fontColor(this.colors().mutedForeground)
+                  .width('100%');
+              }
+              .layoutWeight(1);
+              Toggle({ type: ToggleType.Switch, isOn: this.appLockEnabled })
+                .selectedColor(this.colors().primary)
+                .onChange((enabled: boolean) => {
+                  void this.setAppLockEnabled(enabled);
+                });
+            }
+            .width('100%');
+            Text('关闭应用锁不影响查看或复制密钥、导出备份时的系统身份验证。')
+              .fontSize(12)
+              .lineHeight(18)
+              .fontColor(this.colors().mutedForeground)
+              .backgroundColor(this.colors().primarySoft)
+              .padding(10)
+              .borderRadius(8)
+              .width('100%');
             Button('立即锁定应用')
               .height(42)
               .fontSize(14)
@@ -2447,6 +3230,41 @@ struct Index {
               .onClick(() => {
                 this.pathStack.clear();
                 this.lockApplication();
+              });
+          }
+          .padding(16)
+          .backgroundColor(this.colors().surface)
+          .borderRadius(8)
+          .border({ width: 1, color: this.colors().border })
+          .width('100%');
+
+          Column({ space: 12 }) {
+            Row({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.qrcode'))
+                .fontSize(20)
+                .fontColor([this.colors().primary]);
+              Text('二维码安全迁移')
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.colors().foreground)
+                .layoutWeight(1);
+            }
+            .width('100%');
+            Text('两台设备面对面加密传输，不经过云端；相同密钥自动跳过。')
+              .fontSize(12)
+              .lineHeight(19)
+              .fontColor(this.colors().mutedForeground)
+              .width('100%');
+            Button('开始二维码迁移')
+              .height(46)
+              .fontSize(14)
+              .fontColor('#FFFFFF')
+              .backgroundColor(this.colors().primary)
+              .borderRadius(8)
+              .width('100%')
+              .onClick(() => {
+                this.resetQrTransfer();
+                this.pathStack.pushPathByName('qrTransfer', null);
               });
           }
           .padding(16)
@@ -2614,6 +3432,220 @@ struct Index {
   }
 
   @Builder
+  private qrTransferDestination() {
+    NavDestination() {
+      Scroll() {
+        Column({ space: 16 }) {
+          Column({ space: 10 }) {
+            Row({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.lock'))
+                .fontSize(20)
+                .fontColor([this.colors().primary]);
+              Text('一次性公钥加密')
+                .fontSize(17)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.colors().foreground);
+            }
+            .width('100%');
+            Text('配对二维码仅包含临时公钥，账户二维码仅包含密文。私钥只在接收设备内存中保存，完成或取消后立即清除。')
+              .fontSize(13)
+              .lineHeight(20)
+              .fontColor(this.colors().mutedForeground)
+              .width('100%');
+          }
+          .padding(16)
+          .backgroundColor(this.colors().primarySoft)
+          .borderRadius(8)
+          .width('100%');
+
+          if (this.qrTransferMode === 'choice') {
+            Column({ space: 12 }) {
+              Button('接收账户')
+                .height(50)
+                .fontSize(15)
+                .fontColor('#FFFFFF')
+                .backgroundColor(this.colors().primary)
+                .borderRadius(8)
+                .width('100%')
+                .enabled(!this.isRunning)
+                .onClick(() => {
+                  void this.startReceivingQrTransfer();
+                });
+              Button(`发送 ${this.accounts.length} 个账户`)
+                .height(50)
+                .fontSize(15)
+                .fontColor(this.colors().foreground)
+                .backgroundColor(this.colors().input)
+                .borderRadius(8)
+                .width('100%')
+                .enabled(!this.isRunning && this.accounts.length > 0)
+                .onClick(() => {
+                  void this.startSendingQrTransfer();
+                });
+            }
+            .padding(16)
+            .backgroundColor(this.colors().surface)
+            .borderRadius(8)
+            .border({ width: 1, color: this.colors().border })
+            .width('100%');
+          } else if (this.qrTransferMode === 'receive') {
+            Column({ space: 12 }) {
+              Text('让旧设备扫描此配对码')
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.colors().foreground);
+              Text('配对码只包含一次性公钥，5 分钟后失效。')
+                .fontSize(12)
+                .fontColor(this.colors().mutedForeground);
+              QRCode(this.qrPairingValue)
+                .width(260)
+                .height(260)
+                .color('#000000')
+                .backgroundColor('#FFFFFF');
+              Button('开始连续扫描')
+                .height(48)
+                .fontSize(14)
+                .fontColor('#FFFFFF')
+                .backgroundColor(this.colors().primary)
+                .borderRadius(8)
+                .width('100%')
+                .enabled(!this.isRunning)
+                .onClick(() => {
+                  void this.openQrContinuousScanner();
+                });
+              Button('取消本次接收')
+                .height(40)
+                .fontSize(13)
+                .fontColor(this.colors().destructive)
+                .backgroundColor('#00000000')
+                .onClick(() => {
+                  this.resetQrTransfer();
+                });
+            }
+            .alignItems(HorizontalAlign.Center)
+            .padding(16)
+            .backgroundColor(this.colors().surface)
+            .borderRadius(8)
+            .border({ width: 1, color: this.colors().border })
+            .width('100%');
+          } else if (this.qrTransferMode === 'receive-scan') {
+            Column({ space: 12 }) {
+              Text('连续扫描账户二维码')
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.colors().foreground);
+              Text('保持镜头对准旧设备，无需点击下一张；三张二维码会自动收集。')
+                .fontSize(12)
+                .fontColor(this.colors().mutedForeground)
+                .textAlign(TextAlign.Center);
+              QrContinuousScanner({
+                onDetected: async (value: string): Promise<boolean> => await this.consumeQrTransferPart(value),
+                onError: (message: string): void => {
+                  this.status = `连续扫码异常，正在重试：${message}`;
+                }
+              });
+              if (this.qrExpectedParts > 0) {
+                Text(`已接收 ${this.qrReceivedParts}/${this.qrExpectedParts} 张`)
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.colors().primary);
+              }
+              Button('取消本次接收')
+                .height(40)
+                .fontSize(13)
+                .fontColor(this.colors().destructive)
+                .backgroundColor('#00000000')
+                .onClick(() => {
+                  this.resetQrTransfer();
+                });
+            }
+            .alignItems(HorizontalAlign.Center)
+            .padding(16)
+            .backgroundColor(this.colors().surface)
+            .borderRadius(8)
+            .border({ width: 1, color: this.colors().border })
+            .width('100%');
+          } else if (this.qrTransferMode === 'send' && this.qrTransferParts.length > 0) {
+            Column({ space: 12 }) {
+              Text('让新设备扫描账户码')
+                .fontSize(18)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.colors().foreground);
+              Text('仅刚才配对的接收设备可以解密。请保持新设备对准，二维码会自动轮播。')
+                .fontSize(12)
+                .fontColor(this.colors().mutedForeground);
+              QRCode(this.qrTransferParts[this.qrTransferPartIndex])
+                .width(260)
+                .height(260)
+                .color('#000000')
+                .backgroundColor('#FFFFFF');
+              Text(`第 ${this.qrTransferPartIndex + 1}/${this.qrTransferParts.length} 张`)
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.colors().primary);
+              if (this.qrTransferParts.length > 1) {
+                Row({ space: 8 }) {
+                  Button('上一张')
+                    .height(42)
+                    .fontSize(13)
+                    .fontColor(this.colors().foreground)
+                    .backgroundColor(this.colors().input)
+                    .layoutWeight(1)
+                    .onClick(() => {
+                      this.qrTransferPartIndex = (this.qrTransferPartIndex - 1 +
+                        this.qrTransferParts.length) % this.qrTransferParts.length;
+                    });
+                  Button(this.qrTransferAutoAdvance ? '暂停轮播' : '自动轮播')
+                    .height(42)
+                    .fontSize(13)
+                    .fontColor(this.colors().foreground)
+                    .backgroundColor(this.colors().input)
+                    .layoutWeight(1)
+                    .onClick(() => {
+                      this.toggleQrTransferAutoAdvance();
+                    });
+                  Button('下一张')
+                    .height(42)
+                    .fontSize(13)
+                    .fontColor(this.colors().foreground)
+                    .backgroundColor(this.colors().input)
+                    .layoutWeight(1)
+                    .onClick(() => {
+                      this.qrTransferPartIndex = (this.qrTransferPartIndex + 1) % this.qrTransferParts.length;
+                    });
+                }
+                .width('100%');
+              }
+              Button('完成并清除二维码')
+                .height(42)
+                .fontSize(13)
+                .fontColor(this.colors().destructive)
+                .backgroundColor('#00000000')
+                .onClick(() => {
+                  this.resetQrTransfer();
+                });
+            }
+            .alignItems(HorizontalAlign.Center)
+            .padding(16)
+            .backgroundColor(this.colors().surface)
+            .borderRadius(8)
+            .border({ width: 1, color: this.colors().border })
+            .width('100%');
+          }
+
+          this.statusStrip();
+        }
+        .padding(16)
+        .width('100%');
+      }
+      .width('100%')
+      .height('100%');
+    }
+    .title('二维码安全迁移')
+    .backgroundColor(this.colors().background);
+  }
+
+  @Builder
   private groupsDestination() {
     NavDestination() {
       Scroll() {
@@ -2725,6 +3757,8 @@ struct Index {
       this.backupDestination();
     } else if (routeName === 'groups') {
       this.groupsDestination();
+    } else if (routeName === 'qrTransfer') {
+      this.qrTransferDestination();
     }
   }
 
@@ -2826,7 +3860,7 @@ struct Index {
         .fontSize(13)
         .fontColor(this.colors().mutedForeground)
         .margin({ top: 8, bottom: 24 });
-      Button(this.isRunning ? '正在验证…' : '验证身份')
+      Button('验证身份')
         .height(48)
         .fontSize(15)
         .fontColor('#FFFFFF')
@@ -2837,13 +3871,15 @@ struct Index {
         .onClick(() => {
           void this.unlockApplication();
         });
-      Text(this.status)
-        .fontSize(12)
-        .fontColor(this.colors().mutedForeground)
-        .textAlign(TextAlign.Center)
-        .margin({ top: 14 })
-        .maxLines(2)
-        .width('80%');
+      if (this.status.includes('失败')) {
+        Text(this.status)
+          .fontSize(12)
+          .fontColor(this.colors().destructive)
+          .textAlign(TextAlign.Center)
+          .margin({ top: 14 })
+          .maxLines(2)
+          .width('80%');
+      }
       Blank().layoutWeight(1);
     }
     .width('100%')

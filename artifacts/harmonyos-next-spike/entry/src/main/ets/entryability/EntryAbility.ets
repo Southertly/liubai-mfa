@@ -5,6 +5,7 @@ import { window } from '@kit.ArkUI';
 const DOMAIN = 0x0000;
 const BACKGROUND_AT_KEY = 'mfa_verifier_background_at';
 const SHOULD_LOCK_KEY = 'mfa_verifier_should_lock';
+const APP_LOCK_ENABLED_KEY = 'mfa_verifier_app_lock_enabled';
 const BACKGROUND_LOCK_TIMEOUT_MS = 60_000;
 
 export default class EntryAbility extends UIAbility {
@@ -21,6 +22,7 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     AppStorage.setOrCreate<number>(BACKGROUND_AT_KEY, 0);
     AppStorage.setOrCreate<boolean>(SHOULD_LOCK_KEY, false);
+    AppStorage.setOrCreate<boolean>(APP_LOCK_ENABLED_KEY, false);
     hilog.info(DOMAIN, 'MfaVerifier', '%{public}s', 'EntryAbility onCreate');
   }
 
@@ -45,7 +47,8 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     const backgroundAt = AppStorage.get<number>(BACKGROUND_AT_KEY) ?? 0;
-    if (backgroundAt > 0 && Date.now() - backgroundAt >= BACKGROUND_LOCK_TIMEOUT_MS) {
+    const appLockEnabled = AppStorage.get<boolean>(APP_LOCK_ENABLED_KEY) ?? false;
+    if (appLockEnabled && backgroundAt > 0 && Date.now() - backgroundAt >= BACKGROUND_LOCK_TIMEOUT_MS) {
       AppStorage.set<boolean>(SHOULD_LOCK_KEY, true);
     }
     AppStorage.set<number>(BACKGROUND_AT_KEY, 0);

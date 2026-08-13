@@ -27,8 +27,10 @@ export function LockOverlay() {
     }
     if (attempted.current) return;
     attempted.current = true;
-    const timer = setTimeout(authenticate, 400);
-    return () => clearTimeout(timer);
+    const frame = requestAnimationFrame(() => {
+      void authenticate();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [authenticate, isLocked]);
 
   if (!isLocked) return null;
@@ -70,7 +72,7 @@ export function LockOverlay() {
           <Feather name="lock" size={18} color="#fff" />
         )}
         <Text style={styles.authButtonText}>
-          {checking ? "等待系统验证…" : "使用系统认证"}
+          验证身份
         </Text>
       </Pressable>
     </View>
@@ -89,7 +91,7 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 72,
     height: 72,
-    borderRadius: 20,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
@@ -105,7 +107,7 @@ const styles = StyleSheet.create({
   authButton: {
     width: "100%",
     maxWidth: 340,
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 15,
     flexDirection: "row",
     alignItems: "center",

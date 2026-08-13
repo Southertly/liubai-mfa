@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   card: {
-    borderRadius: 24,
+    borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     maxWidth: 420,
     padding: 22,
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
   },
   linkButton: {
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     marginTop: 18,
     paddingVertical: 12,
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     flex: 1,
     paddingVertical: 13,
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: "center",
-    borderRadius: 14,
+    borderRadius: 8,
     flex: 1,
     paddingVertical: 13,
   },

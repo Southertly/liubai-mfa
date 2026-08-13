@@ -120,8 +120,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
     borderWidth: 1,
     borderBottomWidth: 0,
     paddingHorizontal: 24,
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
   cancelBtn: {
     width: "100%",
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 13,
     alignItems: "center",
   },
