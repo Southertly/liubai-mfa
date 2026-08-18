@@ -249,16 +249,6 @@ public sealed partial class AuthenticatorView : UserControl
 
     private void DeleteMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.Delete);
 
-    private void AccountRow_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
-    {
-        if (sender is FrameworkElement row)
-        {
-            // ContextRequested 同时覆盖鼠标右键和 Shift+F10，避免 ContextFlyout 被重复打开。
-            ShowAccountMenu(row);
-            e.Handled = true;
-        }
-    }
-
     private void AccountRow_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (!TryGetAccountId(sender, out var id))
@@ -304,8 +294,6 @@ public sealed partial class AuthenticatorView : UserControl
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
         }
     }
-
-    private static void ShowAccountMenu(FrameworkElement row) => row.ContextFlyout?.ShowAt(row);
 
     private static bool IsKeyDown(VirtualKey key) =>
         (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;

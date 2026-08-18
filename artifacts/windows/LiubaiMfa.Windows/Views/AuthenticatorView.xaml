@@ -156,8 +156,7 @@
                                 UseSystemFocusVisuals="True"
                                 Tag="{x:Bind Id}"
                                 AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
-                                KeyDown="AccountRow_KeyDown"
-                                ContextRequested="AccountRow_ContextRequested">
+                                KeyDown="AccountRow_KeyDown">
                                 <Border.ContextFlyout>
                                     <MenuFlyout>
                                         <MenuFlyoutItem
