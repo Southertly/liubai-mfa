@@ -14,7 +14,7 @@ public sealed class NativeFileService
         _windowHandle = WindowNative.GetWindowHandle(window);
     }
 
-    public async Task<bool> SaveBackupAsync(string contents)
+    public async Task<StorageFile?> PickBackupSaveFileAsync()
     {
         var picker = new FileSavePicker
         {
@@ -22,14 +22,14 @@ public sealed class NativeFileService
         };
         picker.FileTypeChoices.Add("留白 MFA 加密备份", new List<string> { ".mfa-backup" });
         InitializeWithWindow.Initialize(picker, _windowHandle);
-        var file = await picker.PickSaveFileAsync();
-        if (file is null)
-        {
-            return false;
-        }
+        return await picker.PickSaveFileAsync();
+    }
 
+    public async Task WriteBackupAsync(StorageFile file, string contents)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentNullException.ThrowIfNull(contents);
         await FileIO.WriteTextAsync(file, contents);
-        return true;
     }
 
     public async Task<string?> OpenBackupAsync()

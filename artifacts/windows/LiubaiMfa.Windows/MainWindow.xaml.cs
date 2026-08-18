@@ -19,9 +19,12 @@ public sealed partial class MainWindow : Window
     private readonly WindowsHelloService _windowsHello;
     private readonly NativeFileService _files;
     private readonly WindowPlacementService _placementService;
+    private readonly UnlockSessionGuard _sessionGuard = new();
     private readonly DispatcherTimer _timer;
     private DateTimeOffset? _deactivatedAt;
     private CancellationTokenSource? _backgroundLockCancellation;
+    private ContentDialog? _activeDialog;
+    private long _activeSession;
     private bool _isUnlocked;
     private bool _unlockInProgress;
 
@@ -32,7 +35,6 @@ public sealed partial class MainWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Liubai MFA");
         ViewModel = new MainViewModel(new EncryptedAccountRepository(dataDirectory));
-        AuthenticatorView.Initialize(ViewModel);
         AuthenticatorView.AddRequested += AddAccount_Click;
         AuthenticatorView.ImportQrRequested += ImportQr_Click;
         AuthenticatorView.LockRequested += Lock_Click;
@@ -63,10 +65,16 @@ public sealed partial class MainWindow : Window
     private async void RootGrid_Loaded(object sender, RoutedEventArgs e)
     {
         RootGrid.Loaded -= RootGrid_Loaded;
-        if (!await _windowsHello.IsAvailableAsync())
+        try
         {
-            LockView.Message = "此电脑尚未配置 Windows Hello。请先在 Windows 设置中配置系统 PIN、指纹或面容。";
-            LockView.ButtonContent = "重新检测 Windows Hello";
+            if (!await _windowsHello.IsAvailableAsync())
+            {
+                SetHelloUnavailableMessage();
+            }
+        }
+        catch (Exception)
+        {
+            SetHelloTemporarilyUnavailableMessage();
         }
     }
 
@@ -108,7 +116,15 @@ public sealed partial class MainWindow : Window
 
     private async void Unlock_Click(object? sender, EventArgs e)
     {
-        await UnlockAsync();
+        try
+        {
+            await UnlockAsync();
+        }
+        catch (Exception)
+        {
+            Lock();
+            LockView.Message = "无法完成解锁，请稍后重试。";
+        }
     }
 
     private async Task UnlockAsync()
@@ -123,14 +139,35 @@ public sealed partial class MainWindow : Window
         LockView.Message = "正在等待系统验证…";
         try
         {
-            if (!await _windowsHello.IsAvailableAsync())
+            bool isHelloAvailable;
+            try
             {
-                LockView.Message = "Windows Hello 仍不可用。请先在系统设置中完成配置后重试。";
-                LockView.ButtonContent = "重新检测 Windows Hello";
+                isHelloAvailable = await _windowsHello.IsAvailableAsync();
+            }
+            catch (Exception)
+            {
+                SetHelloTemporarilyUnavailableMessage();
                 return;
             }
 
-            if (!await _windowsHello.VerifyAsync("验证身份以解锁留白 MFA"))
+            if (!isHelloAvailable)
+            {
+                SetHelloUnavailableMessage();
+                return;
+            }
+
+            bool isVerified;
+            try
+            {
+                isVerified = await _windowsHello.VerifyAsync("验证身份以解锁留白 MFA");
+            }
+            catch (Exception)
+            {
+                SetHelloTemporarilyUnavailableMessage();
+                return;
+            }
+
+            if (!isVerified)
             {
                 LockView.Message = "身份验证未完成，应用仍保持锁定。";
                 return;
@@ -149,12 +186,13 @@ public sealed partial class MainWindow : Window
                 }
             }
 
+            Volatile.Write(ref _activeSession, _sessionGuard.BeginUnlockedSession());
             _isUnlocked = true;
+            AuthenticatorView.Attach(ViewModel);
             LockView.ButtonContent = "使用 Windows Hello 解锁";
             LockView.Visibility = Visibility.Collapsed;
             AuthenticatorView.Visibility = Visibility.Visible;
             _timer.Start();
-            AuthenticatorView.RefreshState();
         }
         finally
         {
@@ -167,8 +205,12 @@ public sealed partial class MainWindow : Window
 
     private void Lock()
     {
+        _sessionGuard.Invalidate();
+        Volatile.Write(ref _activeSession, 0);
         _isUnlocked = false;
+        HideActiveDialog();
         _timer.Stop();
+        AuthenticatorView.Detach();
         ViewModel.Unload();
         LockView.Message = "使用 Windows Hello 验证身份后即可查看验证码。";
         LockView.ButtonContent = "使用 Windows Hello 解锁";
@@ -178,8 +220,13 @@ public sealed partial class MainWindow : Window
 
     private async void AddAccount_Click(object? sender, EventArgs e)
     {
-        var input = await ShowAccountDialogAsync("添加账户", null);
-        if (input is null)
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
+        var input = await ShowAccountDialogAsync(token, "添加账户", null);
+        if (input is null || !IsSessionCurrent(token))
         {
             return;
         }
@@ -187,8 +234,13 @@ public sealed partial class MainWindow : Window
         try
         {
             await ViewModel.AddAsync(input);
+            if (!IsSessionCurrent(token))
+            {
+                return;
+            }
+
             AuthenticatorView.RefreshState();
-            ShowStatus("账户已添加。", InfoBarSeverity.Success);
+            ShowStatus(token, "账户已添加。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
         {
@@ -196,28 +248,38 @@ public sealed partial class MainWindow : Window
         }
         catch (InvalidOperationException exception)
         {
-            ShowStatus(exception.Message, InfoBarSeverity.Warning);
+            ShowStatus(token, exception.Message, InfoBarSeverity.Warning);
         }
     }
 
     private async void ImportQr_Click(object? sender, EventArgs e)
     {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
         try
         {
             var file = await _files.OpenQrImageAsync();
-            if (file is null)
+            if (file is null || !IsSessionCurrent(token))
             {
                 return;
             }
 
             var value = await QrCodeImportService.DecodeAsync(file);
-            if (value is null || !OtpAuthUriParser.TryParse(value, out var parsed) || parsed is null)
+            if (!IsSessionCurrent(token))
             {
-                ShowStatus("图片中没有可识别的 TOTP 二维码。", InfoBarSeverity.Warning);
                 return;
             }
 
-            var input = await ShowAccountDialogAsync("确认二维码账户", new MfaAccount
+            if (value is null || !OtpAuthUriParser.TryParse(value, out var parsed) || parsed is null)
+            {
+                ShowStatus(token, "图片中没有可识别的 TOTP 二维码。", InfoBarSeverity.Warning);
+                return;
+            }
+
+            var input = await ShowAccountDialogAsync(token, "确认二维码账户", new MfaAccount
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Issuer = parsed.Issuer,
@@ -225,14 +287,19 @@ public sealed partial class MainWindow : Window
                 Secret = parsed.Secret,
                 CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             });
-            if (input is null)
+            if (input is null || !IsSessionCurrent(token))
             {
                 return;
             }
 
             await ViewModel.AddAsync(input);
+            if (!IsSessionCurrent(token))
+            {
+                return;
+            }
+
             AuthenticatorView.RefreshState();
-            ShowStatus("二维码账户已导入。", InfoBarSeverity.Success);
+            ShowStatus(token, "二维码账户已导入。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
         {
@@ -240,12 +307,17 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or FormatException)
         {
-            ShowStatus(exception.Message, InfoBarSeverity.Error);
+            ShowStatus(token, exception.Message, InfoBarSeverity.Error);
         }
     }
 
     private void CopyCode_Click(object? sender, AccountRequestedEventArgs e)
     {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
         var account = AuthenticatorView.FindAccount(e.AccountId);
         if (account is null)
         {
@@ -253,19 +325,24 @@ public sealed partial class MainWindow : Window
         }
 
         CopyText(account.Code);
-        ShowStatus("验证码已复制。", InfoBarSeverity.Success);
+        ShowStatus(token, "验证码已复制。", InfoBarSeverity.Success);
     }
 
     private async void EditAccount_Click(object? sender, AccountRequestedEventArgs e)
     {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
         var existing = AuthenticatorView.FindAccount(e.AccountId);
         if (existing is null)
         {
             return;
         }
 
-        var updated = await ShowAccountDialogAsync("编辑账户", existing.Model, allowSecretEdit: false);
-        if (updated is null)
+        var updated = await ShowAccountDialogAsync(token, "编辑账户", existing.Model, allowSecretEdit: false);
+        if (updated is null || !IsSessionCurrent(token))
         {
             return;
         }
@@ -279,13 +356,26 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        ShowStatus("账户已更新。", InfoBarSeverity.Success);
+        if (IsSessionCurrent(token))
+        {
+            ShowStatus(token, "账户已更新。", InfoBarSeverity.Success);
+        }
     }
 
     private async void ShowSecret_Click(object? sender, AccountRequestedEventArgs e)
     {
+        if (!TryCaptureUnlockedSession(out var token) || AuthenticatorView.FindAccount(e.AccountId) is null)
+        {
+            return;
+        }
+
+        if (!await VerifySensitiveActionAsync(token, "验证身份以查看 MFA 密钥") || !IsSessionCurrent(token))
+        {
+            return;
+        }
+
         var account = AuthenticatorView.FindAccount(e.AccountId);
-        if (account is null || !await VerifySensitiveActionAsync("验证身份以查看 MFA 密钥"))
+        if (account is null)
         {
             return;
         }
@@ -299,16 +389,29 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
         };
         var dialog = CreateDialog("MFA 密钥", secretText, "关闭", "复制密钥");
-        var result = await dialog.ShowAsync();
-        if (result == ContentDialogResult.Secondary)
+        var result = await ShowDialogAsync(dialog, token);
+        if (result != ContentDialogResult.Secondary || !IsSessionCurrent(token))
         {
-            CopyText(account.Model.Secret);
-            ShowStatus("MFA 密钥已复制。", InfoBarSeverity.Success);
+            return;
         }
+
+        var currentAccount = AuthenticatorView.FindAccount(e.AccountId);
+        if (currentAccount is null)
+        {
+            return;
+        }
+
+        CopyText(currentAccount.Model.Secret);
+        ShowStatus(token, "MFA 密钥已复制。", InfoBarSeverity.Success);
     }
 
     private async void DeleteAccount_Click(object? sender, AccountRequestedEventArgs e)
     {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
         var account = AuthenticatorView.FindAccount(e.AccountId);
         if (account is null)
         {
@@ -320,8 +423,8 @@ public sealed partial class MainWindow : Window
             new TextBlock { Text = $"确定删除“{account.Issuer} / {account.Account}”吗？此操作不会影响其他设备。", TextWrapping = TextWrapping.Wrap },
             "删除",
             "取消");
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary)
+        var result = await ShowDialogAsync(dialog, token);
+        if (result != ContentDialogResult.Primary || !IsSessionCurrent(token))
         {
             return;
         }
@@ -335,19 +438,29 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (!IsSessionCurrent(token))
+        {
+            return;
+        }
+
         AuthenticatorView.RefreshState();
-        ShowStatus("账户已删除。", InfoBarSeverity.Success);
+        ShowStatus(token, "账户已删除。", InfoBarSeverity.Success);
     }
 
     private async void ExportBackup_Click(object? sender, EventArgs e)
     {
-        if (!ViewModel.HasAccounts)
+        if (!TryCaptureUnlockedSession(out var token))
         {
-            ShowStatus("暂无账户可导出。", InfoBarSeverity.Warning);
             return;
         }
 
-        if (!await VerifySensitiveActionAsync("验证身份以导出加密备份"))
+        if (!ViewModel.HasAccounts)
+        {
+            ShowStatus(token, "暂无账户可导出。", InfoBarSeverity.Warning);
+            return;
+        }
+
+        if (!await VerifySensitiveActionAsync(token, "验证身份以导出加密备份") || !IsSessionCurrent(token))
         {
             return;
         }
@@ -372,6 +485,11 @@ public sealed partial class MainWindow : Window
         var copyButton = new Button { Content = "复制恢复密钥", HorizontalAlignment = HorizontalAlignment.Stretch };
         copyButton.Click += (_, _) =>
         {
+            if (!IsSessionCurrent(token))
+            {
+                return;
+            }
+
             CopyText(BackupCrypto.FormatRecoveryKey(recoveryKey));
             copyButton.Content = "恢复密钥已复制";
             dialog.IsPrimaryButtonEnabled = true;
@@ -387,14 +505,31 @@ public sealed partial class MainWindow : Window
             },
         };
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary && await _files.SaveBackupAsync(backup))
+        if (await ShowDialogAsync(dialog, token) != ContentDialogResult.Primary || !IsSessionCurrent(token))
         {
-            ShowStatus("加密备份已保存。请妥善保管恢复密钥。", InfoBarSeverity.Success);
+            return;
+        }
+
+        var file = await _files.PickBackupSaveFileAsync();
+        if (file is null || !IsSessionCurrent(token))
+        {
+            return;
+        }
+
+        await _files.WriteBackupAsync(file, backup);
+        if (IsSessionCurrent(token))
+        {
+            ShowStatus(token, "加密备份已保存。请妥善保管恢复密钥。", InfoBarSeverity.Success);
         }
     }
 
     private async void ImportBackup_Click(object? sender, EventArgs e)
     {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
         string? backup;
         try
         {
@@ -402,18 +537,18 @@ public sealed partial class MainWindow : Window
         }
         catch (FormatException exception)
         {
-            ShowStatus(exception.Message, InfoBarSeverity.Warning);
+            ShowStatus(token, exception.Message, InfoBarSeverity.Warning);
             return;
         }
 
-        if (backup is null)
+        if (backup is null || !IsSessionCurrent(token))
         {
             return;
         }
 
         var keyBox = new PasswordBox { PlaceholderText = "粘贴恢复密钥", PasswordRevealMode = PasswordRevealMode.Peek };
         var dialog = CreateDialog("导入加密备份", keyBox, "导入", "取消");
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await ShowDialogAsync(dialog, token) != ContentDialogResult.Primary || !IsSessionCurrent(token))
         {
             return;
         }
@@ -421,9 +556,19 @@ public sealed partial class MainWindow : Window
         try
         {
             var accounts = BackupCrypto.ReadBackup(backup, keyBox.Password);
+            if (!IsSessionCurrent(token))
+            {
+                return;
+            }
+
             var (imported, skipped) = await ViewModel.ImportAsync(accounts);
+            if (!IsSessionCurrent(token))
+            {
+                return;
+            }
+
             AuthenticatorView.RefreshState();
-            ShowStatus($"已导入 {imported} 个账户，跳过 {skipped} 个重复账户。", InfoBarSeverity.Success);
+            ShowStatus(token, $"已导入 {imported} 个账户，跳过 {skipped} 个重复账户。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
         {
@@ -431,12 +576,21 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception exception) when (exception is FormatException or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException)
         {
-            ShowStatus("恢复密钥错误，或备份文件无效/已损坏。", InfoBarSeverity.Error);
+            ShowStatus(token, "恢复密钥错误，或备份文件无效/已损坏。", InfoBarSeverity.Error);
         }
     }
 
-    private async Task<MfaAccount?> ShowAccountDialogAsync(string title, MfaAccount? existing, bool allowSecretEdit = true)
+    private async Task<MfaAccount?> ShowAccountDialogAsync(
+        long token,
+        string title,
+        MfaAccount? existing,
+        bool allowSecretEdit = true)
     {
+        if (!IsSessionCurrent(token))
+        {
+            return null;
+        }
+
         var issuerBox = new TextBox { Header = "服务名称", Text = existing?.Issuer ?? string.Empty, PlaceholderText = "例如 GitHub" };
         var accountBox = new TextBox { Header = "账户", Text = existing?.Account ?? string.Empty, PlaceholderText = "例如 alice@example.com" };
         var secretBox = new TextBox
@@ -450,7 +604,7 @@ public sealed partial class MainWindow : Window
         var groupBox = new TextBox { Header = "分组（可选）", Text = existing?.Group ?? string.Empty };
         var content = new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, secretBox, groupBox } };
         var dialog = CreateDialog(title, content, "保存", "取消");
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        if (await ShowDialogAsync(dialog, token) != ContentDialogResult.Primary || !IsSessionCurrent(token))
         {
             return null;
         }
@@ -471,7 +625,7 @@ public sealed partial class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(accountName))
         {
-            ShowStatus("请填写服务名称和账户。", InfoBarSeverity.Warning);
+            ShowStatus(token, "请填写服务名称和账户。", InfoBarSeverity.Warning);
             return null;
         }
 
@@ -481,32 +635,108 @@ public sealed partial class MainWindow : Window
         }
         catch (FormatException exception)
         {
-            ShowStatus(exception.Message, InfoBarSeverity.Warning);
+            ShowStatus(token, exception.Message, InfoBarSeverity.Warning);
             return null;
         }
 
-        return new MfaAccount
-        {
-            Id = existing?.Id ?? Guid.NewGuid().ToString("N"),
-            Issuer = issuer,
-            Account = accountName,
-            Secret = secret,
-            Group = string.IsNullOrWhiteSpace(groupBox.Text) ? null : groupBox.Text.Trim(),
-            Color = existing?.Color,
-            CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        };
+        return IsSessionCurrent(token)
+            ? new MfaAccount
+            {
+                Id = existing?.Id ?? Guid.NewGuid().ToString("N"),
+                Issuer = issuer,
+                Account = accountName,
+                Secret = secret,
+                Group = string.IsNullOrWhiteSpace(groupBox.Text) ? null : groupBox.Text.Trim(),
+                Color = existing?.Color,
+                CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            }
+            : null;
     }
 
-    private async Task<bool> VerifySensitiveActionAsync(string reason)
+    private async Task<bool> VerifySensitiveActionAsync(long token, string reason)
     {
-        if (await _windowsHello.VerifyAsync(reason))
+        if (!IsSessionCurrent(token))
         {
-            return true;
+            return false;
         }
 
-        ShowStatus("系统身份验证未完成，操作已取消。", InfoBarSeverity.Warning);
+        try
+        {
+            var isVerified = await _windowsHello.VerifyAsync(reason);
+            if (!IsSessionCurrent(token))
+            {
+                return false;
+            }
+
+            if (isVerified)
+            {
+                return true;
+            }
+
+            ShowStatus(token, "系统身份验证未完成，操作已取消。", InfoBarSeverity.Warning);
+        }
+        catch (Exception)
+        {
+            ShowStatus(token, "Windows Hello 暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
+        }
+
         return false;
     }
+
+    private async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog, long token)
+    {
+        if (!IsSessionCurrent(token) || Interlocked.CompareExchange(ref _activeDialog, dialog, null) is not null)
+        {
+            return ContentDialogResult.None;
+        }
+
+        try
+        {
+            if (!IsSessionCurrent(token))
+            {
+                return ContentDialogResult.None;
+            }
+
+            var result = await dialog.ShowAsync();
+            return IsSessionCurrent(token) ? result : ContentDialogResult.None;
+        }
+        catch (Exception)
+        {
+            ShowStatus(token, "无法打开操作窗口，请稍后重试。", InfoBarSeverity.Error);
+            return ContentDialogResult.None;
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _activeDialog, null, dialog);
+        }
+    }
+
+    private void HideActiveDialog()
+    {
+        var dialog = Interlocked.Exchange(ref _activeDialog, null);
+        if (dialog is null)
+        {
+            return;
+        }
+
+        try
+        {
+            dialog.Hide();
+        }
+        catch (Exception)
+        {
+            // Locking must continue even if the dialog is already closing.
+        }
+    }
+
+    private bool TryCaptureUnlockedSession(out long token)
+    {
+        token = Volatile.Read(ref _activeSession);
+        return _isUnlocked && _sessionGuard.IsCurrent(token);
+    }
+
+    private bool IsSessionCurrent(long token) =>
+        _isUnlocked && token == Volatile.Read(ref _activeSession) && _sessionGuard.IsCurrent(token);
 
     private ContentDialog CreateDialog(string title, object content, string primaryText, string secondaryText)
     {
@@ -529,8 +759,25 @@ public sealed partial class MainWindow : Window
         Clipboard.Flush();
     }
 
-    private void ShowStatus(string message, InfoBarSeverity severity) =>
-        AuthenticatorView.ShowStatus(message, severity);
+    private void ShowStatus(long token, string message, InfoBarSeverity severity)
+    {
+        if (IsSessionCurrent(token))
+        {
+            AuthenticatorView.ShowStatus(message, severity);
+        }
+    }
+
+    private void SetHelloUnavailableMessage()
+    {
+        LockView.Message = "此电脑尚未配置 Windows Hello。请先在 Windows 设置中配置系统 PIN、指纹或面容。";
+        LockView.ButtonContent = "重新检测 Windows Hello";
+    }
+
+    private void SetHelloTemporarilyUnavailableMessage()
+    {
+        LockView.Message = "Windows Hello 暂时不可用，请稍后重试。";
+        LockView.ButtonContent = "重新检测 Windows Hello";
+    }
 
     private static string FormatSecret(string secret) => string.Join(' ', Enumerable.Range(0, (secret.Length + 3) / 4)
         .Select(index => secret.Substring(index * 4, Math.Min(4, secret.Length - index * 4))));

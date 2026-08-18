@@ -26,6 +26,10 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("等待写门的外部取消必须传播且保持可用", VerifyExternalCancellationWhileWaitingForWriteGateAsync),
     ("仓库保存的调用方取消必须传播", VerifyRepositoryCancellationPropagatesAsync),
     ("锁定期间导入返回中性结果", VerifyLockedImportReturnsNeutralResultAsync),
+    ("解锁会话保护器初始保持锁定", () => RunSync(VerifyUnlockSessionGuardStartsLocked)),
+    ("解锁会话保护器使失效令牌永久失效", () => RunSync(VerifyUnlockSessionGuardInvalidation)),
+    ("解锁会话保护器为新会话生成不同令牌", () => RunSync(VerifyUnlockSessionGuardStartsDistinctSessions)),
+    ("解锁会话保护器并发失效后不保留旧会话", VerifyUnlockSessionGuardConcurrentInvalidationAsync),
     ("紧凑账户行格式化、进度和边界", () => RunSync(VerifyCompactAccountRowFormatting)),
     ("紧凑账户行服务图标回退", () => RunSync(VerifyServiceIconResolution)),
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
@@ -48,6 +52,66 @@ foreach (var check in checks)
 }
 
 Console.WriteLine($"{checks.Count} 项 Windows 平台回归检查通过。");
+
+static void VerifyUnlockSessionGuardStartsLocked()
+{
+    var guard = new UnlockSessionGuard();
+
+    Assert(!guard.IsCurrent(0), "令牌 0 永远不能代表有效解锁会话。");
+    Assert(!guard.IsCurrent(1), "保护器初始状态必须保持锁定。");
+}
+
+static void VerifyUnlockSessionGuardInvalidation()
+{
+    var guard = new UnlockSessionGuard();
+    var token = guard.BeginUnlockedSession();
+
+    Assert(token != 0, "解锁会话令牌不能为 0。");
+    Assert(guard.IsCurrent(token), "新解锁会话令牌应立即有效。");
+
+    guard.Invalidate();
+
+    Assert(!guard.IsCurrent(token), "失效后的旧令牌不得继续有效。");
+    Assert(!guard.IsCurrent(0), "失效状态不得把令牌 0 视为有效。");
+}
+
+static void VerifyUnlockSessionGuardStartsDistinctSessions()
+{
+    var guard = new UnlockSessionGuard();
+    var first = guard.BeginUnlockedSession();
+    guard.Invalidate();
+    var second = guard.BeginUnlockedSession();
+
+    Assert(first != second, "每次解锁必须生成不同的会话令牌。");
+    Assert(!guard.IsCurrent(first), "开始新会话后，旧令牌不得重新有效。");
+    Assert(guard.IsCurrent(second), "最新解锁会话令牌应有效。");
+}
+
+static async Task VerifyUnlockSessionGuardConcurrentInvalidationAsync()
+{
+    var guard = new UnlockSessionGuard();
+    var token = guard.BeginUnlockedSession();
+    using var start = new ManualResetEventSlim(initialState: false);
+
+    var reader = Task.Run(() =>
+    {
+        start.Wait();
+        for (var index = 0; index < 10_000; index++)
+        {
+            _ = guard.IsCurrent(token);
+        }
+    });
+    var invalidator = Task.Run(() =>
+    {
+        start.Wait();
+        guard.Invalidate();
+    });
+
+    start.Set();
+    await Task.WhenAll(reader, invalidator);
+
+    Assert(!guard.IsCurrent(token), "并发失效完成后旧令牌必须保持无效。");
+}
 
 static void VerifyWindowPlacementClampsToPrimaryWorkArea()
 {

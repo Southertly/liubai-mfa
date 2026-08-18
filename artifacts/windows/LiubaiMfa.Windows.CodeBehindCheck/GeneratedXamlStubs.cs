@@ -28,6 +28,8 @@ namespace LiubaiMfa.Windows.Views
     public sealed partial class AuthenticatorView
     {
         private readonly InfoBar StatusBar = new();
+        private readonly AutoSuggestBox SearchBox = new();
+        private readonly ListView GroupsList = new();
         private readonly TextBlock EmptyState = new();
         private readonly TextBlock NoResultsState = new();
         private readonly ListView AccountsList = new();

@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.ComponentModel;
 using LiubaiMfa.Windows.ViewModels;
 using Microsoft.UI.Xaml;
@@ -8,6 +9,8 @@ namespace LiubaiMfa.Windows.Views;
 public sealed partial class AuthenticatorView : UserControl
 {
     private MainViewModel? _viewModel;
+    private bool _isSynchronizingGroups;
+    private bool _isSynchronizingSearch;
 
     public AuthenticatorView()
     {
@@ -24,27 +27,65 @@ public sealed partial class AuthenticatorView : UserControl
     public event EventHandler<AccountRequestedEventArgs>? ShowSecretRequested;
     public event EventHandler<AccountRequestedEventArgs>? DeleteRequested;
 
-    public void Initialize(MainViewModel viewModel)
+    public void Initialize(MainViewModel viewModel) => Attach(viewModel);
+
+    public void Attach(MainViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
-        if (ReferenceEquals(_viewModel, viewModel))
-        {
-            return;
-        }
-
-        if (_viewModel is not null)
-        {
-            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
-        }
+        Detach();
 
         _viewModel = viewModel;
-        DataContext = viewModel;
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        _viewModel.Groups.CollectionChanged += Groups_CollectionChanged;
+        DataContext = viewModel;
+        GroupsList.ItemsSource = viewModel.Groups;
+        AccountsList.ItemsSource = viewModel.VisibleAccounts;
+        SynchronizeSearchText();
+        SynchronizeGroupSelection();
         RefreshState();
+    }
+
+    public void Detach()
+    {
+        var detachedViewModel = _viewModel;
+        _isSynchronizingGroups = true;
+        _isSynchronizingSearch = true;
+        try
+        {
+            SearchBox.Text = string.Empty;
+            if (detachedViewModel is not null)
+            {
+                detachedViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+                detachedViewModel.Groups.CollectionChanged -= Groups_CollectionChanged;
+                detachedViewModel.SearchText = string.Empty;
+            }
+
+            GroupsList.SelectedItem = null;
+            GroupsList.ItemsSource = null;
+            AccountsList.ItemsSource = null;
+            DataContext = null;
+            _viewModel = null;
+
+            StatusBar.IsOpen = false;
+            StatusBar.Message = string.Empty;
+            EmptyState.Visibility = Visibility.Collapsed;
+            NoResultsState.Visibility = Visibility.Collapsed;
+            AccountsList.Visibility = Visibility.Collapsed;
+        }
+        finally
+        {
+            _isSynchronizingGroups = false;
+            _isSynchronizingSearch = false;
+        }
     }
 
     public void ShowStatus(string message, InfoBarSeverity severity)
     {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
         StatusBar.Message = message;
         StatusBar.Severity = severity;
         StatusBar.IsOpen = true;
@@ -52,11 +93,19 @@ public sealed partial class AuthenticatorView : UserControl
 
     public void RefreshState()
     {
-        var hasAccounts = _viewModel?.HasAccounts == true;
-        var hasVisibleAccounts = _viewModel?.HasVisibleAccounts == true;
-        EmptyState.Visibility = hasAccounts ? Visibility.Collapsed : Visibility.Visible;
-        NoResultsState.Visibility = hasAccounts && !hasVisibleAccounts ? Visibility.Visible : Visibility.Collapsed;
-        AccountsList.Visibility = hasVisibleAccounts ? Visibility.Visible : Visibility.Collapsed;
+        if (_viewModel is null)
+        {
+            EmptyState.Visibility = Visibility.Collapsed;
+            NoResultsState.Visibility = Visibility.Collapsed;
+            AccountsList.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        EmptyState.Visibility = _viewModel.HasAccounts ? Visibility.Collapsed : Visibility.Visible;
+        NoResultsState.Visibility = _viewModel.HasAccounts && !_viewModel.HasVisibleAccounts
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        AccountsList.Visibility = _viewModel.HasVisibleAccounts ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public AccountItemViewModel? FindAccount(string id) =>
@@ -73,10 +122,83 @@ public sealed partial class AuthenticatorView : UserControl
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainViewModel.SearchText))
+        {
+            SynchronizeSearchText();
+        }
+
+        if (e.PropertyName == nameof(MainViewModel.SelectedGroup))
+        {
+            SynchronizeGroupSelection();
+        }
+
         if (e.PropertyName is nameof(MainViewModel.HasAccounts) or nameof(MainViewModel.HasVisibleAccounts))
         {
+            SynchronizeGroupSelection();
             RefreshState();
         }
+    }
+
+    private void Groups_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        _isSynchronizingGroups = true;
+        var attachedViewModel = _viewModel;
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ReferenceEquals(_viewModel, attachedViewModel))
+            {
+                SynchronizeGroupSelection();
+            }
+        });
+    }
+
+    private void SynchronizeGroupSelection()
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        _isSynchronizingGroups = true;
+        try
+        {
+            GroupsList.SelectedItem = _viewModel.Groups.FirstOrDefault(item =>
+                string.Equals(item.Value, _viewModel.SelectedGroup, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _isSynchronizingGroups = false;
+        }
+    }
+
+    private void SynchronizeSearchText()
+    {
+        if (_viewModel is null || SearchBox.Text == _viewModel.SearchText)
+        {
+            return;
+        }
+
+        _isSynchronizingSearch = true;
+        SearchBox.Text = _viewModel.SearchText;
+        _isSynchronizingSearch = false;
+    }
+
+    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (!_isSynchronizingSearch && _viewModel is not null)
+        {
+            _viewModel.SearchText = sender.Text;
+        }
+    }
+
+    private void GroupsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isSynchronizingGroups || _viewModel is null || GroupsList.SelectedItem is not GroupFilterItemViewModel selected)
+        {
+            return;
+        }
+
+        _viewModel.SelectedGroup = selected.Value;
     }
 
     private void AddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);

@@ -62,23 +62,22 @@
         </StackPanel>
 
         <AutoSuggestBox
+            x:Name="SearchBox"
             Grid.Row="1"
             PlaceholderText="搜索账户"
             QueryIcon="Find"
-            Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-            AutomationProperties.Name="搜索账户" />
+            AutomationProperties.Name="搜索账户"
+            TextChanged="SearchBox_TextChanged" />
 
         <ListView
+            x:Name="GroupsList"
             Grid.Row="2"
             Height="38"
-            ItemsSource="{Binding Groups}"
-            SelectedValue="{Binding SelectedGroup, Mode=TwoWay}"
-            SelectedValuePath="Value"
-            SelectedIndex="0"
             SelectionMode="Single"
             ScrollViewer.HorizontalScrollBarVisibility="Auto"
             ScrollViewer.VerticalScrollBarVisibility="Disabled"
-            AutomationProperties.Name="账户分组">
+            AutomationProperties.Name="账户分组"
+            SelectionChanged="GroupsList_SelectionChanged">
             <ListView.ItemsPanel>
                 <ItemsPanelTemplate>
                     <ItemsStackPanel Orientation="Horizontal" />
@@ -117,7 +116,6 @@
                 Visibility="Collapsed" />
             <ListView
                 x:Name="AccountsList"
-                ItemsSource="{Binding VisibleAccounts}"
                 SelectionMode="None"
                 IsItemClickEnabled="False"
                 Visibility="Collapsed"
