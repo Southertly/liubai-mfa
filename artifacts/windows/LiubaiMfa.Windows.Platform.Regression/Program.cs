@@ -26,6 +26,11 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("等待写门的外部取消必须传播且保持可用", VerifyExternalCancellationWhileWaitingForWriteGateAsync),
     ("仓库保存的调用方取消必须传播", VerifyRepositoryCancellationPropagatesAsync),
     ("锁定期间导入返回中性结果", VerifyLockedImportReturnsNeutralResultAsync),
+    ("添加成功会清除隐藏筛选并发布一次性定位", VerifyAddPublishesPendingRevealAsync),
+    ("一次性定位只能消费一次", VerifyPendingRevealIsConsumedOnceAsync),
+    ("添加保存失败保持筛选和定位状态", VerifyAddFailurePreservesRevealStateAsync),
+    ("导入只在实际新增后清除隐藏筛选并定位", VerifyImportPublishesPendingRevealAtomicallyAsync),
+    ("卸载必须清除未消费的账户定位", VerifyUnloadClearsPendingRevealAsync),
     ("解锁会话保护器初始保持锁定", () => RunSync(VerifyUnlockSessionGuardStartsLocked)),
     ("解锁会话保护器使失效令牌永久失效", () => RunSync(VerifyUnlockSessionGuardInvalidation)),
     ("解锁会话保护器为新会话生成不同令牌", () => RunSync(VerifyUnlockSessionGuardStartsDistinctSessions)),
@@ -689,6 +694,95 @@ static async Task VerifyLockedImportReturnsNeutralResultAsync()
     await AssertThrowsAsync<OperationCanceledException>(() => import);
     AssertUnloaded(viewModel, "锁定期间导入完成后");
     Assert(repository.SaveCallCount == 1, "已开始的导入保存应只调用一次。");
+}
+
+static async Task VerifyAddPublishesPendingRevealAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture());
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    viewModel.SearchText = "不会匹配";
+    viewModel.SelectedGroup = "工作";
+
+    var added = await viewModel.AddAsync(CreateNewAccount());
+
+    Assert(added.Id == "5", "添加应返回实际保存的账户。");
+    Assert(viewModel.SearchText == string.Empty, "添加成功后必须清除会隐藏新账户的搜索条件。");
+    Assert(viewModel.SelectedGroup is null, "添加成功后必须清除会隐藏新账户的分组条件。");
+    Assert(viewModel.PendingRevealAccountId == "5", "添加成功后必须发布新账户定位。");
+    Assert(viewModel.VisibleAccounts.Any(account => account.Id == "5"), "新增账户必须立即可见。");
+}
+
+static async Task VerifyPendingRevealIsConsumedOnceAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture());
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    await viewModel.AddAsync(CreateNewAccount());
+
+    Assert(viewModel.ConsumePendingReveal() == "5", "首次消费应返回新增账户 ID。");
+    Assert(viewModel.ConsumePendingReveal() is null, "定位 ID 必须只能消费一次。");
+    Assert(viewModel.PendingRevealAccountId is null, "消费后不应保留定位 ID。");
+}
+
+static async Task VerifyAddFailurePreservesRevealStateAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture()) { ThrowOnSave = true };
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    viewModel.SearchText = "不会匹配";
+    viewModel.SelectedGroup = "工作";
+    var expected = CaptureState(viewModel);
+
+    await AssertThrowsAsync<IOException>(() => viewModel.AddAsync(CreateNewAccount()));
+
+    AssertStateUnchanged(expected, viewModel, repository, "添加保存失败的定位状态");
+    Assert(viewModel.PendingRevealAccountId is null, "添加保存失败不能发布定位 ID。");
+}
+
+static async Task VerifyImportPublishesPendingRevealAtomicallyAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture());
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    viewModel.SearchText = "不会匹配";
+    viewModel.SelectedGroup = "工作";
+
+    var result = await viewModel.ImportAsync([CreateViewModelFixture()[0], CreateNewAccount(), CreateAdditionalNewAccount()]);
+
+    Assert(result == (2, 1), "导入结果应区分新增与重复账户。");
+    Assert(viewModel.SearchText == string.Empty && viewModel.SelectedGroup is null, "实际新增导入后必须清除隐藏筛选。");
+    Assert(viewModel.PendingRevealAccountId == "5", "导入应定位第一个实际新增账户。");
+    Assert(viewModel.VisibleAccounts.Any(account => account.Id == "5"), "导入的首个新增账户必须可见。");
+
+    viewModel.ConsumePendingReveal();
+    viewModel.SearchText = "不会匹配";
+    viewModel.SelectedGroup = "工作";
+    var expected = CaptureState(viewModel);
+    var noImport = await viewModel.ImportAsync([CreateViewModelFixture()[0]]);
+    Assert(noImport == (0, 1), "重复导入必须保持中性结果。");
+    AssertStateUnchanged(expected, viewModel, repository, "无可导入账户");
+    Assert(viewModel.PendingRevealAccountId is null, "无可导入账户不能发布定位 ID。");
+
+    repository.ThrowOnSave = true;
+    await AssertThrowsAsync<IOException>(() => viewModel.ImportAsync([CreateAdditionalNewAccount() with { Id = "7", Secret = "G" }]));
+    AssertStateUnchanged(expected, viewModel, repository, "导入保存失败");
+    Assert(viewModel.PendingRevealAccountId is null, "导入保存失败不能发布定位 ID。");
+}
+
+static async Task VerifyUnloadClearsPendingRevealAsync()
+{
+    var repository = new FakeAccountRepository(CreateViewModelFixture());
+    var viewModel = new MainViewModel(repository);
+    await viewModel.LoadAsync();
+    await viewModel.AddAsync(CreateNewAccount());
+    var notified = false;
+    viewModel.PropertyChanged += (_, args) => notified |= args.PropertyName == nameof(MainViewModel.PendingRevealAccountId);
+
+    viewModel.Unload();
+
+    Assert(viewModel.PendingRevealAccountId is null, "卸载后不得残留账户定位 ID。");
+    Assert(notified, "卸载清除定位 ID 时必须通知视图。");
 }
 
 static MfaAccount[] CreateFixture() =>

@@ -5,6 +5,7 @@ using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 using Windows.UI.Core;
 
@@ -15,10 +16,18 @@ public sealed partial class AuthenticatorView : UserControl
     private MainViewModel? _viewModel;
     private bool _isSynchronizingGroups;
     private bool _isSynchronizingSearch;
+    private readonly DispatcherTimer _revealTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+    private EventHandler<object>? _statusTimerTickHandler;
+    private long _statusEpoch;
+    private long _attachEpoch;
+    private string? _requestedRevealAccountId;
+    private string? _highlightedAccountId;
 
     public AuthenticatorView()
     {
         InitializeComponent();
+        _revealTimer.Tick += RevealTimer_Tick;
     }
 
     public event EventHandler? AddRequested;
@@ -38,6 +47,7 @@ public sealed partial class AuthenticatorView : UserControl
         ArgumentNullException.ThrowIfNull(viewModel);
         Detach();
 
+        _attachEpoch++;
         _viewModel = viewModel;
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
         _viewModel.Groups.CollectionChanged += Groups_CollectionChanged;
@@ -47,11 +57,23 @@ public sealed partial class AuthenticatorView : UserControl
         SynchronizeSearchText();
         SynchronizeGroupSelection();
         RefreshState();
+        ConsumeAndRevealPending();
     }
 
     public void Detach()
     {
         var detachedViewModel = _viewModel;
+        _attachEpoch++;
+        _revealTimer.Stop();
+        _statusTimer.Stop();
+        _statusEpoch++;
+        if (_statusTimerTickHandler is not null)
+        {
+            _statusTimer.Tick -= _statusTimerTickHandler;
+            _statusTimerTickHandler = null;
+        }
+        ClearRevealHighlight();
+        _requestedRevealAccountId = null;
         _isSynchronizingGroups = true;
         _isSynchronizingSearch = true;
         try
@@ -93,6 +115,25 @@ public sealed partial class AuthenticatorView : UserControl
         StatusBar.Message = message;
         StatusBar.Severity = severity;
         StatusBar.IsOpen = true;
+        _statusTimer.Stop();
+        _statusEpoch++;
+        if (_statusTimerTickHandler is not null)
+        {
+            _statusTimer.Tick -= _statusTimerTickHandler;
+        }
+
+        var statusEpoch = _statusEpoch;
+        _statusTimerTickHandler = (_, _) =>
+        {
+            _statusTimer.Stop();
+            if (_viewModel is not null && statusEpoch == _statusEpoch)
+            {
+                StatusBar.IsOpen = false;
+                StatusBar.Message = string.Empty;
+            }
+        };
+        _statusTimer.Tick += _statusTimerTickHandler;
+        _statusTimer.Start();
     }
 
     public void RefreshState()
@@ -140,6 +181,11 @@ public sealed partial class AuthenticatorView : UserControl
         {
             SynchronizeGroupSelection();
             RefreshState();
+        }
+
+        if (e.PropertyName == nameof(MainViewModel.PendingRevealAccountId))
+        {
+            ConsumeAndRevealPending();
         }
     }
 
@@ -193,6 +239,21 @@ public sealed partial class AuthenticatorView : UserControl
         {
             _viewModel.SearchText = sender.Text;
         }
+    }
+
+    private void EmptyAddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
+
+    private void EmptyImportQrButton_Click(object sender, RoutedEventArgs e) => ImportQrRequested?.Invoke(this, EventArgs.Empty);
+
+    private void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        _viewModel.SearchText = string.Empty;
+        _viewModel.SelectedGroup = null;
     }
 
     private void GroupsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -297,6 +358,101 @@ public sealed partial class AuthenticatorView : UserControl
 
     private static bool IsKeyDown(VirtualKey key) =>
         (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+
+    private void ConsumeAndRevealPending()
+    {
+        var attachedViewModel = _viewModel;
+        var accountId = attachedViewModel?.ConsumePendingReveal();
+        if (attachedViewModel is null || accountId is null)
+        {
+            return;
+        }
+
+        var attachEpoch = _attachEpoch;
+        _requestedRevealAccountId = accountId;
+        _ = DispatcherQueue.TryEnqueue(() => RevealWhenContainerReady(attachedViewModel, attachEpoch, accountId));
+    }
+
+    private void RevealWhenContainerReady(MainViewModel attachedViewModel, long attachEpoch, string accountId)
+    {
+        if (!ReferenceEquals(_viewModel, attachedViewModel)
+            || _attachEpoch != attachEpoch
+            || _requestedRevealAccountId != accountId)
+        {
+            return;
+        }
+
+        var account = FindAccount(accountId);
+        if (account is null)
+        {
+            return;
+        }
+
+        AccountsList.ScrollIntoView(account);
+        _ = DispatcherQueue.TryEnqueue(() => FocusAndHighlightAccount(attachedViewModel, attachEpoch, accountId));
+    }
+
+    private void FocusAndHighlightAccount(MainViewModel attachedViewModel, long attachEpoch, string accountId)
+    {
+        if (!ReferenceEquals(_viewModel, attachedViewModel)
+            || _attachEpoch != attachEpoch
+            || _requestedRevealAccountId != accountId)
+        {
+            return;
+        }
+
+        var account = FindAccount(accountId);
+        if (account is null)
+        {
+            return;
+        }
+
+        ClearRevealHighlight();
+        account.SetRevealHighlight(true);
+        _highlightedAccountId = accountId;
+        _revealTimer.Stop();
+        _revealTimer.Start();
+
+        if (AccountsList.ContainerFromItem(account) is DependencyObject container)
+        {
+            FindAccountRow(container, accountId)?.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void RevealTimer_Tick(object? sender, object e)
+    {
+        _revealTimer.Stop();
+        ClearRevealHighlight();
+    }
+
+    private void ClearRevealHighlight()
+    {
+        if (_highlightedAccountId is not null)
+        {
+            FindAccount(_highlightedAccountId)?.SetRevealHighlight(false);
+        }
+
+        _highlightedAccountId = null;
+    }
+
+    private static Border? FindAccountRow(DependencyObject parent, string accountId)
+    {
+        if (parent is Border { Tag: string tag } border && tag == accountId)
+        {
+            return border;
+        }
+
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var row = FindAccountRow(VisualTreeHelper.GetChild(parent, index), accountId);
+            if (row is not null)
+            {
+                return row;
+            }
+        }
+
+        return null;
+    }
 
     private static bool TryGetAccountId(object? sender, out string id)
     {

@@ -10,6 +10,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     private const int TotpPeriod = 30;
     private string _code = "------";
     private int _secondsRemaining;
+    private bool _isRevealHighlighted;
 
     public AccountItemViewModel(MfaAccount model)
     {
@@ -59,6 +60,20 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
 
     public string RemainingLabel => $"{SecondsRemaining} 秒";
 
+    public bool IsRevealHighlighted
+    {
+        get => _isRevealHighlighted;
+        private set
+        {
+            if (SetField(ref _isRevealHighlighted, value))
+            {
+                OnPropertyChanged(nameof(RevealHintOpacity));
+            }
+        }
+    }
+
+    public double RevealHintOpacity => IsRevealHighlighted ? 1 : 0;
+
     public void ReplaceModel(MfaAccount model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -96,6 +111,8 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     }
 
     public void UpdateCode() => Refresh();
+
+    public void SetRevealHighlight(bool value) => IsRevealHighlighted = value;
 
     public static string FormatCode(string code) => code.Length switch
     {

@@ -15,6 +15,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private long _lifecycleEpoch;
     private string _searchText = string.Empty;
     private string? _selectedGroup;
+    private string? _pendingRevealAccountId;
     private bool _isLoaded;
     private bool _hasLoadFailure;
 
@@ -126,6 +127,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         private set => SetField(ref _hasLoadFailure, value);
     }
 
+    public string? PendingRevealAccountId
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _pendingRevealAccountId;
+            }
+        }
+    }
+
     internal IReadOnlyList<MfaAccount> AccountsSnapshot
     {
         get
@@ -187,7 +199,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    public Task AddAsync(MfaAccount account, CancellationToken cancellationToken = default)
+    public Task<MfaAccount> AddAsync(MfaAccount account, CancellationToken cancellationToken = default)
     {
         var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
         return ExecuteWriteAsync(async () =>
@@ -205,7 +217,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 candidate = _accounts.Append(account).ToArray();
             }
 
-            await CommitAsync(candidate, operationEpoch, cancellationToken);
+            await CommitAsync(candidate, operationEpoch, cancellationToken, account.Id);
+            return account;
         }, cancellationToken);
     }
 
@@ -276,6 +289,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var existingSecrets = candidate.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
             var imported = 0;
             var skipped = 0;
+            string? firstImportedId = null;
             foreach (var account in incoming)
             {
                 if (string.IsNullOrWhiteSpace(account.Secret) || !existingSecrets.Add(account.Secret))
@@ -284,25 +298,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     continue;
                 }
 
-                candidate.Add(account with
+                var importedAccount = account with
                 {
                     Id = string.IsNullOrWhiteSpace(account.Id) ? Guid.NewGuid().ToString("N") : account.Id,
                     CreatedAt = account.CreatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : account.CreatedAt,
-                });
+                };
+                candidate.Add(importedAccount);
+                firstImportedId ??= importedAccount.Id;
                 imported++;
             }
 
             if (imported > 0)
             {
-                await CommitAsync(candidate, operationEpoch, cancellationToken);
-            }
-            else
-            {
-                lock (_stateGate)
-                {
-                    ThrowIfLifecycleInvalid(operationEpoch);
-                    RefreshDerivedState();
-                }
+                await CommitAsync(candidate, operationEpoch, cancellationToken, firstImportedId);
             }
 
             return (imported, skipped);
@@ -339,6 +347,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(SelectedGroup));
             }
 
+            if (_pendingRevealAccountId is not null)
+            {
+                _pendingRevealAccountId = null;
+                OnPropertyChanged(nameof(PendingRevealAccountId));
+            }
+
             IsLoaded = false;
             OnPropertyChanged(nameof(HasAccounts));
             OnPropertyChanged(nameof(HasVisibleAccounts));
@@ -348,7 +362,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task CommitAsync(
         IReadOnlyCollection<MfaAccount> candidate,
         long operationEpoch,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? pendingRevealAccountId = null)
     {
         lock (_stateGate)
         {
@@ -361,7 +376,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ThrowIfLifecycleInvalid(operationEpoch);
             _accounts.Clear();
             _accounts.AddRange(candidate);
+            if (pendingRevealAccountId is not null)
+            {
+                if (_searchText.Length != 0)
+                {
+                    _searchText = string.Empty;
+                    OnPropertyChanged(nameof(SearchText));
+                }
+
+                if (_selectedGroup is not null)
+                {
+                    _selectedGroup = null;
+                    OnPropertyChanged(nameof(SelectedGroup));
+                }
+
+                if (_pendingRevealAccountId != pendingRevealAccountId)
+                {
+                    _pendingRevealAccountId = pendingRevealAccountId;
+                    OnPropertyChanged(nameof(PendingRevealAccountId));
+                }
+            }
+
             RefreshDerivedState();
+        }
+    }
+
+    public string? ConsumePendingReveal()
+    {
+        lock (_stateGate)
+        {
+            var pending = _pendingRevealAccountId;
+            if (pending is null)
+            {
+                return null;
+            }
+
+            _pendingRevealAccountId = null;
+            OnPropertyChanged(nameof(PendingRevealAccountId));
+            return pending;
         }
     }
 

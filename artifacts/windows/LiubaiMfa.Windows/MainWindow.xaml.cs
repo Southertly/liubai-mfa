@@ -18,6 +18,8 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan BackgroundLockDelay = TimeSpan.FromMinutes(1);
     private readonly WindowsHelloService _windowsHello;
     private readonly NativeFileService _files;
+    private readonly AccountDialogService _accountDialogs;
+    private readonly BackupDialogService _backupDialogs;
     private readonly WindowPlacementService _placementService;
     private readonly UnlockSessionGuard _sessionGuard = new();
     private readonly DispatcherTimer _timer;
@@ -47,6 +49,8 @@ public sealed partial class MainWindow : Window
         LockView.UnlockRequested += Unlock_Click;
         _windowsHello = new WindowsHelloService(this);
         _files = new NativeFileService(this);
+        _accountDialogs = new AccountDialogService(_windowsHello, ShowDialogAsync, IsSessionCurrent, ShowStatus);
+        _backupDialogs = new BackupDialogService(ShowDialogAsync, IsSessionCurrent);
         _placementService = new WindowPlacementService();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => ViewModel.UpdateCodes();
@@ -225,15 +229,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var input = await ShowAccountDialogAsync(token, "添加账户", null);
-        if (input is null || !IsSessionCurrent(token))
+        var draft = await _accountDialogs.ShowAddAsync(RootGrid.XamlRoot, token);
+        if (draft is null || !IsSessionCurrent(token))
         {
             return;
         }
 
         try
         {
-            await ViewModel.AddAsync(input);
+            await ViewModel.AddAsync(CreateAccount(draft));
             if (!IsSessionCurrent(token))
             {
                 return;
@@ -246,9 +250,9 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        catch (InvalidOperationException exception)
+        catch (InvalidOperationException)
         {
-            ShowStatus(token, exception.Message, InfoBarSeverity.Warning);
+            ShowStatus(token, "账户未保存。请确认密钥未重复并重试。", InfoBarSeverity.Warning);
         }
     }
 
@@ -279,20 +283,16 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            var input = await ShowAccountDialogAsync(token, "确认二维码账户", new MfaAccount
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Issuer = parsed.Issuer,
-                Account = parsed.Account,
-                Secret = parsed.Secret,
-                CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            });
-            if (input is null || !IsSessionCurrent(token))
+            var draft = await _accountDialogs.ShowImportConfirmationAsync(
+                RootGrid.XamlRoot,
+                token,
+                new AccountDraft(parsed.Issuer, parsed.Account, parsed.Secret, null));
+            if (draft is null || !IsSessionCurrent(token))
             {
                 return;
             }
 
-            await ViewModel.AddAsync(input);
+            await ViewModel.AddAsync(CreateAccount(draft));
             if (!IsSessionCurrent(token))
             {
                 return;
@@ -307,7 +307,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException or FormatException)
         {
-            ShowStatus(token, exception.Message, InfoBarSeverity.Error);
+            ShowStatus(token, "二维码账户未导入。请确认图片和账户信息后重试。", InfoBarSeverity.Error);
         }
     }
 
@@ -335,21 +335,27 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var existing = AuthenticatorView.FindAccount(e.AccountId);
+        var existing = FindCurrentAccount(e.AccountId);
         if (existing is null)
         {
             return;
         }
 
-        var updated = await ShowAccountDialogAsync(token, "编辑账户", existing.Model, allowSecretEdit: false);
-        if (updated is null || !IsSessionCurrent(token))
+        var edit = await _accountDialogs.ShowEditAsync(RootGrid.XamlRoot, token, ToAccountEdit(existing));
+        if (edit is null || !IsSessionCurrent(token))
+        {
+            return;
+        }
+
+        var current = FindCurrentAccount(edit.Id);
+        if (current is null || !IsSessionCurrent(token))
         {
             return;
         }
 
         try
         {
-            await ViewModel.UpdateAsync(updated);
+            await ViewModel.UpdateAsync(current with { Issuer = edit.Issuer, Account = edit.Account, Group = edit.Group });
         }
         catch (OperationCanceledException)
         {
@@ -364,45 +370,17 @@ public sealed partial class MainWindow : Window
 
     private async void ShowSecret_Click(object? sender, AccountRequestedEventArgs e)
     {
-        if (!TryCaptureUnlockedSession(out var token) || AuthenticatorView.FindAccount(e.AccountId) is null)
+        if (!TryCaptureUnlockedSession(out var token))
         {
             return;
         }
 
-        if (!await VerifySensitiveActionAsync(token, "验证身份以查看 MFA 密钥") || !IsSessionCurrent(token))
-        {
-            return;
-        }
-
-        var account = AuthenticatorView.FindAccount(e.AccountId);
-        if (account is null)
-        {
-            return;
-        }
-
-        var secretText = new TextBlock
-        {
-            Text = FormatSecret(account.Model.Secret),
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            FontSize = 18,
-            IsTextSelectionEnabled = true,
-            TextWrapping = TextWrapping.Wrap,
-        };
-        var dialog = CreateDialog("MFA 密钥", secretText, "关闭", "复制密钥");
-        var result = await ShowDialogAsync(dialog, token);
-        if (result != ContentDialogResult.Secondary || !IsSessionCurrent(token))
-        {
-            return;
-        }
-
-        var currentAccount = AuthenticatorView.FindAccount(e.AccountId);
-        if (currentAccount is null)
-        {
-            return;
-        }
-
-        CopyText(currentAccount.Model.Secret);
-        ShowStatus(token, "MFA 密钥已复制。", InfoBarSeverity.Success);
+        await _accountDialogs.ShowSecretAsync(
+            RootGrid.XamlRoot,
+            token,
+            e.AccountId,
+            () => FindCurrentAccount(e.AccountId),
+            CopyText);
     }
 
     private async void DeleteAccount_Click(object? sender, AccountRequestedEventArgs e)
@@ -412,19 +390,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var account = AuthenticatorView.FindAccount(e.AccountId);
+        var account = FindCurrentAccount(e.AccountId);
         if (account is null)
         {
             return;
         }
 
-        var dialog = CreateDialog(
-            "删除账户",
-            new TextBlock { Text = $"确定删除“{account.Issuer} / {account.Account}”吗？此操作不会影响其他设备。", TextWrapping = TextWrapping.Wrap },
-            "删除",
-            "取消");
-        var result = await ShowDialogAsync(dialog, token);
-        if (result != ContentDialogResult.Primary || !IsSessionCurrent(token))
+        if (!await _accountDialogs.ConfirmDeleteAsync(RootGrid.XamlRoot, token, ToAccountEdit(account)) || !IsSessionCurrent(token))
         {
             return;
         }
@@ -466,46 +438,11 @@ public sealed partial class MainWindow : Window
         }
 
         var backup = BackupCrypto.CreateBackup(ViewModel.Snapshot(), out var recoveryKey);
-        var dialog = new ContentDialog
-        {
-            XamlRoot = RootGrid.XamlRoot,
-            Title = "先保存恢复密钥",
-            PrimaryButtonText = "保存备份文件",
-            CloseButtonText = "取消",
-            IsPrimaryButtonEnabled = false,
-            DefaultButton = ContentDialogButton.None,
-        };
-        var keyText = new TextBlock
-        {
-            Text = BackupCrypto.FormatRecoveryKey(recoveryKey),
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-            IsTextSelectionEnabled = true,
-            TextWrapping = TextWrapping.Wrap,
-        };
-        var copyButton = new Button { Content = "复制恢复密钥", HorizontalAlignment = HorizontalAlignment.Stretch };
-        copyButton.Click += (_, _) =>
-        {
-            if (!IsSessionCurrent(token))
-            {
-                return;
-            }
-
-            CopyText(BackupCrypto.FormatRecoveryKey(recoveryKey));
-            copyButton.Content = "恢复密钥已复制";
-            dialog.IsPrimaryButtonEnabled = true;
-        };
-        dialog.Content = new StackPanel
-        {
-            Spacing = 12,
-            Children =
-            {
-                new TextBlock { Text = "恢复密钥不会写入备份文件。丢失后无法恢复，请与备份文件分开保存。", TextWrapping = TextWrapping.Wrap },
-                keyText,
-                copyButton,
-            },
-        };
-
-        if (await ShowDialogAsync(dialog, token) != ContentDialogResult.Primary || !IsSessionCurrent(token))
+        if (!IsSessionCurrent(token) || !await _backupDialogs.ConfirmExportAsync(
+                RootGrid.XamlRoot,
+                token,
+                BackupCrypto.FormatRecoveryKey(recoveryKey),
+                CopyText) || !IsSessionCurrent(token))
         {
             return;
         }
@@ -535,9 +472,9 @@ public sealed partial class MainWindow : Window
         {
             backup = await _files.OpenBackupAsync();
         }
-        catch (FormatException exception)
+        catch (FormatException)
         {
-            ShowStatus(token, exception.Message, InfoBarSeverity.Warning);
+            ShowStatus(token, "备份文件无法读取。请确认选择了正确的备份文件后重试。", InfoBarSeverity.Warning);
             return;
         }
 
@@ -546,16 +483,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var keyBox = new PasswordBox { PlaceholderText = "粘贴恢复密钥", PasswordRevealMode = PasswordRevealMode.Peek };
-        var dialog = CreateDialog("导入加密备份", keyBox, "导入", "取消");
-        if (await ShowDialogAsync(dialog, token) != ContentDialogResult.Primary || !IsSessionCurrent(token))
+        var recoveryKey = await _backupDialogs.RequestRecoveryKeyAsync(RootGrid.XamlRoot, token);
+        if (recoveryKey is null || !IsSessionCurrent(token))
         {
             return;
         }
 
         try
         {
-            var accounts = BackupCrypto.ReadBackup(backup, keyBox.Password);
+            var accounts = BackupCrypto.ReadBackup(backup, recoveryKey);
             if (!IsSessionCurrent(token))
             {
                 return;
@@ -578,79 +514,10 @@ public sealed partial class MainWindow : Window
         {
             ShowStatus(token, "恢复密钥错误，或备份文件无效/已损坏。", InfoBarSeverity.Error);
         }
-    }
-
-    private async Task<MfaAccount?> ShowAccountDialogAsync(
-        long token,
-        string title,
-        MfaAccount? existing,
-        bool allowSecretEdit = true)
-    {
-        if (!IsSessionCurrent(token))
+        finally
         {
-            return null;
+            recoveryKey = string.Empty;
         }
-
-        var issuerBox = new TextBox { Header = "服务名称", Text = existing?.Issuer ?? string.Empty, PlaceholderText = "例如 GitHub" };
-        var accountBox = new TextBox { Header = "账户", Text = existing?.Account ?? string.Empty, PlaceholderText = "例如 alice@example.com" };
-        var secretBox = new TextBox
-        {
-            Header = "Base32 密钥或 otpauth:// 地址",
-            Text = allowSecretEdit ? existing?.Secret ?? string.Empty : string.Empty,
-            IsEnabled = allowSecretEdit,
-            Visibility = allowSecretEdit ? Visibility.Visible : Visibility.Collapsed,
-            PlaceholderText = "JBSW Y3DP EHPK 3PXP",
-        };
-        var groupBox = new TextBox { Header = "分组（可选）", Text = existing?.Group ?? string.Empty };
-        var content = new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, secretBox, groupBox } };
-        var dialog = CreateDialog(title, content, "保存", "取消");
-        if (await ShowDialogAsync(dialog, token) != ContentDialogResult.Primary || !IsSessionCurrent(token))
-        {
-            return null;
-        }
-
-        var issuer = issuerBox.Text.Trim();
-        var accountName = accountBox.Text.Trim();
-        var secret = allowSecretEdit ? secretBox.Text.Trim() : existing?.Secret ?? string.Empty;
-        if (OtpAuthUriParser.TryParse(secret, out var parsed) && parsed is not null)
-        {
-            issuer = string.IsNullOrWhiteSpace(issuer) ? parsed.Issuer : issuer;
-            accountName = string.IsNullOrWhiteSpace(accountName) ? parsed.Account : accountName;
-            secret = parsed.Secret;
-        }
-        else
-        {
-            secret = TotpService.NormalizeSecret(secret);
-        }
-
-        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(accountName))
-        {
-            ShowStatus(token, "请填写服务名称和账户。", InfoBarSeverity.Warning);
-            return null;
-        }
-
-        try
-        {
-            _ = TotpService.Generate(secret);
-        }
-        catch (FormatException exception)
-        {
-            ShowStatus(token, exception.Message, InfoBarSeverity.Warning);
-            return null;
-        }
-
-        return IsSessionCurrent(token)
-            ? new MfaAccount
-            {
-                Id = existing?.Id ?? Guid.NewGuid().ToString("N"),
-                Issuer = issuer,
-                Account = accountName,
-                Secret = secret,
-                Group = string.IsNullOrWhiteSpace(groupBox.Text) ? null : groupBox.Text.Trim(),
-                Color = existing?.Color,
-                CreatedAt = existing?.CreatedAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            }
-            : null;
     }
 
     private async Task<bool> VerifySensitiveActionAsync(long token, string reason)
@@ -738,18 +605,26 @@ public sealed partial class MainWindow : Window
     private bool IsSessionCurrent(long token) =>
         _isUnlocked && token == Volatile.Read(ref _activeSession) && _sessionGuard.IsCurrent(token);
 
-    private ContentDialog CreateDialog(string title, object content, string primaryText, string secondaryText)
+    private MfaAccount? FindCurrentAccount(string id) =>
+        ViewModel.Snapshot().FirstOrDefault(account => account.Id == id);
+
+    private static AccountEdit ToAccountEdit(MfaAccount account) => new(
+        account.Id,
+        account.Issuer,
+        account.Account,
+        account.Group,
+        account.Color,
+        account.CreatedAt);
+
+    private static MfaAccount CreateAccount(AccountDraft draft) => new()
     {
-        return new ContentDialog
-        {
-            XamlRoot = RootGrid.XamlRoot,
-            Title = title,
-            Content = content,
-            PrimaryButtonText = primaryText,
-            SecondaryButtonText = secondaryText,
-            DefaultButton = ContentDialogButton.Primary,
-        };
-    }
+        Id = Guid.NewGuid().ToString("N"),
+        Issuer = draft.Issuer,
+        Account = draft.Account,
+        Secret = draft.Secret,
+        Group = draft.Group,
+        CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+    };
 
     private static void CopyText(string text)
     {
@@ -778,9 +653,6 @@ public sealed partial class MainWindow : Window
         LockView.Message = "Windows Hello 暂时不可用，请稍后重试。";
         LockView.ButtonContent = "重新检测 Windows Hello";
     }
-
-    private static string FormatSecret(string secret) => string.Join(' ', Enumerable.Range(0, (secret.Length + 3) / 4)
-        .Select(index => secret.Substring(index * 4, Math.Min(4, secret.Length - index * 4))));
 
     private uint GetWindowDpi()
     {

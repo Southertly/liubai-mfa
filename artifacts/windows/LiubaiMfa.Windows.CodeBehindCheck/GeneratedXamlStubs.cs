@@ -30,8 +30,8 @@ namespace LiubaiMfa.Windows.Views
         private readonly InfoBar StatusBar = new();
         private readonly AutoSuggestBox SearchBox = new();
         private readonly ListView GroupsList = new();
-        private readonly TextBlock EmptyState = new();
-        private readonly TextBlock NoResultsState = new();
+        private readonly StackPanel EmptyState = new();
+        private readonly StackPanel NoResultsState = new();
         private readonly ListView AccountsList = new();
 
         private void InitializeComponent()
