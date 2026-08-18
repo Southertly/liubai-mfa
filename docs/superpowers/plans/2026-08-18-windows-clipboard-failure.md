@@ -13,6 +13,7 @@
 ## 文件结构
 
 - Create: `artifacts/windows/LiubaiMfa.Windows/Services/ClipboardService.cs` — 封装 WinRT 剪贴板写入和互操作异常。
+- Create: `artifacts/windows/LiubaiMfa.Windows/Services/ClipboardResultPolicy.cs` — 将复制结果映射为可直接测试的提示和继续状态。
 - Modify: `artifacts/windows/LiubaiMfa.Windows.Platform.Regression/Program.cs` — 增加剪贴板服务与主窗口接线回归。
 - Modify: `artifacts/windows/LiubaiMfa.Windows/MainWindow.xaml.cs` — 根据复制结果显示成功或警告提示。
 - Modify: `artifacts/windows/LiubaiMfa.Windows/Services/AccountDialogService.cs` — MFA 密钥复制失败时显示警告，不显示成功。
@@ -390,6 +391,135 @@ git add -- .\LiubaiMfa.Windows.Platform.Regression\Program.cs .\LiubaiMfa.Window
 git -c user.name='Codex' -c user.email='codex@openai.com' commit -m 'fix: honor sensitive clipboard failures'
 ```
 
+### Task 2B: 用行为策略替换脆弱的源码字符串约束
+
+**Files:**
+- Create: `artifacts/windows/LiubaiMfa.Windows/Services/ClipboardResultPolicy.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows.Platform.Regression/Program.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/MainWindow.xaml.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Services/AccountDialogService.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Services/BackupDialogService.cs`
+
+- [ ] **Step 1: 写纯行为失败测试**
+
+在 `checks` 列表末尾增加：
+
+```csharp
+("剪贴板提示策略区分成功和失败", () => RunSync(VerifyClipboardStatusFeedbackPolicy)),
+("恢复密钥策略只在成功时允许继续", () => RunSync(VerifyRecoveryKeyClipboardFeedbackPolicy)),
+```
+
+加入：
+
+```csharp
+static void VerifyClipboardStatusFeedbackPolicy()
+{
+    var failure = ClipboardResultPolicy.CreateStatus(false, "验证码已复制。");
+    Assert(failure.Message == "剪贴板暂时不可用，请稍后重试。", "失败提示错误。");
+    Assert(failure.Severity == Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, "失败必须使用 Warning。");
+
+    var success = ClipboardResultPolicy.CreateStatus(true, "验证码已复制。");
+    Assert(success.Message == "验证码已复制。", "成功提示错误。");
+    Assert(success.Severity == Microsoft.UI.Xaml.Controls.InfoBarSeverity.Success, "成功必须使用 Success。");
+}
+
+static void VerifyRecoveryKeyClipboardFeedbackPolicy()
+{
+    var failure = ClipboardResultPolicy.CreateRecoveryKey(false);
+    Assert(failure.ButtonText == "复制失败，请重试", "恢复密钥失败按钮错误。");
+    Assert(!failure.CanContinue, "恢复密钥失败不得允许继续。");
+
+    var success = ClipboardResultPolicy.CreateRecoveryKey(true);
+    Assert(success.ButtonText == "恢复密钥已复制", "恢复密钥成功按钮错误。");
+    Assert(success.CanContinue, "恢复密钥成功后应允许继续。");
+}
+```
+
+- [ ] **Step 2: 运行回归并确认 RED**
+
+Run:
+
+```powershell
+dotnet run --project .\LiubaiMfa.Windows.Platform.Regression\LiubaiMfa.Windows.Platform.Regression.csproj -c Release
+```
+
+Expected: 因 `ClipboardResultPolicy` 不存在而编译失败；不得以字符串检查失败代替该 RED。
+
+- [ ] **Step 3: 实现纯策略**
+
+创建：
+
+```csharp
+using Microsoft.UI.Xaml.Controls;
+
+namespace LiubaiMfa.Windows.Services;
+
+public readonly record struct ClipboardStatusFeedback(string Message, InfoBarSeverity Severity);
+
+public readonly record struct RecoveryKeyCopyFeedback(string ButtonText, bool CanContinue);
+
+public static class ClipboardResultPolicy
+{
+    public static ClipboardStatusFeedback CreateStatus(bool copied, string successMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(successMessage);
+        return copied
+            ? new ClipboardStatusFeedback(successMessage, InfoBarSeverity.Success)
+            : new ClipboardStatusFeedback("剪贴板暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
+    }
+
+    public static RecoveryKeyCopyFeedback CreateRecoveryKey(bool copied) => copied
+        ? new RecoveryKeyCopyFeedback("恢复密钥已复制", true)
+        : new RecoveryKeyCopyFeedback("复制失败，请重试", false);
+}
+```
+
+- [ ] **Step 4: 三个入口应用已测试结果**
+
+验证码：
+
+```csharp
+var copyFeedback = ClipboardResultPolicy.CreateStatus(
+    _clipboard.TryCopyText(account.Code),
+    "验证码已复制。");
+ShowStatus(token, copyFeedback.Message, copyFeedback.Severity);
+```
+
+MFA 密钥：
+
+```csharp
+var copyFeedback = ClipboardResultPolicy.CreateStatus(
+    copyText(current.Secret),
+    "MFA 密钥已复制。");
+_showStatus(token, copyFeedback.Message, copyFeedback.Severity);
+```
+
+恢复密钥：
+
+```csharp
+var copyFeedback = ClipboardResultPolicy.CreateRecoveryKey(copyText(recoveryKey));
+copyButton.Content = copyFeedback.ButtonText;
+dialog.IsPrimaryButtonEnabled = copyFeedback.CanContinue;
+```
+
+把原第 71 项源契约测试改为只验证三个入口确实调用上述策略；成功/失败状态本身必须由两项纯行为测试证明。
+
+- [ ] **Step 5: 运行验证并提交**
+
+```powershell
+dotnet run --project .\LiubaiMfa.Windows.Platform.Regression\LiubaiMfa.Windows.Platform.Regression.csproj -c Release
+dotnet build .\LiubaiMfa.Windows.CodeBehindCheck\LiubaiMfa.Windows.CodeBehindCheck.csproj -c Release
+dotnet build .\LiubaiMfa.Windows\LiubaiMfa.Windows.csproj -c Release -p:Platform=x64
+git diff --check
+```
+
+Expected: Platform `73/73`；两个构建 0 警告、0 错误。
+
+```powershell
+git add -- .\LiubaiMfa.Windows\Services\ClipboardResultPolicy.cs .\LiubaiMfa.Windows.Platform.Regression\Program.cs .\LiubaiMfa.Windows\MainWindow.xaml.cs .\LiubaiMfa.Windows\Services\AccountDialogService.cs .\LiubaiMfa.Windows\Services\BackupDialogService.cs
+git -c user.name='Codex' -c user.email='codex@openai.com' commit -m 'test: harden clipboard result behavior'
+```
+
 ### Task 3: 完整构建、MSIX 真机复测和验证记录
 
 **Files:**
@@ -424,7 +554,7 @@ dotnet build .\LiubaiMfa.sln -c Release -p:Platform=x64 --no-restore
 git diff --check
 ```
 
-Expected: Core `5/5`、Platform `71/71`，全部 Release x64 构建 0 警告、0 错误，`git diff --check` 无输出。
+Expected: Core `5/5`、Platform `73/73`，全部 Release x64 构建 0 警告、0 错误，`git diff --check` 无输出。
 
 - [ ] **Step 3: 生成并安装升级 MSIX**
 
@@ -489,7 +619,7 @@ Expected: 应用不退出，Windows 应用程序日志中没有测试开始后�
 - Windows 错误报告确认旧版本在剪贴板占用时产生 `0x800401D0`，未捕获异常会终止 WinUI 进程。
 - 新增剪贴板错误边界：一次写入失败返回中性结果，不重试、不记录验证码或密钥。
 - `LiubaiMfa.Core.Regression`：5/5 通过。
-- `LiubaiMfa.Windows.Platform.Regression`：71/71 通过。
+- `LiubaiMfa.Windows.Platform.Regression`：73/73 通过。
 - Platform、CodeBehindCheck、真实 WinUI XAML 和完整 solution Release x64 构建：0 警告、0 错误。
 - MSIX `1.0.0.2` 已完成生成、升级安装和启动验证。
 - 使用六个纯测试账户重复执行“个人分组 → 复制验证码 → 全部分组”三次，应用保持运行；测试时段无新增 `LiubaiMfa.Windows.exe` 崩溃事件。
