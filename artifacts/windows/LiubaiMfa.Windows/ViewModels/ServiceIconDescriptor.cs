@@ -10,4 +10,5 @@ public sealed record ServiceIconDescriptor(
     ServiceIconKind Kind,
     string FallbackText,
     string? Glyph,
-    string BackgroundColor);
+    string BackgroundColor,
+    string ForegroundColor);

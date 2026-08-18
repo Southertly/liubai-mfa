@@ -130,7 +130,7 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="viewModels:AccountItemViewModel">
-                        <SwipeControl>
+                        <SwipeControl IsTabStop="False">
                             <SwipeControl.RightItems>
                                 <SwipeItems Mode="Reveal">
                                     <SwipeItem
@@ -157,7 +157,7 @@
                                 Tag="{x:Bind Id}"
                                 AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
                                 KeyDown="AccountRow_KeyDown"
-                                RightTapped="AccountRow_RightTapped">
+                                ContextRequested="AccountRow_ContextRequested">
                                 <Border.ContextFlyout>
                                     <MenuFlyout>
                                         <MenuFlyoutItem
@@ -188,34 +188,51 @@
                                         Width="36"
                                         Height="36"
                                         Background="{x:Bind Icon.BackgroundColor}"
+                                        HighContrastAdjustment="Auto"
                                         CornerRadius="18"
                                         VerticalAlignment="Center"
                                         AutomationProperties.Name="服务图标">
                                         <TextBlock
                                             Text="{x:Bind Icon.FallbackText}"
-                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                            Foreground="{x:Bind Icon.ForegroundColor}"
                                             FontWeight="SemiBold"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center" />
                                     </Border>
-                                    <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
+                                    <Grid Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
                                         <TextBlock
                                             Text="{x:Bind Issuer}"
                                             FontWeight="SemiBold"
                                             Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                            MaxLines="1"
+                                            TextWrapping="NoWrap"
                                             TextTrimming="CharacterEllipsis" />
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <Grid Grid.Row="1" ColumnSpacing="4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock
                                                 Text="{x:Bind Account}"
                                                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                MaxLines="1"
+                                                TextWrapping="NoWrap"
                                                 TextTrimming="CharacterEllipsis" />
                                             <TextBlock
+                                                Grid.Column="1"
                                                 Text="{x:Bind GroupLabel}"
                                                 FontSize="11"
+                                                MaxWidth="64"
                                                 Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                MaxLines="1"
+                                                TextWrapping="NoWrap"
                                                 TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </StackPanel>
+                                        </Grid>
+                                    </Grid>
                                     <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center" MinWidth="112">
                                         <Button
                                             Padding="0"
@@ -223,6 +240,7 @@
                                             Background="Transparent"
                                             BorderThickness="0"
                                             HorizontalAlignment="Right"
+                                            IsTabStop="False"
                                             ToolTipService.ToolTip="复制验证码"
                                             AutomationProperties.Name="复制验证码"
                                             Click="CopyCodeButton_Click">
@@ -247,6 +265,7 @@
                                         Padding="0"
                                         Tag="{x:Bind Id}"
                                         VerticalAlignment="Center"
+                                        IsTabStop="False"
                                         ToolTipService.ToolTip="复制验证码"
                                         AutomationProperties.Name="复制验证码"
                                         Click="CopyCodeButton_Click">

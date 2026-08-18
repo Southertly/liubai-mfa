@@ -249,10 +249,11 @@ public sealed partial class AuthenticatorView : UserControl
 
     private void DeleteMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.Delete);
 
-    private void AccountRow_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    private void AccountRow_ContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
         if (sender is FrameworkElement row)
         {
+            // ContextRequested 同时覆盖鼠标右键和 Shift+F10，避免 ContextFlyout 被重复打开。
             ShowAccountMenu(row);
             e.Handled = true;
         }
@@ -268,17 +269,11 @@ public sealed partial class AuthenticatorView : UserControl
         var controlDown = IsKeyDown(VirtualKey.Control);
         var shiftDown = IsKeyDown(VirtualKey.Shift);
         var altDown = IsKeyDown(VirtualKey.Menu) || IsKeyDown(VirtualKey.LeftMenu) || IsKeyDown(VirtualKey.RightMenu);
+        var windowsDown = IsKeyDown(VirtualKey.LeftWindows) || IsKeyDown(VirtualKey.RightWindows);
 
-        if (AccountActionPolicy.IsCopyShortcut(e.Key == VirtualKey.C, controlDown, shiftDown, altDown))
+        if (e.Key == VirtualKey.C && AccountActionPolicy.IsCopyShortcut(controlDown, shiftDown, altDown, windowsDown, e.KeyStatus.WasKeyDown))
         {
             CopyRequested?.Invoke(this, new AccountRequestedEventArgs(id));
-            e.Handled = true;
-            return;
-        }
-
-        if (AccountActionPolicy.IsContextMenuShortcut(e.Key == VirtualKey.F10, controlDown, shiftDown, altDown) && sender is FrameworkElement row)
-        {
-            ShowAccountMenu(row);
             e.Handled = true;
         }
     }

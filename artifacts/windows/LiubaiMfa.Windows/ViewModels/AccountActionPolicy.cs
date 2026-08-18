@@ -13,9 +13,6 @@ public static class AccountActionPolicy
 
     public static bool RequiresConfirmation(AccountAction action) => action == AccountAction.Delete;
 
-    public static bool IsCopyShortcut(bool isCKey, bool controlDown, bool shiftDown, bool altDown) =>
-        isCKey && controlDown && !shiftDown && !altDown;
-
-    public static bool IsContextMenuShortcut(bool isF10Key, bool controlDown, bool shiftDown, bool altDown) =>
-        isF10Key && shiftDown && !controlDown && !altDown;
+    public static bool IsCopyShortcut(bool controlDown, bool shiftDown, bool altDown, bool windowsDown, bool wasKeyDown) =>
+        controlDown && !shiftDown && !altDown && !windowsDown && !wasKeyDown;
 }

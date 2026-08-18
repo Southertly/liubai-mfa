@@ -32,6 +32,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("解锁会话保护器并发失效后不保留旧会话", VerifyUnlockSessionGuardConcurrentInvalidationAsync),
     ("紧凑账户行格式化、进度和边界", () => RunSync(VerifyCompactAccountRowFormatting)),
     ("紧凑账户行服务图标回退", () => RunSync(VerifyServiceIconResolution)),
+    ("紧凑账户行服务图标文字保持可读对比", () => RunSync(VerifyServiceIconForegroundContrast)),
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
     ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
     ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
@@ -39,7 +40,6 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("查看密钥只要求 Hello", () => RunSync(VerifyViewSecretActionPolicy)),
     ("删除账户只要求确认", () => RunSync(VerifyDeleteActionPolicy)),
     ("账户行 Ctrl+C 只接受精确 Ctrl 修饰键", () => RunSync(VerifyExactCopyShortcutPolicy)),
-    ("账户行 Shift+F10 只接受精确 Shift 修饰键", () => RunSync(VerifyExactContextMenuShortcutPolicy)),
     ("窗口位置限制在主屏工作区", () => RunSync(VerifyWindowPlacementClampsToPrimaryWorkArea)),
     ("窗口位置修复损坏尺寸", () => RunSync(VerifyWindowPlacementRepairsDamagedSize)),
     ("窗口位置保留负坐标副屏", () => RunSync(VerifyWindowPlacementPreservesNegativeMonitorCoordinates)),
@@ -306,6 +306,13 @@ static void VerifyServiceIconResolution()
     Assert(System.Text.RegularExpressions.Regex.IsMatch(normalizedOne.BackgroundColor, "^#[0-9A-F]{8}$"), "图标背景色不是 ARGB 十六进制格式。");
 }
 
+static void VerifyServiceIconForegroundContrast()
+{
+    Assert(ServiceIconResolver.Resolve("Google").ForegroundColor == "#FF000000", "Google 图标应选择黑色文字以保持普通模式对比度。");
+    Assert(ServiceIconResolver.Resolve("OpenAI").ForegroundColor == "#FF000000", "OpenAI 图标应选择黑色文字以保持普通模式对比度。");
+    Assert(ServiceIconResolver.Resolve("X").ForegroundColor == "#FFFFFFFF", "深色 X 图标应选择白色文字以保持普通模式对比度。");
+}
+
 static void VerifyCompactAccountRowRefreshAndReplacement()
 {
     const string secret = "JBSWY3DPEHPK3PXP";
@@ -394,16 +401,11 @@ static void VerifyDeleteActionPolicy()
 
 static void VerifyExactCopyShortcutPolicy()
 {
-    Assert(AccountActionPolicy.IsCopyShortcut(isCKey: true, controlDown: true, shiftDown: false, altDown: false), "仅 Ctrl+C 应触发复制。");
-    Assert(!AccountActionPolicy.IsCopyShortcut(isCKey: true, controlDown: true, shiftDown: true, altDown: false), "Ctrl+Shift+C 不得触发复制。");
-    Assert(!AccountActionPolicy.IsCopyShortcut(isCKey: true, controlDown: true, shiftDown: false, altDown: true), "Ctrl+Alt+C 不得触发复制。");
-}
-
-static void VerifyExactContextMenuShortcutPolicy()
-{
-    Assert(AccountActionPolicy.IsContextMenuShortcut(isF10Key: true, controlDown: false, shiftDown: true, altDown: false), "仅 Shift+F10 应打开菜单。");
-    Assert(!AccountActionPolicy.IsContextMenuShortcut(isF10Key: true, controlDown: true, shiftDown: true, altDown: false), "Ctrl+Shift+F10 不得打开菜单。");
-    Assert(!AccountActionPolicy.IsContextMenuShortcut(isF10Key: true, controlDown: false, shiftDown: true, altDown: true), "Alt+Shift+F10 不得打开菜单。");
+    Assert(AccountActionPolicy.IsCopyShortcut(controlDown: true, shiftDown: false, altDown: false, windowsDown: false, wasKeyDown: false), "仅 Ctrl+C 首次按下应触发复制。");
+    Assert(!AccountActionPolicy.IsCopyShortcut(controlDown: true, shiftDown: true, altDown: false, windowsDown: false, wasKeyDown: false), "Ctrl+Shift+C 不得触发复制。");
+    Assert(!AccountActionPolicy.IsCopyShortcut(controlDown: true, shiftDown: false, altDown: true, windowsDown: false, wasKeyDown: false), "Ctrl+Alt+C 不得触发复制。");
+    Assert(!AccountActionPolicy.IsCopyShortcut(controlDown: true, shiftDown: false, altDown: false, windowsDown: true, wasKeyDown: false), "Ctrl+Win+C 不得触发复制。");
+    Assert(!AccountActionPolicy.IsCopyShortcut(controlDown: true, shiftDown: false, altDown: false, windowsDown: false, wasKeyDown: true), "按键自动重复不得再次复制。");
 }
 
 static void VerifyCompactAccountRowInvalidSecrets()
