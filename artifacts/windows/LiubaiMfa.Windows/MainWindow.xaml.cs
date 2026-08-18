@@ -443,43 +443,59 @@ public sealed partial class MainWindow : Window
         }
 
         var backup = BackupCrypto.CreateBackup(ViewModel.Snapshot(), out var recoveryKey);
-        if (!IsSessionCurrent(token) || !await _backupDialogs.ConfirmExportAsync(
-                RootGrid.XamlRoot,
-                token,
-                BackupCrypto.FormatRecoveryKey(recoveryKey),
-                CopyText) || !IsSessionCurrent(token))
-        {
-            return;
-        }
-
-        var file = await _files.PickBackupSaveFileAsync();
-        if (file is null || !IsSessionCurrent(token))
-        {
-            return;
-        }
-
-        if (!_sessionCancellation.TryGetCancellationToken(token, out var writeCancellation) || !IsSessionCurrent(token))
-        {
-            return;
-        }
-
         try
         {
-            await _files.WriteBackupAsync(file, backup, writeCancellation);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            ShowStatus(token, "备份文件未保存。请检查目标位置权限或磁盘空间后重试。", InfoBarSeverity.Error);
-            return;
-        }
+            if (!IsSessionCurrent(token) || !await _backupDialogs.ConfirmExportAsync(
+                    RootGrid.XamlRoot,
+                    token,
+                    BackupCrypto.FormatRecoveryKey(recoveryKey),
+                    CopyText) || !IsSessionCurrent(token))
+            {
+                return;
+            }
 
-        if (IsSessionCurrent(token))
+            var file = await _files.PickBackupSaveFileAsync();
+            if (file is null || !IsSessionCurrent(token))
+            {
+                return;
+            }
+
+            if (!_sessionCancellation.TryAcquire(token, out var writeLease))
+            {
+                return;
+            }
+
+            using (writeLease)
+            {
+                if (!IsSessionCurrent(token))
+                {
+                    return;
+                }
+
+                try
+                {
+                    await _files.WriteBackupAsync(file, backup, writeLease.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    ShowStatus(token, "备份文件未保存。请检查目标位置权限或磁盘空间后重试。", InfoBarSeverity.Error);
+                    return;
+                }
+            }
+
+            if (IsSessionCurrent(token))
+            {
+                ShowStatus(token, "加密备份已保存。请妥善保管恢复密钥。", InfoBarSeverity.Success);
+            }
+        }
+        finally
         {
-            ShowStatus(token, "加密备份已保存。请妥善保管恢复密钥。", InfoBarSeverity.Success);
+            recoveryKey = string.Empty;
+            backup = string.Empty;
         }
     }
 

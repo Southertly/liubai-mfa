@@ -33,8 +33,11 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("卸载必须清除未消费的账户定位", VerifyUnloadClearsPendingRevealAsync),
     ("会话取消域绑定令牌并隔离新会话", () => RunSync(VerifySessionCancellationLifecycle)),
     ("会话取消域可重复并发失效", VerifySessionCancellationConcurrentInvalidationAsync),
+    ("会话取消租约延迟释放底层资源", () => RunSync(VerifySessionCancellationLeaseLifetime)),
+    ("旧代际回调不能操作当前计时器", () => RunSync(VerifyEpochCallbackGuard)),
     ("旧定位 ID 不能消费新定位", VerifyPendingRevealRequiresExpectedIdAsync),
     ("派生筛选复用账户行并保持高亮", VerifyDerivedRefreshReusesAccountRowsAsync),
+    ("隐藏账户行恢复前可清理高亮", VerifyHiddenHighlightCanBeClearedAsync),
     ("删除账户会移除行缓存", VerifyDeleteRemovesAccountRowCacheAsync),
     ("添加冲突 ID 必须生成唯一 ID", VerifyAddConflictingIdUsesUniqueIdAsync),
     ("导入冲突和同批重复 ID 必须唯一", VerifyImportConflictingIdsUseUniqueIdsAsync),
@@ -795,23 +798,31 @@ static async Task VerifyUnloadClearsPendingRevealAsync()
 static void VerifySessionCancellationLifecycle()
 {
     var guard = new SessionCancellationGuard();
-    Assert(!guard.TryGetCancellationToken(1, out _), "初始状态不应提供取消令牌。");
+    Assert(!guard.TryAcquire(1, out _), "初始状态不应提供取消令牌。");
 
     const long firstSession = 101;
     guard.Begin(firstSession);
-    Assert(guard.TryGetCancellationToken(firstSession, out var firstToken), "当前会话应取得取消令牌。");
-    Assert(!firstToken.IsCancellationRequested, "新会话令牌不应已取消。");
-    Assert(!guard.TryGetCancellationToken(999, out _), "错误会话不能取得活动令牌。");
+    Assert(guard.TryAcquire(firstSession, out var firstLease), "当前会话应取得取消租约。");
+    using (firstLease)
+    {
+        Assert(!firstLease.Token.IsCancellationRequested, "新会话令牌不应已取消。");
+        Assert(!guard.TryAcquire(999, out _), "错误会话不能取得活动租约。");
 
-    guard.Invalidate();
-    Assert(firstToken.IsCancellationRequested, "失效必须同步取消旧会话令牌。");
-    Assert(!guard.TryGetCancellationToken(firstSession, out _), "失效后旧会话不能再取得令牌。");
+        guard.Invalidate();
+        Assert(firstLease.Token.IsCancellationRequested, "失效必须同步取消旧会话令牌。");
+        Assert(!guard.TryAcquire(firstSession, out _), "失效后旧会话不能再取得租约。");
+        Assert(guard.LiveStateCount == 1, "持有租约时不得过早释放取消源。");
+    }
+    Assert(guard.LiveStateCount == 0, "最后一个租约释放后应清理已失效取消源。");
 
     const long secondSession = 102;
     guard.Begin(secondSession);
-    Assert(guard.TryGetCancellationToken(secondSession, out var secondToken), "新会话应取得新令牌。");
-    Assert(!secondToken.IsCancellationRequested, "旧会话取消不能影响新会话。");
-    Assert(firstToken.IsCancellationRequested, "旧会话令牌必须永久保持取消。");
+    Assert(guard.TryAcquire(secondSession, out var secondLease), "新会话应取得新租约。");
+    using (secondLease)
+    {
+        Assert(!secondLease.Token.IsCancellationRequested, "旧会话取消不能影响新会话。");
+    }
+    guard.Invalidate();
 }
 
 static async Task VerifySessionCancellationConcurrentInvalidationAsync()
@@ -819,7 +830,28 @@ static async Task VerifySessionCancellationConcurrentInvalidationAsync()
     var guard = new SessionCancellationGuard();
     guard.Begin(201);
     await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(guard.Invalidate)));
-    Assert(!guard.TryGetCancellationToken(201, out _), "并发重复失效后不应保留活动令牌。");
+    Assert(!guard.TryAcquire(201, out _), "并发重复失效后不应保留活动令牌。");
+}
+
+static void VerifySessionCancellationLeaseLifetime()
+{
+    var guard = new SessionCancellationGuard();
+    for (var index = 1; index <= 100; index++)
+    {
+        guard.Begin(index);
+        guard.Invalidate();
+    }
+
+    Assert(guard.LiveStateCount == 0, "无租约的重复会话不能线性保留取消源。");
+    Assert(!guard.TryAcquire(1234, out _), "错误会话不能获取租约。");
+}
+
+static void VerifyEpochCallbackGuard()
+{
+    Assert(!EpochCallbackGuard.IsCurrent(4, 3, 7, 7, "new", "old"), "旧 epoch 回调不得操作当前计时器。");
+    Assert(!EpochCallbackGuard.IsCurrent(4, 4, 8, 7, "same", "same"), "旧 attach 回调不得操作当前计时器。");
+    Assert(!EpochCallbackGuard.IsCurrent(4, 4, 8, 8, "new", "old"), "旧账户回调不得操作当前计时器。");
+    Assert(EpochCallbackGuard.IsCurrent(4, 4, 8, 8, "same", "same"), "当前代际回调应被允许执行。");
 }
 
 static async Task VerifyPendingRevealRequiresExpectedIdAsync()
@@ -849,6 +881,23 @@ static async Task VerifyDerivedRefreshReusesAccountRowsAsync()
     var refreshed = viewModel.VisibleAccounts.Single(account => account.Id == "1");
     Assert(ReferenceEquals(original, refreshed), "筛选刷新不应重建同一账户行对象。");
     Assert(refreshed.IsRevealHighlighted, "筛选刷新不应丢失账户高亮。");
+}
+
+static async Task VerifyHiddenHighlightCanBeClearedAsync()
+{
+    var viewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await viewModel.LoadAsync();
+    var original = viewModel.VisibleAccounts.Single(account => account.Id == "1");
+    original.SetRevealHighlight(true);
+
+    viewModel.SearchText = "不会匹配";
+    Assert(!viewModel.VisibleAccounts.Contains(original), "筛选应暂时隐藏目标账户行。");
+    original.SetRevealHighlight(false);
+    viewModel.SearchText = string.Empty;
+
+    var restored = viewModel.VisibleAccounts.Single(account => account.Id == "1");
+    Assert(ReferenceEquals(original, restored), "恢复筛选必须复用原账户行。");
+    Assert(!restored.IsRevealHighlighted, "隐藏状态下清理高亮后重新出现不得残留高亮。");
 }
 
 static async Task VerifyDeleteRemovesAccountRowCacheAsync()

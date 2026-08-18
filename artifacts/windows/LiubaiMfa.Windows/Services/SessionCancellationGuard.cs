@@ -3,10 +3,11 @@ namespace LiubaiMfa.Windows.Services;
 public sealed class SessionCancellationGuard : IDisposable
 {
     private readonly object _gate = new();
-    private readonly List<CancellationTokenSource> _ownedCancellations = [];
-    private long _activeSession;
-    private CancellationTokenSource? _activeCancellation;
+    private SessionState? _activeState;
+    private int _liveStateCount;
     private bool _isDisposed;
+
+    internal int LiveStateCount => Volatile.Read(ref _liveStateCount);
 
     public void Begin(long sessionToken)
     {
@@ -18,10 +19,9 @@ public sealed class SessionCancellationGuard : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
-            CancelActiveUnsafe();
-            _activeSession = sessionToken;
-            _activeCancellation = new CancellationTokenSource();
-            _ownedCancellations.Add(_activeCancellation);
+            InvalidateActiveUnsafe();
+            _activeState = new SessionState(sessionToken);
+            Interlocked.Increment(ref _liveStateCount);
         }
     }
 
@@ -29,45 +29,28 @@ public sealed class SessionCancellationGuard : IDisposable
     {
         lock (_gate)
         {
-            if (_isDisposed)
+            if (!_isDisposed)
             {
-                return;
+                InvalidateActiveUnsafe();
             }
-
-            _activeSession = 0;
-            CancelActiveUnsafe();
-            _activeCancellation = null;
         }
     }
 
-    public bool TryGetCancellationToken(long sessionToken, out CancellationToken cancellationToken)
+    public bool TryAcquire(long sessionToken, out SessionCancellationLease lease)
     {
         lock (_gate)
         {
-            if (_isDisposed)
+            if (!_isDisposed
+                && _activeState is { IsActive: true, IsDisposed: false } state
+                && state.SessionToken == sessionToken)
             {
-                cancellationToken = default;
-                return false;
-            }
-
-            if (sessionToken != 0
-                && _activeSession == sessionToken
-                && _activeCancellation is { IsCancellationRequested: false } cancellation)
-            {
-                cancellationToken = cancellation.Token;
+                state.LeaseCount++;
+                lease = new SessionCancellationLease(this, state);
                 return true;
             }
 
-            cancellationToken = default;
+            lease = null!;
             return false;
-        }
-    }
-
-    private void CancelActiveUnsafe()
-    {
-        if (_activeCancellation is { IsCancellationRequested: false } cancellation)
-        {
-            cancellation.Cancel();
         }
     }
 
@@ -81,15 +64,84 @@ public sealed class SessionCancellationGuard : IDisposable
             }
 
             _isDisposed = true;
-            _activeSession = 0;
-            CancelActiveUnsafe();
-            _activeCancellation = null;
-            foreach (var cancellation in _ownedCancellations)
+            InvalidateActiveUnsafe();
+        }
+    }
+
+    private void InvalidateActiveUnsafe()
+    {
+        var state = _activeState;
+        _activeState = null;
+        if (state is null)
+        {
+            return;
+        }
+
+        state.IsActive = false;
+        state.Cancellation.Cancel();
+        TryDisposeStateUnsafe(state);
+    }
+
+    private void Release(SessionState state)
+    {
+        lock (_gate)
+        {
+            if (state.LeaseCount > 0)
             {
-                cancellation.Dispose();
+                state.LeaseCount--;
             }
 
-            _ownedCancellations.Clear();
+            TryDisposeStateUnsafe(state);
+        }
+    }
+
+    private void TryDisposeStateUnsafe(SessionState state)
+    {
+        if (state.IsActive || state.LeaseCount != 0 || state.IsDisposed)
+        {
+            return;
+        }
+
+        state.IsDisposed = true;
+        state.Cancellation.Dispose();
+        Interlocked.Decrement(ref _liveStateCount);
+    }
+
+    internal sealed class SessionState
+    {
+        public SessionState(long sessionToken)
+        {
+            SessionToken = sessionToken;
+        }
+
+        public long SessionToken { get; }
+        public CancellationTokenSource Cancellation { get; } = new();
+        public int LeaseCount { get; set; }
+        public bool IsActive { get; set; } = true;
+        public bool IsDisposed { get; set; }
+    }
+
+    public sealed class SessionCancellationLease : IDisposable
+    {
+        private SessionCancellationGuard? _owner;
+        private SessionState? _state;
+
+        internal SessionCancellationLease(SessionCancellationGuard owner, SessionState state)
+        {
+            _owner = owner;
+            _state = state;
+        }
+
+        public CancellationToken Token => _state?.Cancellation.Token ?? default;
+
+        public void Dispose()
+        {
+            var owner = Interlocked.Exchange(ref _owner, null);
+            var state = Interlocked.Exchange(ref _state, null);
+            if (owner is not null && state is not null)
+            {
+                owner.Release(state);
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
@@ -24,7 +25,7 @@ public sealed partial class AuthenticatorView : UserControl
     private long _attachEpoch;
     private long _revealEpoch;
     private string? _requestedRevealAccountId;
-    private string? _highlightedAccountId;
+    private AccountItemViewModel? _highlightedAccount;
 
     public AuthenticatorView()
     {
@@ -126,10 +127,16 @@ public sealed partial class AuthenticatorView : UserControl
         }
 
         var statusEpoch = _statusEpoch;
+        var attachEpoch = _attachEpoch;
         _statusTimerTickHandler = (_, _) =>
         {
+            if (!EpochCallbackGuard.IsCurrent(_statusEpoch, statusEpoch, _attachEpoch, attachEpoch, null, null))
+            {
+                return;
+            }
+
             _statusTimer.Stop();
-            if (_viewModel is not null && statusEpoch == _statusEpoch)
+            if (_viewModel is not null)
             {
                 StatusBar.IsOpen = false;
                 StatusBar.Message = string.Empty;
@@ -432,12 +439,16 @@ public sealed partial class AuthenticatorView : UserControl
 
         ClearRevealHighlight();
         account.SetRevealHighlight(true);
-        _highlightedAccountId = accountId;
-        row.Focus(FocusState.Programmatic);
+        _highlightedAccount = account;
+        if (!row.Focus(FocusState.Programmatic))
+        {
+            ClearRevealHighlight();
+            return;
+        }
+
         if (!attachedViewModel.ConsumePendingReveal(accountId))
         {
-            account.SetRevealHighlight(false);
-            _highlightedAccountId = null;
+            ClearRevealHighlight();
             return;
         }
 
@@ -463,13 +474,19 @@ public sealed partial class AuthenticatorView : UserControl
         var timerEpoch = ++_revealEpoch;
         _revealTimerTickHandler = (_, _) =>
         {
-            _revealTimer.Stop();
-            if (_attachEpoch == attachEpoch
-                && _revealEpoch == timerEpoch
-                && _highlightedAccountId == accountId)
+            if (!EpochCallbackGuard.IsCurrent(
+                    _revealEpoch,
+                    timerEpoch,
+                    _attachEpoch,
+                    attachEpoch,
+                    _highlightedAccount?.Id,
+                    accountId))
             {
-                ClearRevealHighlight();
+                return;
             }
+
+            _revealTimer.Stop();
+            ClearRevealHighlight();
         };
         _revealTimer.Tick += _revealTimerTickHandler;
         _revealTimer.Start();
@@ -487,12 +504,8 @@ public sealed partial class AuthenticatorView : UserControl
 
     private void ClearRevealHighlight()
     {
-        if (_highlightedAccountId is not null)
-        {
-            FindAccount(_highlightedAccountId)?.SetRevealHighlight(false);
-        }
-
-        _highlightedAccountId = null;
+        _highlightedAccount?.SetRevealHighlight(false);
+        _highlightedAccount = null;
     }
 
     private static Border? FindAccountRow(DependencyObject parent, string accountId)
