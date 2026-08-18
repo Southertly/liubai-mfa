@@ -378,6 +378,8 @@ public sealed partial class AuthenticatorView : UserControl
             return;
         }
 
+        StopRevealTimer();
+        ClearRevealHighlight();
         var attachEpoch = _attachEpoch;
         _requestedRevealAccountId = accountId;
         var revealEpoch = ++_revealEpoch;

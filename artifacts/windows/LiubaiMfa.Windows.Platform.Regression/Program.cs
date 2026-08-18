@@ -35,6 +35,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("会话取消域可重复并发失效", VerifySessionCancellationConcurrentInvalidationAsync),
     ("会话取消租约延迟释放底层资源", () => RunSync(VerifySessionCancellationLeaseLifetime)),
     ("旧代际回调不能操作当前计时器", () => RunSync(VerifyEpochCallbackGuard)),
+    ("新定位请求必须先替换旧计时器和高亮", () => RunSync(VerifyRevealReplacementOrdering)),
     ("旧定位 ID 不能消费新定位", VerifyPendingRevealRequiresExpectedIdAsync),
     ("派生筛选复用账户行并保持高亮", VerifyDerivedRefreshReusesAccountRowsAsync),
     ("隐藏账户行恢复前可清理高亮", VerifyHiddenHighlightCanBeClearedAsync),
@@ -852,6 +853,24 @@ static void VerifyEpochCallbackGuard()
     Assert(!EpochCallbackGuard.IsCurrent(4, 4, 8, 7, "same", "same"), "旧 attach 回调不得操作当前计时器。");
     Assert(!EpochCallbackGuard.IsCurrent(4, 4, 8, 8, "new", "old"), "旧账户回调不得操作当前计时器。");
     Assert(EpochCallbackGuard.IsCurrent(4, 4, 8, 8, "same", "same"), "当前代际回调应被允许执行。");
+}
+
+static void VerifyRevealReplacementOrdering()
+{
+    var sourcePath = Path.Combine(Environment.CurrentDirectory, "LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs");
+    var source = File.ReadAllText(sourcePath);
+    var methodStart = source.IndexOf("    private void BeginRevealPending()", StringComparison.Ordinal);
+    var methodEnd = source.IndexOf("    private void AccountsList_LayoutUpdated", methodStart, StringComparison.Ordinal);
+    Assert(methodStart >= 0 && methodEnd > methodStart, "无法定位账户定位请求方法。");
+
+    var method = source[methodStart..methodEnd];
+    var stopIndex = method.IndexOf("StopRevealTimer();", StringComparison.Ordinal);
+    var clearIndex = method.IndexOf("ClearRevealHighlight();", StringComparison.Ordinal);
+    var requestedIndex = method.IndexOf("_requestedRevealAccountId = accountId;", StringComparison.Ordinal);
+    var scrollIndex = method.IndexOf("ScrollPendingAccountIntoView", StringComparison.Ordinal);
+
+    Assert(stopIndex >= 0 && clearIndex > stopIndex, "新定位请求必须先停止旧计时器并清除旧高亮。");
+    Assert(requestedIndex > clearIndex && scrollIndex > requestedIndex, "新定位请求应在替换旧状态后才发布并滚动新请求。");
 }
 
 static async Task VerifyPendingRevealRequiresExpectedIdAsync()
