@@ -1,8 +1,12 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
 using LiubaiMfa.Windows.ViewModels;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+using Windows.UI.Core;
 
 namespace LiubaiMfa.Windows.Views;
 
@@ -207,7 +211,7 @@ public sealed partial class AuthenticatorView : UserControl
     private void ImportBackupItem_Click(object sender, RoutedEventArgs e) => ImportBackupRequested?.Invoke(this, EventArgs.Empty);
     private void ExportBackupItem_Click(object sender, RoutedEventArgs e) => ExportBackupRequested?.Invoke(this, EventArgs.Empty);
 
-    private void CopyButton_Click(object sender, RoutedEventArgs e)
+    private void CopyCodeButton_Click(object sender, RoutedEventArgs e)
     {
         if (TryGetAccountId(sender, out var id))
         {
@@ -215,35 +219,109 @@ public sealed partial class AuthenticatorView : UserControl
         }
     }
 
-    private void EditButton_Click(object sender, RoutedEventArgs e)
+    private void EditSwipeItem_Invoked(SwipeItem sender, SwipeItemInvokedEventArgs args)
     {
-        if (TryGetAccountId(sender, out var id))
+        if (TryGetAccountId(args.SwipeControl, out var id))
         {
-            EditRequested?.Invoke(this, new AccountRequestedEventArgs(id));
+            RaiseAccountAction(id, AccountAction.Edit);
         }
     }
 
-    private void ShowSecretButton_Click(object sender, RoutedEventArgs e)
+    private void ShowSecretSwipeItem_Invoked(SwipeItem sender, SwipeItemInvokedEventArgs args)
     {
-        if (TryGetAccountId(sender, out var id))
+        if (TryGetAccountId(args.SwipeControl, out var id))
         {
-            ShowSecretRequested?.Invoke(this, new AccountRequestedEventArgs(id));
+            RaiseAccountAction(id, AccountAction.ViewSecret);
         }
     }
 
-    private void DeleteButton_Click(object sender, RoutedEventArgs e)
+    private void DeleteSwipeItem_Invoked(SwipeItem sender, SwipeItemInvokedEventArgs args)
     {
-        if (TryGetAccountId(sender, out var id))
+        if (TryGetAccountId(args.SwipeControl, out var id))
         {
-            DeleteRequested?.Invoke(this, new AccountRequestedEventArgs(id));
+            RaiseAccountAction(id, AccountAction.Delete);
         }
     }
 
-    private static bool TryGetAccountId(object sender, out string id)
+    private void EditMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.Edit);
+
+    private void ShowSecretMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.ViewSecret);
+
+    private void DeleteMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.Delete);
+
+    private void AccountRow_RightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        if (sender is Button { Tag: string accountId })
+        if (sender is FrameworkElement row)
+        {
+            ShowAccountMenu(row);
+            e.Handled = true;
+        }
+    }
+
+    private void AccountRow_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!TryGetAccountId(sender, out var id))
+        {
+            return;
+        }
+
+        if (e.Key == VirtualKey.C && IsKeyDown(VirtualKey.Control))
+        {
+            CopyRequested?.Invoke(this, new AccountRequestedEventArgs(id));
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == VirtualKey.F10 && IsKeyDown(VirtualKey.Shift) && sender is FrameworkElement row)
+        {
+            ShowAccountMenu(row);
+            e.Handled = true;
+        }
+    }
+
+    private void RaiseMenuAccountAction(object sender, AccountAction action)
+    {
+        if (TryGetAccountId(sender, out var id))
+        {
+            RaiseAccountAction(id, action);
+        }
+    }
+
+    private void RaiseAccountAction(string accountId, AccountAction action)
+    {
+        var args = new AccountRequestedEventArgs(accountId);
+        switch (action)
+        {
+            case AccountAction.Edit:
+                EditRequested?.Invoke(this, args);
+                break;
+            case AccountAction.ViewSecret:
+                ShowSecretRequested?.Invoke(this, args);
+                break;
+            case AccountAction.Delete:
+                DeleteRequested?.Invoke(this, args);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, null);
+        }
+    }
+
+    private static void ShowAccountMenu(FrameworkElement row) => row.ContextFlyout?.ShowAt(row);
+
+    private static bool IsKeyDown(VirtualKey key) =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+
+    private static bool TryGetAccountId(object? sender, out string id)
+    {
+        if (sender is FrameworkElement { Tag: string accountId })
         {
             id = accountId;
+            return true;
+        }
+
+        if (sender is FrameworkElement { DataContext: AccountItemViewModel account })
+        {
+            id = account.Id;
             return true;
         }
 

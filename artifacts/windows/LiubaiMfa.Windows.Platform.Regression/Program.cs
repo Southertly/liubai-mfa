@@ -35,6 +35,9 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
     ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
     ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
+    ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
+    ("查看密钥只要求 Hello", () => RunSync(VerifyViewSecretActionPolicy)),
+    ("删除账户只要求确认", () => RunSync(VerifyDeleteActionPolicy)),
     ("窗口位置限制在主屏工作区", () => RunSync(VerifyWindowPlacementClampsToPrimaryWorkArea)),
     ("窗口位置修复损坏尺寸", () => RunSync(VerifyWindowPlacementRepairsDamagedSize)),
     ("窗口位置保留负坐标副屏", () => RunSync(VerifyWindowPlacementPreservesNegativeMonitorCoordinates)),
@@ -367,6 +370,24 @@ static void VerifyCompactAccountRowNullModelSafety()
     AssertThrows<ArgumentNullException>(() => item.ReplaceModel(null!), "ReplaceModel 应拒绝空模型。");
     Assert(before == (item.Model, item.Issuer, item.Account, item.Code, item.Icon, item.AccessibleName), "拒绝空模型后旧状态不应改变。");
     Assert(changes.Count == 0, "拒绝空模型后不应发送属性通知。");
+}
+
+static void VerifyEditActionPolicy()
+{
+    Assert(!AccountActionPolicy.RequiresWindowsHello(AccountAction.Edit), "编辑账户不应要求 Windows Hello。");
+    Assert(!AccountActionPolicy.RequiresConfirmation(AccountAction.Edit), "编辑账户不应要求二次确认。");
+}
+
+static void VerifyViewSecretActionPolicy()
+{
+    Assert(AccountActionPolicy.RequiresWindowsHello(AccountAction.ViewSecret), "查看密钥必须要求 Windows Hello。");
+    Assert(!AccountActionPolicy.RequiresConfirmation(AccountAction.ViewSecret), "查看密钥不应要求删除确认。");
+}
+
+static void VerifyDeleteActionPolicy()
+{
+    Assert(!AccountActionPolicy.RequiresWindowsHello(AccountAction.Delete), "删除账户不应要求 Windows Hello。");
+    Assert(AccountActionPolicy.RequiresConfirmation(AccountAction.Delete), "删除账户必须要求二次确认。");
 }
 
 static void VerifyCompactAccountRowInvalidSecrets()

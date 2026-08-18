@@ -123,94 +123,138 @@
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Margin" Value="0,0,0,6" />
+                        <Setter Property="Margin" Value="0,0,0,4" />
                         <Setter Property="Padding" Value="0" />
+                        <Setter Property="IsTabStop" Value="True" />
+                        <Setter Property="UseSystemFocusVisuals" Value="True" />
                     </Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="viewModels:AccountItemViewModel">
-                        <Border
-                            MinHeight="72"
-                            Padding="14,10"
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            CornerRadius="8"
-                            AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock
-                                        Text="{x:Bind Issuer}"
-                                        FontWeight="SemiBold"
-                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                                    <TextBlock
-                                        Text="{x:Bind Account}"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <TextBlock
-                                        Text="{x:Bind GroupLabel}"
-                                        FontSize="11"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" MinWidth="118">
-                                    <TextBlock
-                                        Text="{x:Bind FormattedCode, Mode=OneWay}"
-                                        FontFamily="Consolas"
-                                        FontSize="24"
-                                        FontWeight="SemiBold"
-                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                                    <TextBlock
-                                        Text="{x:Bind RemainingLabel, Mode=OneWay}"
-                                        FontSize="11"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                        HorizontalAlignment="Right" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <SwipeControl>
+                            <SwipeControl.RightItems>
+                                <SwipeItems Mode="Reveal">
+                                    <SwipeItem
+                                        Text="编辑"
+                                        AutomationProperties.Name="编辑账户"
+                                        Invoked="EditSwipeItem_Invoked" />
+                                    <SwipeItem
+                                        Text="查看密钥"
+                                        AutomationProperties.Name="查看账户密钥"
+                                        Invoked="ShowSecretSwipeItem_Invoked" />
+                                    <SwipeItem
+                                        Text="删除"
+                                        AutomationProperties.Name="删除账户"
+                                        Invoked="DeleteSwipeItem_Invoked" />
+                                </SwipeItems>
+                            </SwipeControl.RightItems>
+                            <Border
+                                MinHeight="60"
+                                Padding="10,7"
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                CornerRadius="8"
+                                IsTabStop="True"
+                                Tag="{x:Bind Id}"
+                                AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
+                                KeyDown="AccountRow_KeyDown"
+                                RightTapped="AccountRow_RightTapped">
+                                <Border.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem
+                                            Text="编辑"
+                                            Tag="{x:Bind Id}"
+                                            AutomationProperties.Name="编辑账户"
+                                            Click="EditMenuItem_Click" />
+                                        <MenuFlyoutItem
+                                            Text="查看密钥"
+                                            Tag="{x:Bind Id}"
+                                            AutomationProperties.Name="查看账户密钥"
+                                            Click="ShowSecretMenuItem_Click" />
+                                        <MenuFlyoutItem
+                                            Text="删除"
+                                            Tag="{x:Bind Id}"
+                                            AutomationProperties.Name="删除账户"
+                                            Click="DeleteMenuItem_Click" />
+                                    </MenuFlyout>
+                                </Border.ContextFlyout>
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="36" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="36" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border
+                                        Width="36"
+                                        Height="36"
+                                        Background="{x:Bind Icon.BackgroundColor}"
+                                        CornerRadius="18"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="服务图标">
+                                        <TextBlock
+                                            Text="{x:Bind Icon.FallbackText}"
+                                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                                            FontWeight="SemiBold"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="1" VerticalAlignment="Center">
+                                        <TextBlock
+                                            Text="{x:Bind Issuer}"
+                                            FontWeight="SemiBold"
+                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock
+                                                Text="{x:Bind Account}"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                TextTrimming="CharacterEllipsis" />
+                                            <TextBlock
+                                                Text="{x:Bind GroupLabel}"
+                                                FontSize="11"
+                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center" MinWidth="112">
+                                        <Button
+                                            Padding="0"
+                                            Tag="{x:Bind Id}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            HorizontalAlignment="Right"
+                                            ToolTipService.ToolTip="复制验证码"
+                                            AutomationProperties.Name="复制验证码"
+                                            Click="CopyCodeButton_Click">
+                                            <TextBlock
+                                                Text="{x:Bind FormattedCode, Mode=OneWay}"
+                                                FontFamily="Consolas"
+                                                FontSize="22"
+                                                FontWeight="SemiBold"
+                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                        </Button>
+                                        <ProgressBar
+                                            Height="3"
+                                            Maximum="1"
+                                            Value="{x:Bind ProgressValue, Mode=OneWay}"
+                                            Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
+                                    </StackPanel>
                                     <Button
-                                        Width="32"
-                                        Height="32"
+                                        Grid.Column="3"
+                                        Width="36"
+                                        Height="36"
                                         Padding="0"
                                         Tag="{x:Bind Id}"
+                                        VerticalAlignment="Center"
                                         ToolTipService.ToolTip="复制验证码"
                                         AutomationProperties.Name="复制验证码"
-                                        Click="CopyButton_Click">
+                                        Click="CopyCodeButton_Click">
                                         <FontIcon Glyph="&#xE8C8;" FontSize="14" />
                                     </Button>
-                                    <Button
-                                        Width="32"
-                                        Height="32"
-                                        Padding="0"
-                                        Tag="{x:Bind Id}"
-                                        ToolTipService.ToolTip="编辑账户"
-                                        AutomationProperties.Name="编辑账户"
-                                        Click="EditButton_Click">
-                                        <FontIcon Glyph="&#xE70F;" FontSize="14" />
-                                    </Button>
-                                    <Button
-                                        Width="32"
-                                        Height="32"
-                                        Padding="0"
-                                        Tag="{x:Bind Id}"
-                                        ToolTipService.ToolTip="查看密钥"
-                                        AutomationProperties.Name="查看密钥"
-                                        Click="ShowSecretButton_Click">
-                                        <FontIcon Glyph="&#xE890;" FontSize="14" />
-                                    </Button>
-                                    <Button
-                                        Width="32"
-                                        Height="32"
-                                        Padding="0"
-                                        Tag="{x:Bind Id}"
-                                        ToolTipService.ToolTip="删除账户"
-                                        AutomationProperties.Name="删除账户"
-                                        Click="DeleteButton_Click">
-                                        <FontIcon Glyph="&#xE74D;" FontSize="14" />
-                                    </Button>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
+                                </Grid>
+                            </Border>
+                        </SwipeControl>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
