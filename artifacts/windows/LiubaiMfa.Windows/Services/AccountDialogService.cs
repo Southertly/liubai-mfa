@@ -141,7 +141,18 @@ public sealed class AccountDialogService
             IsTextSelectionEnabled = true,
             TextWrapping = TextWrapping.Wrap,
         };
-        var result = await _showDialog(CreateDialog(root, "MFA 密钥", secretText, "关闭", "复制密钥"), token);
+        var dialog = CreateDialog(root, "MFA 密钥", secretText, "关闭", "复制密钥");
+        ContentDialogResult result;
+        try
+        {
+            result = await _showDialog(dialog, token);
+        }
+        finally
+        {
+            secretText.Text = string.Empty;
+            dialog.Content = null;
+        }
+
         if (result != ContentDialogResult.Secondary || !_isSessionCurrent(token))
         {
             return;

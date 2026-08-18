@@ -34,6 +34,11 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("会话取消域绑定令牌并隔离新会话", () => RunSync(VerifySessionCancellationLifecycle)),
     ("会话取消域可重复并发失效", VerifySessionCancellationConcurrentInvalidationAsync),
     ("会话取消租约延迟释放底层资源", () => RunSync(VerifySessionCancellationLeaseLifetime)),
+    ("取消回调释放租约时不得死锁", VerifySessionCancellationCallbackLeaseReleaseAsync),
+    ("备份临时写入取消时不得替换目标", VerifyBackupWriteCancellationSkipsReplaceAsync),
+    ("备份临时写入成功时只替换一次目标", VerifyBackupWriteSuccessReplacesOnceAsync),
+    ("备份准备和恢复密钥格式化必须受错误边界保护", () => RunSync(VerifyBackupPreparationErrorBoundary)),
+    ("备份文件选择失败不得逸出异步事件", () => RunSync(VerifyBackupPickerErrorBoundary)),
     ("旧代际回调不能操作当前计时器", () => RunSync(VerifyEpochCallbackGuard)),
     ("新定位请求必须先替换旧计时器和高亮", () => RunSync(VerifyRevealReplacementOrdering)),
     ("旧定位 ID 不能消费新定位", VerifyPendingRevealRequiresExpectedIdAsync),
@@ -796,6 +801,133 @@ static async Task VerifyUnloadClearsPendingRevealAsync()
     Assert(notified, "卸载清除定位 ID 时必须通知视图。");
 }
 
+static async Task VerifySessionCancellationCallbackLeaseReleaseAsync()
+{
+    var guard = new SessionCancellationGuard();
+    guard.Begin(401);
+    Assert(guard.TryAcquire(401, out var lease), "当前会话应能取得测试租约。");
+    var token = lease.Token;
+    using var registration = token.Register(() =>
+    {
+        lease.Dispose();
+        var probe = Task.Run(() => !guard.TryAcquire(401, out _));
+        if (!probe.Wait(TimeSpan.FromSeconds(1)))
+        {
+            throw new InvalidOperationException("取消回调不应被保护器锁阻塞。");
+        }
+
+        Assert(probe.Result, "失效会话不得在取消回调中重新取得租约。");
+    });
+
+    var invalidate = Task.Run(guard.Invalidate);
+    Assert(await Task.WhenAny(invalidate, Task.Delay(TimeSpan.FromSeconds(2))) == invalidate, "取消回调释放租约时不得死锁。");
+    await invalidate;
+    Assert(token.IsCancellationRequested, "取消回调完成后令牌必须已取消。");
+    Assert(guard.LiveStateCount == 0, "取消交付且回调释放最后租约后应清理取消源。");
+
+    var disposedGuard = new SessionCancellationGuard();
+    disposedGuard.Begin(402);
+    Assert(disposedGuard.TryAcquire(402, out var disposedLease), "释放路径应能取得测试租约。");
+    var disposedToken = disposedLease.Token;
+    using var disposedRegistration = disposedToken.Register(() =>
+    {
+        disposedLease.Dispose();
+        var probe = Task.Run(() => !disposedGuard.TryAcquire(402, out _));
+        if (!probe.Wait(TimeSpan.FromSeconds(1)))
+        {
+            throw new InvalidOperationException("释放回调不应被保护器锁阻塞。");
+        }
+
+        Assert(probe.Result, "释放后的会话不得在取消回调中重新取得租约。");
+    });
+    var dispose = Task.Run(disposedGuard.Dispose);
+    Assert(await Task.WhenAny(dispose, Task.Delay(TimeSpan.FromSeconds(2))) == dispose, "释放保护器时取消回调不得死锁。");
+    await dispose;
+    Assert(disposedToken.IsCancellationRequested, "释放保护器必须取消活动令牌。");
+    Assert(disposedGuard.LiveStateCount == 0, "释放后应清理已交付取消的资源。");
+}
+
+static async Task VerifyBackupWriteCancellationSkipsReplaceAsync()
+{
+    var coordinator = new BackupWriteCoordinator();
+    using var cancellation = new CancellationTokenSource();
+    var temporaryWrites = 0;
+    var replacements = 0;
+
+    var result = await coordinator.WriteAndReplaceAsync(
+        _ =>
+        {
+            temporaryWrites++;
+            cancellation.Cancel();
+            return Task.CompletedTask;
+        },
+        _ =>
+        {
+            replacements++;
+            return Task.CompletedTask;
+        },
+        () => true,
+        cancellation.Token);
+
+    Assert(temporaryWrites == 1, "取消前应只写入临时文件一次。");
+    Assert(replacements == 0, "取消后的备份不得替换用户选择的目标文件。");
+    Assert(result == BackupWriteResult.NotReplaced, "取消后的写入应报告未替换目标文件。");
+}
+
+static async Task VerifyBackupWriteSuccessReplacesOnceAsync()
+{
+    var coordinator = new BackupWriteCoordinator();
+    var temporaryWrites = 0;
+    var replacements = 0;
+
+    var result = await coordinator.WriteAndReplaceAsync(
+        _ =>
+        {
+            temporaryWrites++;
+            return Task.CompletedTask;
+        },
+        _ =>
+        {
+            replacements++;
+            return Task.CompletedTask;
+        },
+        () => true,
+        CancellationToken.None);
+
+    Assert(temporaryWrites == 1, "成功备份应只写入临时文件一次。");
+    Assert(replacements == 1, "成功备份应只替换目标文件一次。");
+    Assert(result == BackupWriteResult.Replaced, "成功备份应报告已替换目标文件。");
+}
+
+static void VerifyBackupPreparationErrorBoundary()
+{
+    var sourcePath = FindWorkspaceSourceFile("LiubaiMfa.Windows/MainWindow.xaml.cs");
+    var source = File.ReadAllText(sourcePath);
+    var methodStart = source.IndexOf("    private async void ExportBackup_Click", StringComparison.Ordinal);
+    var methodEnd = source.IndexOf("    private async void ImportBackup_Click", methodStart, StringComparison.Ordinal);
+    Assert(methodStart >= 0 && methodEnd > methodStart, "无法定位备份导出方法。");
+
+    var method = source[methodStart..methodEnd];
+    var createIndex = method.IndexOf("backup = BackupCrypto.CreateBackup", StringComparison.Ordinal);
+    var formatIndex = method.IndexOf("formattedRecoveryKey = BackupCrypto.FormatRecoveryKey", StringComparison.Ordinal);
+    var preparationCatchIndex = method.IndexOf("catch (Exception exception) when (exception is System.Security.Cryptography.CryptographicException", StringComparison.Ordinal);
+    Assert(createIndex >= 0 && formatIndex > createIndex && preparationCatchIndex > formatIndex, "备份准备和恢复密钥格式化必须在受控错误边界内。");
+}
+
+static void VerifyBackupPickerErrorBoundary()
+{
+    var sourcePath = FindWorkspaceSourceFile("LiubaiMfa.Windows/MainWindow.xaml.cs");
+    var source = File.ReadAllText(sourcePath);
+    var methodStart = source.IndexOf("    private async void ExportBackup_Click", StringComparison.Ordinal);
+    var methodEnd = source.IndexOf("    private async void ImportBackup_Click", methodStart, StringComparison.Ordinal);
+    Assert(methodStart >= 0 && methodEnd > methodStart, "无法定位备份导出方法。");
+
+    var method = source[methodStart..methodEnd];
+    var pickerIndex = method.IndexOf("file = await _files.PickBackupSaveFileAsync();", StringComparison.Ordinal);
+    var pickerCatchIndex = method.IndexOf("catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)", pickerIndex, StringComparison.Ordinal);
+    Assert(pickerIndex >= 0 && pickerCatchIndex > pickerIndex, "备份文件选择失败必须在异步事件内转为克制提示。");
+}
+
 static void VerifySessionCancellationLifecycle()
 {
     var guard = new SessionCancellationGuard();
@@ -857,7 +989,7 @@ static void VerifyEpochCallbackGuard()
 
 static void VerifyRevealReplacementOrdering()
 {
-    var sourcePath = Path.Combine(Environment.CurrentDirectory, "LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs");
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs"));
     var source = File.ReadAllText(sourcePath);
     var methodStart = source.IndexOf("    private void BeginRevealPending()", StringComparison.Ordinal);
     var methodEnd = source.IndexOf("    private void AccountsList_LayoutUpdated", methodStart, StringComparison.Ordinal);
@@ -871,6 +1003,29 @@ static void VerifyRevealReplacementOrdering()
 
     Assert(stopIndex >= 0 && clearIndex > stopIndex, "新定位请求必须先停止旧计时器并清除旧高亮。");
     Assert(requestedIndex > clearIndex && scrollIndex > requestedIndex, "新定位请求应在替换旧状态后才发布并滚动新请求。");
+}
+
+static string FindWorkspaceSourceFile(string relativePath)
+{
+    foreach (var start in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory }.Distinct(StringComparer.OrdinalIgnoreCase))
+    {
+        for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
+        {
+            var directPath = Path.Combine(directory.FullName, relativePath);
+            if (File.Exists(directPath))
+            {
+                return directPath;
+            }
+
+            var worktreePath = Path.Combine(directory.FullName, "artifacts", "windows", relativePath);
+            if (File.Exists(worktreePath))
+            {
+                return worktreePath;
+            }
+        }
+    }
+
+    throw new InvalidOperationException($"无法定位工作区源文件：{relativePath}");
 }
 
 static async Task VerifyPendingRevealRequiresExpectedIdAsync()

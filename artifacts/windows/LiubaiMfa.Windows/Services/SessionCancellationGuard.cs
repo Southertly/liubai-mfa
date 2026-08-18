@@ -16,24 +16,32 @@ public sealed class SessionCancellationGuard : IDisposable
             throw new ArgumentOutOfRangeException(nameof(sessionToken));
         }
 
+        SessionState? replacedState;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_isDisposed, this);
-            InvalidateActiveUnsafe();
+            replacedState = DetachActiveUnsafe();
             _activeState = new SessionState(sessionToken);
             Interlocked.Increment(ref _liveStateCount);
         }
+
+        DeliverCancellation(replacedState);
     }
 
     public void Invalidate()
     {
+        SessionState? invalidatedState;
         lock (_gate)
         {
-            if (!_isDisposed)
+            if (_isDisposed)
             {
-                InvalidateActiveUnsafe();
+                return;
             }
+
+            invalidatedState = DetachActiveUnsafe();
         }
+
+        DeliverCancellation(invalidatedState);
     }
 
     public bool TryAcquire(long sessionToken, out SessionCancellationLease lease)
@@ -56,6 +64,7 @@ public sealed class SessionCancellationGuard : IDisposable
 
     public void Dispose()
     {
+        SessionState? invalidatedState;
         lock (_gate)
         {
             if (_isDisposed)
@@ -64,22 +73,48 @@ public sealed class SessionCancellationGuard : IDisposable
             }
 
             _isDisposed = true;
-            InvalidateActiveUnsafe();
+            invalidatedState = DetachActiveUnsafe();
         }
+
+        DeliverCancellation(invalidatedState);
     }
 
-    private void InvalidateActiveUnsafe()
+    private SessionState? DetachActiveUnsafe()
     {
         var state = _activeState;
         _activeState = null;
         if (state is null)
         {
-            return;
+            return null;
         }
 
         state.IsActive = false;
-        state.Cancellation.Cancel();
-        TryDisposeStateUnsafe(state);
+        return state;
+    }
+
+    private void DeliverCancellation(SessionState? state)
+    {
+        if (state is null)
+        {
+            return;
+        }
+
+        try
+        {
+            state.Cancellation.Cancel();
+        }
+        catch (Exception)
+        {
+            // 取消回调不得阻止锁定流程或资源清理。
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                state.CancellationDelivered = true;
+                TryDisposeStateUnsafe(state);
+            }
+        }
     }
 
     private void Release(SessionState state)
@@ -97,7 +132,7 @@ public sealed class SessionCancellationGuard : IDisposable
 
     private void TryDisposeStateUnsafe(SessionState state)
     {
-        if (state.IsActive || state.LeaseCount != 0 || state.IsDisposed)
+        if (state.IsActive || !state.CancellationDelivered || state.LeaseCount != 0 || state.IsDisposed)
         {
             return;
         }
@@ -118,6 +153,7 @@ public sealed class SessionCancellationGuard : IDisposable
         public CancellationTokenSource Cancellation { get; } = new();
         public int LeaseCount { get; set; }
         public bool IsActive { get; set; } = true;
+        public bool CancellationDelivered { get; set; }
         public bool IsDisposed { get; set; }
     }
 

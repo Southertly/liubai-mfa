@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private long _activeSession;
     private bool _isUnlocked;
     private bool _unlockInProgress;
+    private bool _hasCancelledBackupNotice;
 
     public MainWindow()
     {
@@ -201,6 +202,11 @@ public sealed partial class MainWindow : Window
             LockView.Visibility = Visibility.Collapsed;
             AuthenticatorView.Visibility = Visibility.Visible;
             _timer.Start();
+            if (_hasCancelledBackupNotice)
+            {
+                _hasCancelledBackupNotice = false;
+                ShowStatus(sessionToken, "上次备份已取消，请检查目标位置是否留下空文件。", InfoBarSeverity.Warning);
+            }
         }
         finally
         {
@@ -442,26 +448,56 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var backup = BackupCrypto.CreateBackup(ViewModel.Snapshot(), out var recoveryKey);
+        var backup = string.Empty;
+        var recoveryKey = string.Empty;
+        var formattedRecoveryKey = string.Empty;
         try
         {
+            try
+            {
+                backup = BackupCrypto.CreateBackup(ViewModel.Snapshot(), out recoveryKey);
+                formattedRecoveryKey = BackupCrypto.FormatRecoveryKey(recoveryKey);
+            }
+            catch (Exception exception) when (exception is System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException or InvalidOperationException)
+            {
+                ShowStatus(token, "备份准备失败。请稍后重试；如问题持续，请先确认本地账户数据可正常读取。", InfoBarSeverity.Error);
+                return;
+            }
+
             if (!IsSessionCurrent(token) || !await _backupDialogs.ConfirmExportAsync(
                     RootGrid.XamlRoot,
                     token,
-                    BackupCrypto.FormatRecoveryKey(recoveryKey),
+                    formattedRecoveryKey,
                     CopyText) || !IsSessionCurrent(token))
             {
                 return;
             }
 
-            var file = await _files.PickBackupSaveFileAsync();
-            if (file is null || !IsSessionCurrent(token))
+            global::Windows.Storage.StorageFile? file;
+            try
             {
+                file = await _files.PickBackupSaveFileAsync();
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+            {
+                ShowStatus(token, "无法选择备份位置。请检查目标位置权限后重试。", InfoBarSeverity.Error);
+                return;
+            }
+
+            if (file is null)
+            {
+                return;
+            }
+
+            if (!IsSessionCurrent(token))
+            {
+                _hasCancelledBackupNotice = true;
                 return;
             }
 
             if (!_sessionCancellation.TryAcquire(token, out var writeLease))
             {
+                _hasCancelledBackupNotice = true;
                 return;
             }
 
@@ -474,10 +510,29 @@ public sealed partial class MainWindow : Window
 
                 try
                 {
-                    await _files.WriteBackupAsync(file, backup, writeLease.Token);
+                    var writeResult = await _files.WriteBackupAsync(file, backup, writeLease.Token, () => IsSessionCurrent(token));
+                    if (writeResult == BackupWriteResult.NotReplaced)
+                    {
+                        if (!IsSessionCurrent(token))
+                        {
+                            _hasCancelledBackupNotice = true;
+                        }
+
+                        return;
+                    }
+
+                    if (!IsSessionCurrent(token))
+                    {
+                        return;
+                    }
                 }
                 catch (OperationCanceledException)
                 {
+                    if (!IsSessionCurrent(token))
+                    {
+                        _hasCancelledBackupNotice = true;
+                    }
+
                     return;
                 }
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -495,6 +550,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             recoveryKey = string.Empty;
+            formattedRecoveryKey = string.Empty;
             backup = string.Empty;
         }
     }
@@ -514,6 +570,11 @@ public sealed partial class MainWindow : Window
         catch (FormatException)
         {
             ShowStatus(token, "备份文件无法读取。请确认选择了正确的备份文件后重试。", InfoBarSeverity.Warning);
+            return;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        {
+            ShowStatus(token, "备份文件无法读取。请检查文件是否仍可访问后重试。", InfoBarSeverity.Error);
             return;
         }
 

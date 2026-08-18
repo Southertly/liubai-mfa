@@ -8,6 +8,7 @@ namespace LiubaiMfa.Windows.Services;
 public sealed class NativeFileService
 {
     private readonly nint _windowHandle;
+    private readonly BackupWriteCoordinator _backupWriteCoordinator = new();
 
     public NativeFileService(Window window)
     {
@@ -25,12 +26,52 @@ public sealed class NativeFileService
         return await picker.PickSaveFileAsync();
     }
 
-    public async Task WriteBackupAsync(StorageFile file, string contents, CancellationToken cancellationToken)
+    public async Task<BackupWriteResult> WriteBackupAsync(
+        StorageFile target,
+        string contents,
+        CancellationToken cancellationToken,
+        Func<bool> isSessionCurrent)
     {
-        ArgumentNullException.ThrowIfNull(file);
+        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(contents);
-        cancellationToken.ThrowIfCancellationRequested();
-        await FileIO.WriteTextAsync(file, contents).AsTask(cancellationToken);
+        ArgumentNullException.ThrowIfNull(isSessionCurrent);
+
+        StorageFolder? parent = null;
+        var temporaryName = $".liubai-mfa-backup-{Guid.NewGuid():N}.tmp";
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            parent = await target.GetParentAsync().AsTask(cancellationToken)
+                ?? throw new IOException("无法确定备份目标目录。");
+            var temporaryFile = await parent.CreateFileAsync(temporaryName, CreationCollisionOption.FailIfExists).AsTask(cancellationToken);
+            return await _backupWriteCoordinator.WriteAndReplaceAsync(
+                writeToken => FileIO.WriteTextAsync(temporaryFile, contents).AsTask(writeToken),
+                replaceToken => temporaryFile.MoveAndReplaceAsync(target).AsTask(replaceToken),
+                isSessionCurrent,
+                cancellationToken);
+        }
+        finally
+        {
+            if (parent is not null)
+            {
+                await DeleteTemporaryFileAsync(parent, temporaryName);
+            }
+        }
+    }
+
+    private static async Task DeleteTemporaryFileAsync(StorageFolder parent, string temporaryName)
+    {
+        try
+        {
+            if (await parent.TryGetItemAsync(temporaryName).AsTask(CancellationToken.None) is StorageFile temporaryFile)
+            {
+                await temporaryFile.DeleteAsync(StorageDeleteOption.PermanentDelete).AsTask(CancellationToken.None);
+            }
+        }
+        catch (Exception)
+        {
+            // 临时文件名唯一，且不会指向用户选择的目标文件。
+        }
     }
 
     public async Task<string?> OpenBackupAsync()
