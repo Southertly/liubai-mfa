@@ -15,6 +15,8 @@
 - Create: `artifacts/windows/LiubaiMfa.Windows/Services/ClipboardService.cs` — 封装 WinRT 剪贴板写入和互操作异常。
 - Modify: `artifacts/windows/LiubaiMfa.Windows.Platform.Regression/Program.cs` — 增加剪贴板服务与主窗口接线回归。
 - Modify: `artifacts/windows/LiubaiMfa.Windows/MainWindow.xaml.cs` — 根据复制结果显示成功或警告提示。
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Services/AccountDialogService.cs` — MFA 密钥复制失败时显示警告，不显示成功。
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Services/BackupDialogService.cs` — 恢复密钥复制失败时保持备份保存按钮禁用。
 - Modify: `artifacts/windows/LiubaiMfa.Windows/Package.appxmanifest` — 保留 `runFullTrust` 并将测试包版本升级到 `1.0.0.2`，允许覆盖已安装的 `1.0.0.1`。
 - Modify: `artifacts/windows/VERIFICATION.md` — 记录自动化和真机回归证据。
 
@@ -259,6 +261,135 @@ git add -- .\LiubaiMfa.Windows\MainWindow.xaml.cs .\LiubaiMfa.Windows.Platform.R
 git -c user.name='Codex' -c user.email='codex@openai.com' commit -m 'fix: report unavailable clipboard safely'
 ```
 
+### Task 2A: 敏感密钥复制必须消费失败结果
+
+**Files:**
+- Modify: `artifacts/windows/LiubaiMfa.Windows.Platform.Regression/Program.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/MainWindow.xaml.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Services/AccountDialogService.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Services/BackupDialogService.cs`
+
+- [ ] **Step 1: 写失败回归测试**
+
+在 `checks` 列表末尾加入：
+
+```csharp
+("敏感密钥复制必须消费剪贴板失败结果", () => RunSync(VerifySensitiveClipboardResultHandling)),
+```
+
+在源文件契约测试附近加入：
+
+```csharp
+static void VerifySensitiveClipboardResultHandling()
+{
+    var accountDialogPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "AccountDialogService.cs"));
+    var accountDialog = File.ReadAllText(accountDialogPath);
+    Assert(accountDialog.Contains("Func<string, bool> copyText", StringComparison.Ordinal),
+        "MFA 密钥对话框必须接收可判断成功的复制回调。");
+    Assert(accountDialog.Contains("if (!copyText(current.Secret))", StringComparison.Ordinal),
+        "MFA 密钥复制失败必须被显式处理。");
+    Assert(accountDialog.Contains("剪贴板暂时不可用，请稍后重试。", StringComparison.Ordinal),
+        "MFA 密钥复制失败必须显示克制警告。");
+
+    var backupDialogPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "BackupDialogService.cs"));
+    var backupDialog = File.ReadAllText(backupDialogPath);
+    Assert(backupDialog.Contains("Func<string, bool> copyText", StringComparison.Ordinal),
+        "恢复密钥对话框必须接收可判断成功的复制回调。");
+    Assert(backupDialog.Contains("if (!copyText(recoveryKey))", StringComparison.Ordinal),
+        "恢复密钥复制失败必须被显式处理。");
+    Assert(backupDialog.Contains("复制失败，请重试", StringComparison.Ordinal),
+        "恢复密钥复制失败必须提示重试。");
+    Assert(backupDialog.Contains("dialog.IsPrimaryButtonEnabled = false;", StringComparison.Ordinal),
+        "恢复密钥复制失败后必须保持保存按钮禁用。");
+}
+```
+
+- [ ] **Step 2: 运行回归并确认 RED**
+
+Run:
+
+```powershell
+dotnet run --project .\LiubaiMfa.Windows.Platform.Regression\LiubaiMfa.Windows.Platform.Regression.csproj -c Release
+```
+
+Expected: 前 70 项通过，第 71 项因现有 `Action<string>` 回调没有消费失败结果而失败。
+
+- [ ] **Step 3: 修改 MFA 密钥复制回调**
+
+将 `AccountDialogService.ShowSecretAsync` 的 `Action<string> copyText` 改为：
+
+```csharp
+Func<string, bool> copyText
+```
+
+将成功提示前的复制逻辑改为：
+
+```csharp
+if (!copyText(current.Secret))
+{
+    _showStatus(token, "剪贴板暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
+    return;
+}
+
+_showStatus(token, "MFA 密钥已复制。", InfoBarSeverity.Success);
+```
+
+- [ ] **Step 4: 修改恢复密钥复制回调**
+
+将 `BackupDialogService.ConfirmExportAsync` 的 `Action<string> copyText` 改为：
+
+```csharp
+Func<string, bool> copyText
+```
+
+将复制按钮处理器改为：
+
+```csharp
+RoutedEventHandler copyHandler = (_, _) =>
+{
+    if (!_isSessionCurrent(token))
+    {
+        return;
+    }
+
+    if (!copyText(recoveryKey))
+    {
+        copyButton.Content = "复制失败，请重试";
+        dialog.IsPrimaryButtonEnabled = false;
+        return;
+    }
+
+    copyButton.Content = "恢复密钥已复制";
+    dialog.IsPrimaryButtonEnabled = true;
+};
+```
+
+在 `MainWindow` 的两个调用点直接传递方法组：
+
+```csharp
+_clipboard.TryCopyText
+```
+
+- [ ] **Step 5: 运行回归和真实编译**
+
+Run:
+
+```powershell
+dotnet run --project .\LiubaiMfa.Windows.Platform.Regression\LiubaiMfa.Windows.Platform.Regression.csproj -c Release
+dotnet build .\LiubaiMfa.Windows.CodeBehindCheck\LiubaiMfa.Windows.CodeBehindCheck.csproj -c Release
+dotnet build .\LiubaiMfa.Windows\LiubaiMfa.Windows.csproj -c Release -p:Platform=x64
+```
+
+Expected: Platform `71/71`；两个构建均为 0 警告、0 错误。
+
+- [ ] **Step 6: 自审并提交**
+
+```powershell
+git diff --check
+git add -- .\LiubaiMfa.Windows.Platform.Regression\Program.cs .\LiubaiMfa.Windows\MainWindow.xaml.cs .\LiubaiMfa.Windows\Services\AccountDialogService.cs .\LiubaiMfa.Windows\Services\BackupDialogService.cs
+git -c user.name='Codex' -c user.email='codex@openai.com' commit -m 'fix: honor sensitive clipboard failures'
+```
+
 ### Task 3: 完整构建、MSIX 真机复测和验证记录
 
 **Files:**
@@ -293,7 +424,7 @@ dotnet build .\LiubaiMfa.sln -c Release -p:Platform=x64 --no-restore
 git diff --check
 ```
 
-Expected: Core `5/5`、Platform `70/70`，全部 Release x64 构建 0 警告、0 错误，`git diff --check` 无输出。
+Expected: Core `5/5`、Platform `71/71`，全部 Release x64 构建 0 警告、0 错误，`git diff --check` 无输出。
 
 - [ ] **Step 3: 生成并安装升级 MSIX**
 
@@ -358,7 +489,7 @@ Expected: 应用不退出，Windows 应用程序日志中没有测试开始后�
 - Windows 错误报告确认旧版本在剪贴板占用时产生 `0x800401D0`，未捕获异常会终止 WinUI 进程。
 - 新增剪贴板错误边界：一次写入失败返回中性结果，不重试、不记录验证码或密钥。
 - `LiubaiMfa.Core.Regression`：5/5 通过。
-- `LiubaiMfa.Windows.Platform.Regression`：70/70 通过。
+- `LiubaiMfa.Windows.Platform.Regression`：71/71 通过。
 - Platform、CodeBehindCheck、真实 WinUI XAML 和完整 solution Release x64 构建：0 警告、0 错误。
 - MSIX `1.0.0.2` 已完成生成、升级安装和启动验证。
 - 使用六个纯测试账户重复执行“个人分组 → 复制验证码 → 全部分组”三次，应用保持运行；测试时段无新增 `LiubaiMfa.Windows.exe` 崩溃事件。
