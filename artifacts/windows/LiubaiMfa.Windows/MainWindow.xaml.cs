@@ -8,7 +8,6 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Runtime.InteropServices;
-using Windows.ApplicationModel.DataTransfer;
 using WinRT.Interop;
 
 namespace LiubaiMfa.Windows;
@@ -18,6 +17,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan BackgroundLockDelay = TimeSpan.FromMinutes(1);
     private readonly WindowsHelloService _windowsHello;
     private readonly NativeFileService _files;
+    private readonly ClipboardService _clipboard;
     private readonly AccountDialogService _accountDialogs;
     private readonly BackupDialogService _backupDialogs;
     private readonly WindowPlacementService _placementService;
@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
         LockView.UnlockRequested += Unlock_Click;
         _windowsHello = new WindowsHelloService(this);
         _files = new NativeFileService(this);
+        _clipboard = new ClipboardService();
         _accountDialogs = new AccountDialogService(_windowsHello, ShowDialogAsync, IsSessionCurrent, ShowStatus);
         _backupDialogs = new BackupDialogService(ShowDialogAsync, IsSessionCurrent);
         _placementService = new WindowPlacementService();
@@ -331,7 +332,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        CopyText(account.Code);
+        if (!_clipboard.TryCopyText(account.Code))
+        {
+            ShowStatus(token, "剪贴板暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
+            return;
+        }
+
         ShowStatus(token, "验证码已复制。", InfoBarSeverity.Success);
     }
 
@@ -387,7 +393,7 @@ public sealed partial class MainWindow : Window
             token,
             e.AccountId,
             () => FindCurrentAccount(e.AccountId),
-            CopyText);
+            text => _clipboard.TryCopyText(text));
     }
 
     private async void DeleteAccount_Click(object? sender, AccountRequestedEventArgs e)
@@ -464,7 +470,7 @@ public sealed partial class MainWindow : Window
                     RootGrid.XamlRoot,
                     token,
                     formattedRecoveryKey,
-                    CopyText) || !IsSessionCurrent(token))
+                    text => _clipboard.TryCopyText(text)) || !IsSessionCurrent(token))
             {
                 return;
             }
@@ -735,14 +741,6 @@ public sealed partial class MainWindow : Window
         Group = draft.Group,
         CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
     };
-
-    private static void CopyText(string text)
-    {
-        var package = new DataPackage();
-        package.SetText(text);
-        Clipboard.SetContent(package);
-        Clipboard.Flush();
-    }
 
     private void QueueCancelledBackupNotice()
     {

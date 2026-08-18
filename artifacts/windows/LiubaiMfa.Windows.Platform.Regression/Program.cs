@@ -74,6 +74,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("剪贴板写入成功且只调用一次", () => RunSync(VerifyClipboardWriteSuccess)),
     ("剪贴板 COM 失败转换为中性结果", () => RunSync(VerifyClipboardWriteComFailure)),
     ("剪贴板拒绝空白验证码", () => RunSync(VerifyClipboardRejectsBlankText)),
+    ("主窗口复制流程使用安全结果边界", () => RunSync(VerifyClipboardResultBoundaryInMainWindow)),
 };
 
 foreach (var check in checks)
@@ -1091,6 +1092,21 @@ static void VerifyRevealReplacementOrdering()
 
     Assert(stopIndex >= 0 && clearIndex > stopIndex, "新定位请求必须先停止旧计时器并清除旧高亮。");
     Assert(requestedIndex > clearIndex && scrollIndex > requestedIndex, "新定位请求应在替换旧状态后才发布并滚动新请求。");
+}
+
+static void VerifyClipboardResultBoundaryInMainWindow()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var source = File.ReadAllText(sourcePath);
+
+    Assert(source.Contains("if (!_clipboard.TryCopyText(account.Code))", StringComparison.Ordinal),
+        "主窗口必须根据剪贴板服务结果决定提示。");
+    Assert(source.Contains("剪贴板暂时不可用，请稍后重试。", StringComparison.Ordinal),
+        "复制失败提示必须克制且可执行。");
+    Assert(!source.Contains("Clipboard.SetContent", StringComparison.Ordinal),
+        "主窗口不得继续直接调用系统剪贴板。");
+    Assert(!source.Contains("private static void CopyText", StringComparison.Ordinal),
+        "主窗口不得保留无错误边界的旧复制方法。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)
