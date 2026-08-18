@@ -46,7 +46,7 @@ public sealed class NativeFileService
             var temporaryFile = await parent.CreateFileAsync(temporaryName, CreationCollisionOption.FailIfExists).AsTask(cancellationToken);
             return await _backupWriteCoordinator.WriteAndReplaceAsync(
                 writeToken => FileIO.WriteTextAsync(temporaryFile, contents).AsTask(writeToken),
-                replaceToken => temporaryFile.MoveAndReplaceAsync(target).AsTask(replaceToken),
+                () => temporaryFile.MoveAndReplaceAsync(target).AsTask(CancellationToken.None),
                 isSessionCurrent,
                 cancellationToken);
         }

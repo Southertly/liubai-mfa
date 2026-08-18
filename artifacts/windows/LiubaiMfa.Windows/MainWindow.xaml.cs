@@ -205,7 +205,7 @@ public sealed partial class MainWindow : Window
             if (_hasCancelledBackupNotice)
             {
                 _hasCancelledBackupNotice = false;
-                ShowStatus(sessionToken, "上次备份已取消，请检查目标位置是否留下空文件。", InfoBarSeverity.Warning);
+                ShowStatus(sessionToken, "上次备份在锁定时中断或完成，请检查目标位置的备份文件。", InfoBarSeverity.Warning);
             }
         }
         finally
@@ -480,6 +480,12 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
             {
+                if (!IsSessionCurrent(token))
+                {
+                    _hasCancelledBackupNotice = true;
+                    return;
+                }
+
                 ShowStatus(token, "无法选择备份位置。请检查目标位置权限后重试。", InfoBarSeverity.Error);
                 return;
             }
@@ -521,8 +527,9 @@ public sealed partial class MainWindow : Window
                         return;
                     }
 
-                    if (!IsSessionCurrent(token))
+                    if (writeResult == BackupWriteResult.ReplacedAfterSessionInvalid || !IsSessionCurrent(token))
                     {
+                        _hasCancelledBackupNotice = true;
                         return;
                     }
                 }
@@ -535,8 +542,14 @@ public sealed partial class MainWindow : Window
 
                     return;
                 }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
                 {
+                    if (!IsSessionCurrent(token))
+                    {
+                        _hasCancelledBackupNotice = true;
+                        return;
+                    }
+
                     ShowStatus(token, "备份文件未保存。请检查目标位置权限或磁盘空间后重试。", InfoBarSeverity.Error);
                     return;
                 }

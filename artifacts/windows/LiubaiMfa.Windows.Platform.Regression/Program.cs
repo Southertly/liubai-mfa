@@ -37,6 +37,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("取消回调释放租约时不得死锁", VerifySessionCancellationCallbackLeaseReleaseAsync),
     ("备份临时写入取消时不得替换目标", VerifyBackupWriteCancellationSkipsReplaceAsync),
     ("备份临时写入成功时只替换一次目标", VerifyBackupWriteSuccessReplacesOnceAsync),
+    ("最终替换开始后必须完成并报告会话失效", VerifyBackupReplaceCompletesAfterInvalidationAsync),
     ("备份准备和恢复密钥格式化必须受错误边界保护", () => RunSync(VerifyBackupPreparationErrorBoundary)),
     ("备份文件选择失败不得逸出异步事件", () => RunSync(VerifyBackupPickerErrorBoundary)),
     ("旧代际回调不能操作当前计时器", () => RunSync(VerifyEpochCallbackGuard)),
@@ -861,7 +862,7 @@ static async Task VerifyBackupWriteCancellationSkipsReplaceAsync()
             cancellation.Cancel();
             return Task.CompletedTask;
         },
-        _ =>
+        () =>
         {
             replacements++;
             return Task.CompletedTask;
@@ -886,7 +887,7 @@ static async Task VerifyBackupWriteSuccessReplacesOnceAsync()
             temporaryWrites++;
             return Task.CompletedTask;
         },
-        _ =>
+        () =>
         {
             replacements++;
             return Task.CompletedTask;
@@ -897,6 +898,29 @@ static async Task VerifyBackupWriteSuccessReplacesOnceAsync()
     Assert(temporaryWrites == 1, "成功备份应只写入临时文件一次。");
     Assert(replacements == 1, "成功备份应只替换目标文件一次。");
     Assert(result == BackupWriteResult.Replaced, "成功备份应报告已替换目标文件。");
+}
+
+static async Task VerifyBackupReplaceCompletesAfterInvalidationAsync()
+{
+    var coordinator = new BackupWriteCoordinator();
+    using var cancellation = new CancellationTokenSource();
+    var isSessionCurrent = true;
+    var replacements = 0;
+
+    var result = await coordinator.WriteAndReplaceAsync(
+        _ => Task.CompletedTask,
+        () =>
+        {
+            replacements++;
+            isSessionCurrent = false;
+            cancellation.Cancel();
+            return Task.CompletedTask;
+        },
+        () => isSessionCurrent,
+        cancellation.Token);
+
+    Assert(replacements == 1, "最终替换开始后必须完整执行一次。");
+    Assert(result == BackupWriteResult.ReplacedAfterSessionInvalid, "最终替换后失效必须明确报告已替换但会话无效。");
 }
 
 static void VerifyBackupPreparationErrorBoundary()

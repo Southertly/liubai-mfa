@@ -11,7 +11,7 @@ public sealed class BackupWriteCoordinator
 {
     public async Task<BackupWriteResult> WriteAndReplaceAsync(
         Func<CancellationToken, Task> writeTemporaryAsync,
-        Func<CancellationToken, Task> replaceAsync,
+        Func<Task> replaceAsync,
         Func<bool> isSessionCurrent,
         CancellationToken cancellationToken)
     {
@@ -30,7 +30,7 @@ public sealed class BackupWriteCoordinator
             return BackupWriteResult.NotReplaced;
         }
 
-        await replaceAsync(cancellationToken);
+        await replaceAsync();
         return cancellationToken.IsCancellationRequested || !isSessionCurrent()
             ? BackupWriteResult.ReplacedAfterSessionInvalid
             : BackupWriteResult.Replaced;
