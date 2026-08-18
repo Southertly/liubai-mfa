@@ -30,7 +30,7 @@ public sealed partial class MainWindow : Window
     private long _activeSession;
     private bool _isUnlocked;
     private bool _unlockInProgress;
-    private bool _hasCancelledBackupNotice;
+    private readonly DeferredNoticeGate _cancelledBackupNotice = new();
 
     public MainWindow()
     {
@@ -202,11 +202,7 @@ public sealed partial class MainWindow : Window
             LockView.Visibility = Visibility.Collapsed;
             AuthenticatorView.Visibility = Visibility.Visible;
             _timer.Start();
-            if (_hasCancelledBackupNotice)
-            {
-                _hasCancelledBackupNotice = false;
-                ShowStatus(sessionToken, "上次备份在锁定时中断或完成，请检查目标位置的备份文件。", InfoBarSeverity.Warning);
-            }
+            TryDeliverCancelledBackupNotice(sessionToken);
         }
         finally
         {
@@ -482,7 +478,7 @@ public sealed partial class MainWindow : Window
             {
                 if (!IsSessionCurrent(token))
                 {
-                    _hasCancelledBackupNotice = true;
+                    QueueCancelledBackupNotice();
                     return;
                 }
 
@@ -497,13 +493,13 @@ public sealed partial class MainWindow : Window
 
             if (!IsSessionCurrent(token))
             {
-                _hasCancelledBackupNotice = true;
+                QueueCancelledBackupNotice();
                 return;
             }
 
             if (!_sessionCancellation.TryAcquire(token, out var writeLease))
             {
-                _hasCancelledBackupNotice = true;
+                QueueCancelledBackupNotice();
                 return;
             }
 
@@ -511,6 +507,7 @@ public sealed partial class MainWindow : Window
             {
                 if (!IsSessionCurrent(token))
                 {
+                    QueueCancelledBackupNotice();
                     return;
                 }
 
@@ -521,7 +518,7 @@ public sealed partial class MainWindow : Window
                     {
                         if (!IsSessionCurrent(token))
                         {
-                            _hasCancelledBackupNotice = true;
+                            QueueCancelledBackupNotice();
                         }
 
                         return;
@@ -529,7 +526,7 @@ public sealed partial class MainWindow : Window
 
                     if (writeResult == BackupWriteResult.ReplacedAfterSessionInvalid || !IsSessionCurrent(token))
                     {
-                        _hasCancelledBackupNotice = true;
+                        QueueCancelledBackupNotice();
                         return;
                     }
                 }
@@ -537,7 +534,7 @@ public sealed partial class MainWindow : Window
                 {
                     if (!IsSessionCurrent(token))
                     {
-                        _hasCancelledBackupNotice = true;
+                        QueueCancelledBackupNotice();
                     }
 
                     return;
@@ -546,7 +543,7 @@ public sealed partial class MainWindow : Window
                 {
                     if (!IsSessionCurrent(token))
                     {
-                        _hasCancelledBackupNotice = true;
+                        QueueCancelledBackupNotice();
                         return;
                     }
 
@@ -745,6 +742,28 @@ public sealed partial class MainWindow : Window
         package.SetText(text);
         Clipboard.SetContent(package);
         Clipboard.Flush();
+    }
+
+    private void QueueCancelledBackupNotice()
+    {
+        _cancelledBackupNotice.MarkPending();
+        var currentToken = Volatile.Read(ref _activeSession);
+        if (!IsSessionCurrent(currentToken))
+        {
+            return;
+        }
+
+        _ = DispatcherQueue.TryEnqueue(() => TryDeliverCancelledBackupNotice(currentToken));
+    }
+
+    private void TryDeliverCancelledBackupNotice(long token)
+    {
+        if (!IsSessionCurrent(token) || !_cancelledBackupNotice.TryConsume())
+        {
+            return;
+        }
+
+        ShowStatus(token, "上次备份在锁定时中断或完成，请检查目标位置的备份文件。", InfoBarSeverity.Warning);
     }
 
     private void ShowStatus(long token, string message, InfoBarSeverity severity)

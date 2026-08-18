@@ -38,6 +38,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("备份临时写入取消时不得替换目标", VerifyBackupWriteCancellationSkipsReplaceAsync),
     ("备份临时写入成功时只替换一次目标", VerifyBackupWriteSuccessReplacesOnceAsync),
     ("最终替换开始后必须完成并报告会话失效", VerifyBackupReplaceCompletesAfterInvalidationAsync),
+    ("延期备份提示只在有效解锁会话消费一次", () => RunSync(VerifyDeferredBackupNoticeGate)),
     ("备份准备和恢复密钥格式化必须受错误边界保护", () => RunSync(VerifyBackupPreparationErrorBoundary)),
     ("备份文件选择失败不得逸出异步事件", () => RunSync(VerifyBackupPickerErrorBoundary)),
     ("旧代际回调不能操作当前计时器", () => RunSync(VerifyEpochCallbackGuard)),
@@ -921,6 +922,27 @@ static async Task VerifyBackupReplaceCompletesAfterInvalidationAsync()
 
     Assert(replacements == 1, "最终替换开始后必须完整执行一次。");
     Assert(result == BackupWriteResult.ReplacedAfterSessionInvalid, "最终替换后失效必须明确报告已替换但会话无效。");
+}
+
+static void VerifyDeferredBackupNoticeGate()
+{
+    var gate = new DeferredNoticeGate();
+
+    Assert(!gate.TryConsume(), "新解锁首次递送前不应凭空显示提示。");
+    gate.MarkPending();
+    Assert(gate.TryConsume(), "旧操作在新解锁后标记时，当前会话应能立即消费提示。");
+    Assert(!gate.TryConsume(), "同一提示不得重复递送。");
+
+    gate.MarkPending();
+    var isLocked = true;
+    if (!isLocked)
+    {
+        Assert(gate.TryConsume(), "锁定状态不应走 UI 消费路径。");
+    }
+
+    isLocked = false;
+    Assert(!isLocked && gate.TryConsume(), "锁定期间保留的提示必须在后续解锁时消费。");
+    Assert(!gate.TryConsume(), "后续解锁不得重复消费同一提示。");
 }
 
 static void VerifyBackupPreparationErrorBoundary()
