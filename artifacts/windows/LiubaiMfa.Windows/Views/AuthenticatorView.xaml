@@ -125,8 +125,7 @@
                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                         <Setter Property="Margin" Value="0,0,0,4" />
                         <Setter Property="Padding" Value="0" />
-                        <Setter Property="IsTabStop" Value="True" />
-                        <Setter Property="UseSystemFocusVisuals" Value="True" />
+                        <Setter Property="IsTabStop" Value="False" />
                     </Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
@@ -154,6 +153,7 @@
                                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 CornerRadius="8"
                                 IsTabStop="True"
+                                UseSystemFocusVisuals="True"
                                 Tag="{x:Bind Id}"
                                 AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
                                 KeyDown="AccountRow_KeyDown"

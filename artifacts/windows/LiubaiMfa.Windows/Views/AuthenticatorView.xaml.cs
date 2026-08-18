@@ -265,14 +265,18 @@ public sealed partial class AuthenticatorView : UserControl
             return;
         }
 
-        if (e.Key == VirtualKey.C && IsKeyDown(VirtualKey.Control))
+        var controlDown = IsKeyDown(VirtualKey.Control);
+        var shiftDown = IsKeyDown(VirtualKey.Shift);
+        var altDown = IsKeyDown(VirtualKey.Menu) || IsKeyDown(VirtualKey.LeftMenu) || IsKeyDown(VirtualKey.RightMenu);
+
+        if (AccountActionPolicy.IsCopyShortcut(e.Key == VirtualKey.C, controlDown, shiftDown, altDown))
         {
             CopyRequested?.Invoke(this, new AccountRequestedEventArgs(id));
             e.Handled = true;
             return;
         }
 
-        if (e.Key == VirtualKey.F10 && IsKeyDown(VirtualKey.Shift) && sender is FrameworkElement row)
+        if (AccountActionPolicy.IsContextMenuShortcut(e.Key == VirtualKey.F10, controlDown, shiftDown, altDown) && sender is FrameworkElement row)
         {
             ShowAccountMenu(row);
             e.Handled = true;

@@ -38,6 +38,8 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
     ("查看密钥只要求 Hello", () => RunSync(VerifyViewSecretActionPolicy)),
     ("删除账户只要求确认", () => RunSync(VerifyDeleteActionPolicy)),
+    ("账户行 Ctrl+C 只接受精确 Ctrl 修饰键", () => RunSync(VerifyExactCopyShortcutPolicy)),
+    ("账户行 Shift+F10 只接受精确 Shift 修饰键", () => RunSync(VerifyExactContextMenuShortcutPolicy)),
     ("窗口位置限制在主屏工作区", () => RunSync(VerifyWindowPlacementClampsToPrimaryWorkArea)),
     ("窗口位置修复损坏尺寸", () => RunSync(VerifyWindowPlacementRepairsDamagedSize)),
     ("窗口位置保留负坐标副屏", () => RunSync(VerifyWindowPlacementPreservesNegativeMonitorCoordinates)),
@@ -388,6 +390,20 @@ static void VerifyDeleteActionPolicy()
 {
     Assert(!AccountActionPolicy.RequiresWindowsHello(AccountAction.Delete), "删除账户不应要求 Windows Hello。");
     Assert(AccountActionPolicy.RequiresConfirmation(AccountAction.Delete), "删除账户必须要求二次确认。");
+}
+
+static void VerifyExactCopyShortcutPolicy()
+{
+    Assert(AccountActionPolicy.IsCopyShortcut(isCKey: true, controlDown: true, shiftDown: false, altDown: false), "仅 Ctrl+C 应触发复制。");
+    Assert(!AccountActionPolicy.IsCopyShortcut(isCKey: true, controlDown: true, shiftDown: true, altDown: false), "Ctrl+Shift+C 不得触发复制。");
+    Assert(!AccountActionPolicy.IsCopyShortcut(isCKey: true, controlDown: true, shiftDown: false, altDown: true), "Ctrl+Alt+C 不得触发复制。");
+}
+
+static void VerifyExactContextMenuShortcutPolicy()
+{
+    Assert(AccountActionPolicy.IsContextMenuShortcut(isF10Key: true, controlDown: false, shiftDown: true, altDown: false), "仅 Shift+F10 应打开菜单。");
+    Assert(!AccountActionPolicy.IsContextMenuShortcut(isF10Key: true, controlDown: true, shiftDown: true, altDown: false), "Ctrl+Shift+F10 不得打开菜单。");
+    Assert(!AccountActionPolicy.IsContextMenuShortcut(isF10Key: true, controlDown: false, shiftDown: true, altDown: true), "Alt+Shift+F10 不得打开菜单。");
 }
 
 static void VerifyCompactAccountRowInvalidSecrets()
