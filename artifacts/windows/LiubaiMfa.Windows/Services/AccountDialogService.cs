@@ -164,13 +164,8 @@ public sealed class AccountDialogService
             return;
         }
 
-        if (!copyText(current.Secret))
-        {
-            _showStatus(token, "剪贴板暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
-            return;
-        }
-
-        _showStatus(token, "MFA 密钥已复制。", InfoBarSeverity.Success);
+        var copyFeedback = ClipboardResultPolicy.CreateStatus(copyText(current.Secret), "MFA 密钥已复制。");
+        _showStatus(token, copyFeedback.Message, copyFeedback.Severity);
     }
 
     private async Task<AccountDraft?> ShowDraftAsync(XamlRoot root, long token, string title, AccountDraft? initial)

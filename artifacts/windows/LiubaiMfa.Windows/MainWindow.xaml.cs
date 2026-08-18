@@ -332,13 +332,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!_clipboard.TryCopyText(account.Code))
-        {
-            ShowStatus(token, "剪贴板暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
-            return;
-        }
-
-        ShowStatus(token, "验证码已复制。", InfoBarSeverity.Success);
+        var copyFeedback = ClipboardResultPolicy.CreateStatus(_clipboard.TryCopyText(account.Code), "验证码已复制。");
+        ShowStatus(token, copyFeedback.Message, copyFeedback.Severity);
     }
 
     private async void EditAccount_Click(object? sender, AccountRequestedEventArgs e)

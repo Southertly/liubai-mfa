@@ -48,15 +48,9 @@ public sealed class BackupDialogService
                 return;
             }
 
-            if (!copyText(recoveryKey))
-            {
-                copyButton.Content = "复制失败，请重试";
-                dialog.IsPrimaryButtonEnabled = false;
-                return;
-            }
-
-            copyButton.Content = "恢复密钥已复制";
-            dialog.IsPrimaryButtonEnabled = true;
+            var copyFeedback = ClipboardResultPolicy.CreateRecoveryKey(copyText(recoveryKey));
+            copyButton.Content = copyFeedback.ButtonText;
+            dialog.IsPrimaryButtonEnabled = copyFeedback.CanContinue;
         };
         copyButton.Click += copyHandler;
         dialog.Content = new StackPanel

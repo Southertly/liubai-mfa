@@ -76,6 +76,8 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("剪贴板拒绝空白验证码", () => RunSync(VerifyClipboardRejectsBlankText)),
     ("主窗口复制流程使用安全结果边界", () => RunSync(VerifyClipboardResultBoundaryInMainWindow)),
     ("敏感密钥复制必须消费剪贴板失败结果", () => RunSync(VerifySensitiveClipboardResultHandling)),
+    ("剪贴板提示策略区分成功和失败", () => RunSync(VerifyClipboardStatusFeedbackPolicy)),
+    ("恢复密钥策略只在成功时允许继续", () => RunSync(VerifyRecoveryKeyClipboardFeedbackPolicy)),
 };
 
 foreach (var check in checks)
@@ -1100,10 +1102,8 @@ static void VerifyClipboardResultBoundaryInMainWindow()
     var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
     var source = File.ReadAllText(sourcePath);
 
-    Assert(source.Contains("if (!_clipboard.TryCopyText(account.Code))", StringComparison.Ordinal),
-        "主窗口必须根据剪贴板服务结果决定提示。");
-    Assert(source.Contains("剪贴板暂时不可用，请稍后重试。", StringComparison.Ordinal),
-        "复制失败提示必须克制且可执行。");
+    Assert(source.Contains("ClipboardResultPolicy.CreateStatus(_clipboard.TryCopyText(account.Code), \"验证码已复制。\")", StringComparison.Ordinal),
+        "主窗口必须将剪贴板结果交给提示策略。");
     Assert(!source.Contains("Clipboard.SetContent", StringComparison.Ordinal),
         "主窗口不得继续直接调用系统剪贴板。");
     Assert(!source.Contains("private static void CopyText", StringComparison.Ordinal),
@@ -1112,25 +1112,40 @@ static void VerifyClipboardResultBoundaryInMainWindow()
 
 static void VerifySensitiveClipboardResultHandling()
 {
+    var mainWindowPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var mainWindow = File.ReadAllText(mainWindowPath);
+    Assert(mainWindow.Contains("ClipboardResultPolicy.CreateStatus(_clipboard.TryCopyText(account.Code), \"验证码已复制。\")", StringComparison.Ordinal),
+        "验证码复制入口必须调用剪贴板提示策略。");
+
     var accountDialogPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "AccountDialogService.cs"));
     var accountDialog = File.ReadAllText(accountDialogPath);
-    Assert(accountDialog.Contains("Func<string, bool> copyText", StringComparison.Ordinal),
-        "MFA 密钥对话框必须接收可判断成功的复制回调。");
-    Assert(accountDialog.Contains("if (!copyText(current.Secret))", StringComparison.Ordinal),
-        "MFA 密钥复制失败必须被显式处理。");
-    Assert(accountDialog.Contains("剪贴板暂时不可用，请稍后重试。", StringComparison.Ordinal),
-        "MFA 密钥复制失败必须显示克制警告。");
+    Assert(accountDialog.Contains("ClipboardResultPolicy.CreateStatus(copyText(current.Secret), \"MFA 密钥已复制。\")", StringComparison.Ordinal),
+        "MFA 密钥复制入口必须调用剪贴板提示策略。");
 
     var backupDialogPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "BackupDialogService.cs"));
     var backupDialog = File.ReadAllText(backupDialogPath);
-    Assert(backupDialog.Contains("Func<string, bool> copyText", StringComparison.Ordinal),
-        "恢复密钥对话框必须接收可判断成功的复制回调。");
-    Assert(backupDialog.Contains("if (!copyText(recoveryKey))", StringComparison.Ordinal),
-        "恢复密钥复制失败必须被显式处理。");
-    Assert(backupDialog.Contains("复制失败，请重试", StringComparison.Ordinal),
-        "恢复密钥复制失败必须提示重试。");
-    Assert(backupDialog.Contains("dialog.IsPrimaryButtonEnabled = false;", StringComparison.Ordinal),
-        "恢复密钥复制失败后必须保持保存按钮禁用。");
+    Assert(backupDialog.Contains("ClipboardResultPolicy.CreateRecoveryKey(copyText(recoveryKey))", StringComparison.Ordinal),
+        "恢复密钥复制入口必须调用剪贴板提示策略。");
+}
+
+static void VerifyClipboardStatusFeedbackPolicy()
+{
+    var failure = ClipboardResultPolicy.CreateStatus(false, "验证码已复制。");
+    Assert(failure.Message == "剪贴板暂时不可用，请稍后重试。", "失败提示错误。");
+    Assert(failure.Severity == Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, "失败必须使用 Warning。");
+    var success = ClipboardResultPolicy.CreateStatus(true, "验证码已复制。");
+    Assert(success.Message == "验证码已复制。", "成功提示错误。");
+    Assert(success.Severity == Microsoft.UI.Xaml.Controls.InfoBarSeverity.Success, "成功必须使用 Success。");
+}
+
+static void VerifyRecoveryKeyClipboardFeedbackPolicy()
+{
+    var failure = ClipboardResultPolicy.CreateRecoveryKey(false);
+    Assert(failure.ButtonText == "复制失败，请重试", "恢复密钥失败按钮错误。");
+    Assert(!failure.CanContinue, "恢复密钥失败不得允许继续。");
+    var success = ClipboardResultPolicy.CreateRecoveryKey(true);
+    Assert(success.ButtonText == "恢复密钥已复制", "恢复密钥成功按钮错误。");
+    Assert(success.CanContinue, "恢复密钥成功后应允许继续。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)
