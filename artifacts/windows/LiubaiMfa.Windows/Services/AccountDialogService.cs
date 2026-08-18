@@ -98,7 +98,7 @@ public sealed class AccountDialogService
         long token,
         string accountId,
         Func<MfaAccount?> resolveCurrentAccount,
-        Action<string> copyText)
+        Func<string, bool> copyText)
     {
         if (!_isSessionCurrent(token))
         {
@@ -164,7 +164,12 @@ public sealed class AccountDialogService
             return;
         }
 
-        copyText(current.Secret);
+        if (!copyText(current.Secret))
+        {
+            _showStatus(token, "剪贴板暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
+            return;
+        }
+
         _showStatus(token, "MFA 密钥已复制。", InfoBarSeverity.Success);
     }
 

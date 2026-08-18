@@ -393,7 +393,7 @@ public sealed partial class MainWindow : Window
             token,
             e.AccountId,
             () => FindCurrentAccount(e.AccountId),
-            text => _clipboard.TryCopyText(text));
+            _clipboard.TryCopyText);
     }
 
     private async void DeleteAccount_Click(object? sender, AccountRequestedEventArgs e)
@@ -470,7 +470,7 @@ public sealed partial class MainWindow : Window
                     RootGrid.XamlRoot,
                     token,
                     formattedRecoveryKey,
-                    text => _clipboard.TryCopyText(text)) || !IsSessionCurrent(token))
+                    _clipboard.TryCopyText) || !IsSessionCurrent(token))
             {
                 return;
             }

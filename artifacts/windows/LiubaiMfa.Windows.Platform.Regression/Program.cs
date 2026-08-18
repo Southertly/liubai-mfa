@@ -75,6 +75,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("剪贴板 COM 失败转换为中性结果", () => RunSync(VerifyClipboardWriteComFailure)),
     ("剪贴板拒绝空白验证码", () => RunSync(VerifyClipboardRejectsBlankText)),
     ("主窗口复制流程使用安全结果边界", () => RunSync(VerifyClipboardResultBoundaryInMainWindow)),
+    ("敏感密钥复制必须消费剪贴板失败结果", () => RunSync(VerifySensitiveClipboardResultHandling)),
 };
 
 foreach (var check in checks)
@@ -1107,6 +1108,29 @@ static void VerifyClipboardResultBoundaryInMainWindow()
         "主窗口不得继续直接调用系统剪贴板。");
     Assert(!source.Contains("private static void CopyText", StringComparison.Ordinal),
         "主窗口不得保留无错误边界的旧复制方法。");
+}
+
+static void VerifySensitiveClipboardResultHandling()
+{
+    var accountDialogPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "AccountDialogService.cs"));
+    var accountDialog = File.ReadAllText(accountDialogPath);
+    Assert(accountDialog.Contains("Func<string, bool> copyText", StringComparison.Ordinal),
+        "MFA 密钥对话框必须接收可判断成功的复制回调。");
+    Assert(accountDialog.Contains("if (!copyText(current.Secret))", StringComparison.Ordinal),
+        "MFA 密钥复制失败必须被显式处理。");
+    Assert(accountDialog.Contains("剪贴板暂时不可用，请稍后重试。", StringComparison.Ordinal),
+        "MFA 密钥复制失败必须显示克制警告。");
+
+    var backupDialogPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "BackupDialogService.cs"));
+    var backupDialog = File.ReadAllText(backupDialogPath);
+    Assert(backupDialog.Contains("Func<string, bool> copyText", StringComparison.Ordinal),
+        "恢复密钥对话框必须接收可判断成功的复制回调。");
+    Assert(backupDialog.Contains("if (!copyText(recoveryKey))", StringComparison.Ordinal),
+        "恢复密钥复制失败必须被显式处理。");
+    Assert(backupDialog.Contains("复制失败，请重试", StringComparison.Ordinal),
+        "恢复密钥复制失败必须提示重试。");
+    Assert(backupDialog.Contains("dialog.IsPrimaryButtonEnabled = false;", StringComparison.Ordinal),
+        "恢复密钥复制失败后必须保持保存按钮禁用。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)

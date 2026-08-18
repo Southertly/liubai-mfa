@@ -17,7 +17,7 @@ public sealed class BackupDialogService
         _isSessionCurrent = isSessionCurrent;
     }
 
-    public async Task<bool> ConfirmExportAsync(XamlRoot root, long token, string recoveryKey, Action<string> copyText)
+    public async Task<bool> ConfirmExportAsync(XamlRoot root, long token, string recoveryKey, Func<string, bool> copyText)
     {
         if (!_isSessionCurrent(token))
         {
@@ -43,12 +43,20 @@ public sealed class BackupDialogService
         var copyButton = new Button { Content = "复制恢复密钥", HorizontalAlignment = HorizontalAlignment.Stretch };
         RoutedEventHandler copyHandler = (_, _) =>
         {
-            if (_isSessionCurrent(token))
+            if (!_isSessionCurrent(token))
             {
-                copyText(recoveryKey);
-                copyButton.Content = "恢复密钥已复制";
-                dialog.IsPrimaryButtonEnabled = true;
+                return;
             }
+
+            if (!copyText(recoveryKey))
+            {
+                copyButton.Content = "复制失败，请重试";
+                dialog.IsPrimaryButtonEnabled = false;
+                return;
+            }
+
+            copyButton.Content = "恢复密钥已复制";
+            dialog.IsPrimaryButtonEnabled = true;
         };
         copyButton.Click += copyHandler;
         dialog.Content = new StackPanel
