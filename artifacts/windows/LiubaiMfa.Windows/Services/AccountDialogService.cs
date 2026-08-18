@@ -44,23 +44,37 @@ public sealed class AccountDialogService
         var issuerBox = new TextBox { Header = "服务名称", Text = existing.Issuer, PlaceholderText = "例如 GitHub" };
         var accountBox = new TextBox { Header = "账户", Text = existing.Account, PlaceholderText = "例如 alice@example.com" };
         var groupBox = new TextBox { Header = "分组（可选）", Text = existing.Group ?? string.Empty };
-        var dialog = CreateDialog(root, "编辑账户", new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, groupBox } }, "保存", "取消");
+        var error = CreateValidationMessage();
+        var dialog = CreateDialog(root, "编辑账户", new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, groupBox, error } }, "保存", "取消");
+        AccountEdit? submitted = null;
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                var issuer = issuerBox.Text.Trim();
+                var account = accountBox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(account))
+                {
+                    error.Text = "请填写服务名称和账户。";
+                    args.Cancel = true;
+                    return;
+                }
+
+                submitted = existing with { Issuer = issuer, Account = account, Group = NormalizeGroup(groupBox.Text) };
+                error.Text = string.Empty;
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        };
         if (await _showDialog(dialog, token) != ContentDialogResult.Primary || !_isSessionCurrent(token))
         {
             return null;
         }
 
-        var issuer = issuerBox.Text.Trim();
-        var account = accountBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(account))
-        {
-            _showStatus(token, "请填写服务名称和账户。", InfoBarSeverity.Warning);
-            return null;
-        }
-
-        return _isSessionCurrent(token)
-            ? existing with { Issuer = issuer, Account = account, Group = NormalizeGroup(groupBox.Text) }
-            : null;
+        return submitted;
     }
 
     public async Task<bool> ConfirmDeleteAsync(XamlRoot root, long token, AccountEdit account)
@@ -154,15 +168,36 @@ public sealed class AccountDialogService
         var accountBox = new TextBox { Header = "账户", Text = initial?.Account ?? string.Empty, PlaceholderText = "例如 alice@example.com" };
         var secretBox = new TextBox { Header = "Base32 密钥或 otpauth:// 地址", Text = initial?.Secret ?? string.Empty, PlaceholderText = "JBSW Y3DP EHPK 3PXP" };
         var groupBox = new TextBox { Header = "分组（可选）", Text = initial?.Group ?? string.Empty };
-        var dialog = CreateDialog(root, title, new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, secretBox, groupBox } }, "保存", "取消");
+        var error = CreateValidationMessage();
+        var dialog = CreateDialog(root, title, new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, secretBox, groupBox, error } }, "保存", "取消");
+        AccountDraft? submitted = null;
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            var deferral = args.GetDeferral();
+            try
+            {
+                submitted = CreateDraft(issuerBox.Text, accountBox.Text, secretBox.Text, groupBox.Text, out var message);
+                error.Text = message;
+                args.Cancel = submitted is null;
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        };
         if (await _showDialog(dialog, token) != ContentDialogResult.Primary || !_isSessionCurrent(token))
         {
             return null;
         }
 
-        var issuer = issuerBox.Text.Trim();
-        var account = accountBox.Text.Trim();
-        var secret = secretBox.Text.Trim();
+        return submitted;
+    }
+
+    private static AccountDraft? CreateDraft(string issuerText, string accountText, string secretText, string groupText, out string message)
+    {
+        var issuer = issuerText.Trim();
+        var account = accountText.Trim();
+        var secret = secretText.Trim();
         if (OtpAuthUriParser.TryParse(secret, out var parsed) && parsed is not null)
         {
             issuer = string.IsNullOrWhiteSpace(issuer) ? parsed.Issuer : issuer;
@@ -176,7 +211,7 @@ public sealed class AccountDialogService
 
         if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(account))
         {
-            _showStatus(token, "请填写服务名称和账户。", InfoBarSeverity.Warning);
+            message = "请填写服务名称和账户。";
             return null;
         }
 
@@ -186,11 +221,12 @@ public sealed class AccountDialogService
         }
         catch (FormatException)
         {
-            _showStatus(token, "密钥格式无效，请检查 Base32 内容后重试。", InfoBarSeverity.Warning);
+            message = "密钥格式无效，请检查 Base32 内容后重试。";
             return null;
         }
 
-        return _isSessionCurrent(token) ? new AccountDraft(issuer, account, secret, NormalizeGroup(groupBox.Text)) : null;
+        message = string.Empty;
+        return new AccountDraft(issuer, account, secret, NormalizeGroup(groupText));
     }
 
     private static ContentDialog CreateDialog(XamlRoot root, string title, object content, string primary, string secondary) => new()
@@ -204,6 +240,11 @@ public sealed class AccountDialogService
     };
 
     private static string? NormalizeGroup(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static TextBlock CreateValidationMessage() => new()
+    {
+        TextWrapping = TextWrapping.Wrap,
+    };
 
     private static string FormatSecret(string secret) => string.Join(' ', Enumerable.Range(0, (secret.Length + 3) / 4)
         .Select(index => secret.Substring(index * 4, Math.Min(4, secret.Length - index * 4))));

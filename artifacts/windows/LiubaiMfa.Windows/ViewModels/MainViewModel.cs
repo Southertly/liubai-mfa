@@ -12,6 +12,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly object _stateGate = new();
     private readonly List<MfaAccount> _accounts = [];
+    private readonly Dictionary<string, AccountItemViewModel> _accountItemCache = new(StringComparer.Ordinal);
     private long _lifecycleEpoch;
     private string _searchText = string.Empty;
     private string? _selectedGroup;
@@ -149,6 +150,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
+    internal int AccountItemCacheCount
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _accountItemCache.Count;
+            }
+        }
+    }
+
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         var operationEpoch = Volatile.Read(ref _lifecycleEpoch);
@@ -173,6 +185,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     ThrowIfLifecycleInvalid(operationEpoch);
 
                     _accounts.Clear();
+                    _accountItemCache.Clear();
                     _accounts.AddRange(accounts);
                     HasLoadFailure = false;
                     IsLoaded = true;
@@ -214,7 +227,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     throw new InvalidOperationException("该 MFA 密钥已经存在。");
                 }
 
-                candidate = _accounts.Append(account).ToArray();
+                var actual = account with { Id = CreateUniqueId(account.Id, _accounts.Select(item => item.Id)) };
+                candidate = _accounts.Append(actual).ToArray();
+                account = actual;
             }
 
             await CommitAsync(candidate, operationEpoch, cancellationToken, account.Id);
@@ -287,6 +302,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             var existingSecrets = candidate.Select(item => item.Secret).ToHashSet(StringComparer.Ordinal);
+            var usedIds = candidate.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
             var imported = 0;
             var skipped = 0;
             string? firstImportedId = null;
@@ -300,9 +316,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
                 var importedAccount = account with
                 {
-                    Id = string.IsNullOrWhiteSpace(account.Id) ? Guid.NewGuid().ToString("N") : account.Id,
+                    Id = CreateUniqueId(account.Id, usedIds),
                     CreatedAt = account.CreatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : account.CreatedAt,
                 };
+                usedIds.Add(importedAccount.Id);
                 candidate.Add(importedAccount);
                 firstImportedId ??= importedAccount.Id;
                 imported++;
@@ -339,6 +356,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         lock (_stateGate)
         {
             _accounts.Clear();
+            _accountItemCache.Clear();
             VisibleAccounts.Clear();
             Groups.Clear();
             if (_selectedGroup is not null)
@@ -390,30 +408,30 @@ public sealed class MainViewModel : INotifyPropertyChanged
                     OnPropertyChanged(nameof(SelectedGroup));
                 }
 
-                if (_pendingRevealAccountId != pendingRevealAccountId)
-                {
-                    _pendingRevealAccountId = pendingRevealAccountId;
-                    OnPropertyChanged(nameof(PendingRevealAccountId));
-                }
             }
 
             RefreshDerivedState();
+            if (pendingRevealAccountId is not null && _pendingRevealAccountId != pendingRevealAccountId)
+            {
+                _pendingRevealAccountId = pendingRevealAccountId;
+                OnPropertyChanged(nameof(PendingRevealAccountId));
+            }
         }
     }
 
-    public string? ConsumePendingReveal()
+    public bool ConsumePendingReveal(string expectedAccountId)
     {
         lock (_stateGate)
         {
-            var pending = _pendingRevealAccountId;
-            if (pending is null)
+            if (string.IsNullOrWhiteSpace(expectedAccountId)
+                || !string.Equals(_pendingRevealAccountId, expectedAccountId, StringComparison.Ordinal))
             {
-                return null;
+                return false;
             }
 
             _pendingRevealAccountId = null;
             OnPropertyChanged(nameof(PendingRevealAccountId));
-            return pending;
+            return true;
         }
     }
 
@@ -454,10 +472,32 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedGroup));
         }
 
-        VisibleAccounts.Clear();
+        var liveIds = _accounts.Select(account => account.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var staleId in _accountItemCache.Keys.Where(id => !liveIds.Contains(id)).ToArray())
+        {
+            _accountItemCache.Remove(staleId);
+        }
+
+        var visibleItems = new List<AccountItemViewModel>();
         foreach (var account in AccountQuery.FilterAndSort(_accounts, SearchText, SelectedGroup))
         {
-            VisibleAccounts.Add(new AccountItemViewModel(account));
+            if (_accountItemCache.TryGetValue(account.Id, out var item))
+            {
+                item.ReplaceModel(account);
+            }
+            else
+            {
+                item = new AccountItemViewModel(account);
+                _accountItemCache.Add(account.Id, item);
+            }
+
+            visibleItems.Add(item);
+        }
+
+        VisibleAccounts.Clear();
+        foreach (var item in visibleItems)
+        {
+            VisibleAccounts.Add(item);
         }
 
         Groups.Clear();
@@ -497,6 +537,24 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private static string? NormalizeGroup(string? group) =>
         string.IsNullOrWhiteSpace(group) ? null : group.Trim();
+
+    private static string CreateUniqueId(string? preferredId, IEnumerable<string> existingIds)
+    {
+        var ids = existingIds as ISet<string> ?? existingIds.ToHashSet(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(preferredId) && !ids.Contains(preferredId))
+        {
+            return preferredId;
+        }
+
+        string id;
+        do
+        {
+            id = Guid.NewGuid().ToString("N");
+        }
+        while (ids.Contains(id));
+
+        return id;
+    }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {

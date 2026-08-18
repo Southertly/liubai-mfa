@@ -25,11 +25,12 @@ public sealed class NativeFileService
         return await picker.PickSaveFileAsync();
     }
 
-    public async Task WriteBackupAsync(StorageFile file, string contents)
+    public async Task WriteBackupAsync(StorageFile file, string contents, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentNullException.ThrowIfNull(contents);
-        await FileIO.WriteTextAsync(file, contents);
+        cancellationToken.ThrowIfCancellationRequested();
+        await FileIO.WriteTextAsync(file, contents).AsTask(cancellationToken);
     }
 
     public async Task<string?> OpenBackupAsync()

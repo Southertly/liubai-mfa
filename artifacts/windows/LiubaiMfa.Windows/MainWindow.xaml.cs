@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
     private readonly BackupDialogService _backupDialogs;
     private readonly WindowPlacementService _placementService;
     private readonly UnlockSessionGuard _sessionGuard = new();
+    private readonly SessionCancellationGuard _sessionCancellation = new();
     private readonly DispatcherTimer _timer;
     private DateTimeOffset? _deactivatedAt;
     private CancellationTokenSource? _backgroundLockCancellation;
@@ -55,6 +56,7 @@ public sealed partial class MainWindow : Window
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => ViewModel.UpdateCodes();
         Activated += Window_Activated;
+        Closed += (_, _) => _sessionCancellation.Dispose();
         RootGrid.Loaded += RootGrid_Loaded;
         _placementService.Configure(AppWindow, GetWindowDpi());
         _placementService.RestoreOrApplyDefault(AppWindow, GetWindowDpi);
@@ -190,7 +192,9 @@ public sealed partial class MainWindow : Window
                 }
             }
 
-            Volatile.Write(ref _activeSession, _sessionGuard.BeginUnlockedSession());
+            var sessionToken = _sessionGuard.BeginUnlockedSession();
+            _sessionCancellation.Begin(sessionToken);
+            Volatile.Write(ref _activeSession, sessionToken);
             _isUnlocked = true;
             AuthenticatorView.Attach(ViewModel);
             LockView.ButtonContent = "使用 Windows Hello 解锁";
@@ -210,6 +214,7 @@ public sealed partial class MainWindow : Window
     private void Lock()
     {
         _sessionGuard.Invalidate();
+        _sessionCancellation.Invalidate();
         Volatile.Write(ref _activeSession, 0);
         _isUnlocked = false;
         HideActiveDialog();
@@ -453,7 +458,25 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await _files.WriteBackupAsync(file, backup);
+        if (!_sessionCancellation.TryGetCancellationToken(token, out var writeCancellation) || !IsSessionCurrent(token))
+        {
+            return;
+        }
+
+        try
+        {
+            await _files.WriteBackupAsync(file, backup, writeCancellation);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            ShowStatus(token, "备份文件未保存。请检查目标位置权限或磁盘空间后重试。", InfoBarSeverity.Error);
+            return;
+        }
+
         if (IsSessionCurrent(token))
         {
             ShowStatus(token, "加密备份已保存。请妥善保管恢复密钥。", InfoBarSeverity.Success);

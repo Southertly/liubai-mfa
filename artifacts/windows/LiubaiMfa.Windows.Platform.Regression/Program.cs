@@ -31,6 +31,13 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("添加保存失败保持筛选和定位状态", VerifyAddFailurePreservesRevealStateAsync),
     ("导入只在实际新增后清除隐藏筛选并定位", VerifyImportPublishesPendingRevealAtomicallyAsync),
     ("卸载必须清除未消费的账户定位", VerifyUnloadClearsPendingRevealAsync),
+    ("会话取消域绑定令牌并隔离新会话", () => RunSync(VerifySessionCancellationLifecycle)),
+    ("会话取消域可重复并发失效", VerifySessionCancellationConcurrentInvalidationAsync),
+    ("旧定位 ID 不能消费新定位", VerifyPendingRevealRequiresExpectedIdAsync),
+    ("派生筛选复用账户行并保持高亮", VerifyDerivedRefreshReusesAccountRowsAsync),
+    ("删除账户会移除行缓存", VerifyDeleteRemovesAccountRowCacheAsync),
+    ("添加冲突 ID 必须生成唯一 ID", VerifyAddConflictingIdUsesUniqueIdAsync),
+    ("导入冲突和同批重复 ID 必须唯一", VerifyImportConflictingIdsUseUniqueIdsAsync),
     ("解锁会话保护器初始保持锁定", () => RunSync(VerifyUnlockSessionGuardStartsLocked)),
     ("解锁会话保护器使失效令牌永久失效", () => RunSync(VerifyUnlockSessionGuardInvalidation)),
     ("解锁会话保护器为新会话生成不同令牌", () => RunSync(VerifyUnlockSessionGuardStartsDistinctSessions)),
@@ -720,8 +727,8 @@ static async Task VerifyPendingRevealIsConsumedOnceAsync()
     await viewModel.LoadAsync();
     await viewModel.AddAsync(CreateNewAccount());
 
-    Assert(viewModel.ConsumePendingReveal() == "5", "首次消费应返回新增账户 ID。");
-    Assert(viewModel.ConsumePendingReveal() is null, "定位 ID 必须只能消费一次。");
+    Assert(viewModel.ConsumePendingReveal("5"), "首次消费应返回新增账户 ID。");
+    Assert(!viewModel.ConsumePendingReveal("5"), "定位 ID 必须只能消费一次。");
     Assert(viewModel.PendingRevealAccountId is null, "消费后不应保留定位 ID。");
 }
 
@@ -755,7 +762,7 @@ static async Task VerifyImportPublishesPendingRevealAtomicallyAsync()
     Assert(viewModel.PendingRevealAccountId == "5", "导入应定位第一个实际新增账户。");
     Assert(viewModel.VisibleAccounts.Any(account => account.Id == "5"), "导入的首个新增账户必须可见。");
 
-    viewModel.ConsumePendingReveal();
+    Assert(viewModel.ConsumePendingReveal("5"), "应能消费导入的首个新增定位。");
     viewModel.SearchText = "不会匹配";
     viewModel.SelectedGroup = "工作";
     var expected = CaptureState(viewModel);
@@ -783,6 +790,102 @@ static async Task VerifyUnloadClearsPendingRevealAsync()
 
     Assert(viewModel.PendingRevealAccountId is null, "卸载后不得残留账户定位 ID。");
     Assert(notified, "卸载清除定位 ID 时必须通知视图。");
+}
+
+static void VerifySessionCancellationLifecycle()
+{
+    var guard = new SessionCancellationGuard();
+    Assert(!guard.TryGetCancellationToken(1, out _), "初始状态不应提供取消令牌。");
+
+    const long firstSession = 101;
+    guard.Begin(firstSession);
+    Assert(guard.TryGetCancellationToken(firstSession, out var firstToken), "当前会话应取得取消令牌。");
+    Assert(!firstToken.IsCancellationRequested, "新会话令牌不应已取消。");
+    Assert(!guard.TryGetCancellationToken(999, out _), "错误会话不能取得活动令牌。");
+
+    guard.Invalidate();
+    Assert(firstToken.IsCancellationRequested, "失效必须同步取消旧会话令牌。");
+    Assert(!guard.TryGetCancellationToken(firstSession, out _), "失效后旧会话不能再取得令牌。");
+
+    const long secondSession = 102;
+    guard.Begin(secondSession);
+    Assert(guard.TryGetCancellationToken(secondSession, out var secondToken), "新会话应取得新令牌。");
+    Assert(!secondToken.IsCancellationRequested, "旧会话取消不能影响新会话。");
+    Assert(firstToken.IsCancellationRequested, "旧会话令牌必须永久保持取消。");
+}
+
+static async Task VerifySessionCancellationConcurrentInvalidationAsync()
+{
+    var guard = new SessionCancellationGuard();
+    guard.Begin(201);
+    await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(guard.Invalidate)));
+    Assert(!guard.TryGetCancellationToken(201, out _), "并发重复失效后不应保留活动令牌。");
+}
+
+static async Task VerifyPendingRevealRequiresExpectedIdAsync()
+{
+    var viewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await viewModel.LoadAsync();
+    await viewModel.AddAsync(CreateNewAccount());
+
+    Assert(!viewModel.ConsumePendingReveal("old-account"), "旧回调不能消费当前定位。");
+    Assert(viewModel.PendingRevealAccountId == "5", "错误 ID 消费后必须保留当前定位。");
+    Assert(viewModel.ConsumePendingReveal("5"), "匹配 ID 应能消费定位。");
+    Assert(viewModel.PendingRevealAccountId is null, "匹配消费后应清空定位。");
+}
+
+static async Task VerifyDerivedRefreshReusesAccountRowsAsync()
+{
+    var viewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await viewModel.LoadAsync();
+    var original = viewModel.VisibleAccounts.Single(account => account.Id == "1");
+    original.SetRevealHighlight(true);
+
+    viewModel.SearchText = "alice";
+    viewModel.SearchText = string.Empty;
+    viewModel.SelectedGroup = "个人";
+    viewModel.SelectedGroup = null;
+
+    var refreshed = viewModel.VisibleAccounts.Single(account => account.Id == "1");
+    Assert(ReferenceEquals(original, refreshed), "筛选刷新不应重建同一账户行对象。");
+    Assert(refreshed.IsRevealHighlighted, "筛选刷新不应丢失账户高亮。");
+}
+
+static async Task VerifyDeleteRemovesAccountRowCacheAsync()
+{
+    var viewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await viewModel.LoadAsync();
+    await viewModel.DeleteAsync("1");
+
+    Assert(viewModel.VisibleAccounts.All(account => account.Id != "1"), "删除后不应保留可见账户行。");
+    Assert(viewModel.AccountItemCacheCount == viewModel.AccountsSnapshot.Count, "删除后不应保留失效账户行缓存。");
+}
+
+static async Task VerifyAddConflictingIdUsesUniqueIdAsync()
+{
+    var viewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await viewModel.LoadAsync();
+    var added = await viewModel.AddAsync(CreateNewAccount() with { Id = "1", Secret = "unique-add-secret" });
+
+    Assert(!string.IsNullOrWhiteSpace(added.Id) && added.Id != "1", "添加冲突 ID 必须替换为非空唯一 ID。");
+    Assert(viewModel.PendingRevealAccountId == added.Id, "定位必须指向实际新增 ID。");
+    Assert(viewModel.VisibleAccounts.Select(account => account.Id).Distinct(StringComparer.Ordinal).Count() == viewModel.VisibleAccounts.Count, "可见账户 ID 必须唯一。");
+}
+
+static async Task VerifyImportConflictingIdsUseUniqueIdsAsync()
+{
+    var viewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await viewModel.LoadAsync();
+    var result = await viewModel.ImportAsync(
+    [
+        CreateNewAccount() with { Id = "1", Secret = "unique-import-one" },
+        CreateAdditionalNewAccount() with { Id = "1", Secret = "unique-import-two" },
+    ]);
+
+    Assert(result == (2, 0), "不同密钥的冲突 ID 账户应导入。");
+    var ids = viewModel.VisibleAccounts.Select(account => account.Id).ToArray();
+    Assert(ids.Distinct(StringComparer.Ordinal).Count() == ids.Length, "现有和同批导入账户 ID 必须唯一。");
+    Assert(viewModel.PendingRevealAccountId is not null && viewModel.PendingRevealAccountId != "1", "导入定位必须指向实际分配的唯一 ID。");
 }
 
 static MfaAccount[] CreateFixture() =>

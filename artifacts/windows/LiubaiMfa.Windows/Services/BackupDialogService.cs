@@ -33,8 +33,15 @@ public sealed class BackupDialogService
             IsPrimaryButtonEnabled = false,
             DefaultButton = ContentDialogButton.None,
         };
+        var recoveryKeyText = new TextBlock
+        {
+            Text = recoveryKey,
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+            IsTextSelectionEnabled = true,
+            TextWrapping = TextWrapping.Wrap,
+        };
         var copyButton = new Button { Content = "复制恢复密钥", HorizontalAlignment = HorizontalAlignment.Stretch };
-        copyButton.Click += (_, _) =>
+        RoutedEventHandler copyHandler = (_, _) =>
         {
             if (_isSessionCurrent(token))
             {
@@ -43,18 +50,28 @@ public sealed class BackupDialogService
                 dialog.IsPrimaryButtonEnabled = true;
             }
         };
+        copyButton.Click += copyHandler;
         dialog.Content = new StackPanel
         {
             Spacing = 12,
             Children =
             {
                 new TextBlock { Text = "恢复密钥不会写入备份文件。丢失后无法恢复，请与备份文件分开保存。", TextWrapping = TextWrapping.Wrap },
-                new TextBlock { Text = recoveryKey, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"), IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap },
+                recoveryKeyText,
                 copyButton,
             },
         };
 
-        return await _showDialog(dialog, token) == ContentDialogResult.Primary && _isSessionCurrent(token);
+        try
+        {
+            return await _showDialog(dialog, token) == ContentDialogResult.Primary && _isSessionCurrent(token);
+        }
+        finally
+        {
+            copyButton.Click -= copyHandler;
+            recoveryKeyText.Text = string.Empty;
+            dialog.Content = null;
+        }
     }
 
     public async Task<string?> RequestRecoveryKeyAsync(XamlRoot root, long token)
@@ -74,14 +91,18 @@ public sealed class BackupDialogService
             SecondaryButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary,
         };
-        if (await _showDialog(dialog, token) != ContentDialogResult.Primary || !_isSessionCurrent(token))
+        try
+        {
+            if (await _showDialog(dialog, token) != ContentDialogResult.Primary || !_isSessionCurrent(token))
+            {
+                return null;
+            }
+
+            return keyBox.Password;
+        }
+        finally
         {
             keyBox.Password = string.Empty;
-            return null;
         }
-
-        var recoveryKey = keyBox.Password;
-        keyBox.Password = string.Empty;
-        return recoveryKey;
     }
 }

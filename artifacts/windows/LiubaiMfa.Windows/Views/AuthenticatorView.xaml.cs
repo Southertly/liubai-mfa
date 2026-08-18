@@ -18,16 +18,18 @@ public sealed partial class AuthenticatorView : UserControl
     private bool _isSynchronizingSearch;
     private readonly DispatcherTimer _revealTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(4) };
+    private EventHandler<object>? _revealTimerTickHandler;
     private EventHandler<object>? _statusTimerTickHandler;
     private long _statusEpoch;
     private long _attachEpoch;
+    private long _revealEpoch;
     private string? _requestedRevealAccountId;
     private string? _highlightedAccountId;
 
     public AuthenticatorView()
     {
         InitializeComponent();
-        _revealTimer.Tick += RevealTimer_Tick;
+        AccountsList.LayoutUpdated += AccountsList_LayoutUpdated;
     }
 
     public event EventHandler? AddRequested;
@@ -57,14 +59,15 @@ public sealed partial class AuthenticatorView : UserControl
         SynchronizeSearchText();
         SynchronizeGroupSelection();
         RefreshState();
-        ConsumeAndRevealPending();
+        BeginRevealPending();
     }
 
     public void Detach()
     {
         var detachedViewModel = _viewModel;
         _attachEpoch++;
-        _revealTimer.Stop();
+        StopRevealTimer();
+        _revealEpoch++;
         _statusTimer.Stop();
         _statusEpoch++;
         if (_statusTimerTickHandler is not null)
@@ -185,7 +188,7 @@ public sealed partial class AuthenticatorView : UserControl
 
         if (e.PropertyName == nameof(MainViewModel.PendingRevealAccountId))
         {
-            ConsumeAndRevealPending();
+            BeginRevealPending();
         }
     }
 
@@ -359,10 +362,10 @@ public sealed partial class AuthenticatorView : UserControl
     private static bool IsKeyDown(VirtualKey key) =>
         (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
 
-    private void ConsumeAndRevealPending()
+    private void BeginRevealPending()
     {
         var attachedViewModel = _viewModel;
-        var accountId = attachedViewModel?.ConsumePendingReveal();
+        var accountId = attachedViewModel?.PendingRevealAccountId;
         if (attachedViewModel is null || accountId is null)
         {
             return;
@@ -370,14 +373,26 @@ public sealed partial class AuthenticatorView : UserControl
 
         var attachEpoch = _attachEpoch;
         _requestedRevealAccountId = accountId;
-        _ = DispatcherQueue.TryEnqueue(() => RevealWhenContainerReady(attachedViewModel, attachEpoch, accountId));
+        var revealEpoch = ++_revealEpoch;
+        ScrollPendingAccountIntoView(attachedViewModel, attachEpoch, revealEpoch, accountId);
+        _ = DispatcherQueue.TryEnqueue(() => TryApplyPendingReveal(attachedViewModel, attachEpoch, revealEpoch, accountId));
     }
 
-    private void RevealWhenContainerReady(MainViewModel attachedViewModel, long attachEpoch, string accountId)
+    private void AccountsList_LayoutUpdated(object? sender, object e)
     {
-        if (!ReferenceEquals(_viewModel, attachedViewModel)
-            || _attachEpoch != attachEpoch
-            || _requestedRevealAccountId != accountId)
+        var attachedViewModel = _viewModel;
+        var accountId = _requestedRevealAccountId;
+        if (attachedViewModel is null || accountId is null)
+        {
+            return;
+        }
+
+        TryApplyPendingReveal(attachedViewModel, _attachEpoch, _revealEpoch, accountId);
+    }
+
+    private void ScrollPendingAccountIntoView(MainViewModel attachedViewModel, long attachEpoch, long revealEpoch, string accountId)
+    {
+        if (!IsCurrentRevealRequest(attachedViewModel, attachEpoch, revealEpoch, accountId))
         {
             return;
         }
@@ -389,14 +404,11 @@ public sealed partial class AuthenticatorView : UserControl
         }
 
         AccountsList.ScrollIntoView(account);
-        _ = DispatcherQueue.TryEnqueue(() => FocusAndHighlightAccount(attachedViewModel, attachEpoch, accountId));
     }
 
-    private void FocusAndHighlightAccount(MainViewModel attachedViewModel, long attachEpoch, string accountId)
+    private void TryApplyPendingReveal(MainViewModel attachedViewModel, long attachEpoch, long revealEpoch, string accountId)
     {
-        if (!ReferenceEquals(_viewModel, attachedViewModel)
-            || _attachEpoch != attachEpoch
-            || _requestedRevealAccountId != accountId)
+        if (!IsCurrentRevealRequest(attachedViewModel, attachEpoch, revealEpoch, accountId))
         {
             return;
         }
@@ -407,22 +419,70 @@ public sealed partial class AuthenticatorView : UserControl
             return;
         }
 
+        if (AccountsList.ContainerFromItem(account) is not DependencyObject container)
+        {
+            return;
+        }
+
+        var row = FindAccountRow(container, accountId);
+        if (row is null)
+        {
+            return;
+        }
+
         ClearRevealHighlight();
         account.SetRevealHighlight(true);
         _highlightedAccountId = accountId;
-        _revealTimer.Stop();
-        _revealTimer.Start();
-
-        if (AccountsList.ContainerFromItem(account) is DependencyObject container)
+        row.Focus(FocusState.Programmatic);
+        if (!attachedViewModel.ConsumePendingReveal(accountId))
         {
-            FindAccountRow(container, accountId)?.Focus(FocusState.Programmatic);
+            account.SetRevealHighlight(false);
+            _highlightedAccountId = null;
+            return;
         }
+
+        _requestedRevealAccountId = null;
+        StartRevealTimer(attachEpoch, revealEpoch, accountId);
     }
 
-    private void RevealTimer_Tick(object? sender, object e)
+    private bool IsCurrentRevealRequest(MainViewModel attachedViewModel, long attachEpoch, long revealEpoch, string accountId) =>
+        ReferenceEquals(_viewModel, attachedViewModel)
+        && _attachEpoch == attachEpoch
+        && _revealEpoch == revealEpoch
+        && _requestedRevealAccountId == accountId
+        && attachedViewModel.PendingRevealAccountId == accountId;
+
+    private void StartRevealTimer(long attachEpoch, long revealEpoch, string accountId)
     {
         _revealTimer.Stop();
-        ClearRevealHighlight();
+        if (_revealTimerTickHandler is not null)
+        {
+            _revealTimer.Tick -= _revealTimerTickHandler;
+        }
+
+        var timerEpoch = ++_revealEpoch;
+        _revealTimerTickHandler = (_, _) =>
+        {
+            _revealTimer.Stop();
+            if (_attachEpoch == attachEpoch
+                && _revealEpoch == timerEpoch
+                && _highlightedAccountId == accountId)
+            {
+                ClearRevealHighlight();
+            }
+        };
+        _revealTimer.Tick += _revealTimerTickHandler;
+        _revealTimer.Start();
+    }
+
+    private void StopRevealTimer()
+    {
+        _revealTimer.Stop();
+        if (_revealTimerTickHandler is not null)
+        {
+            _revealTimer.Tick -= _revealTimerTickHandler;
+            _revealTimerTickHandler = null;
+        }
     }
 
     private void ClearRevealHighlight()
