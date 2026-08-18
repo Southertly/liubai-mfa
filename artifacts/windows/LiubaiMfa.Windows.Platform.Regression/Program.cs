@@ -71,6 +71,9 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("窗口位置计算防止整数溢出", () => RunSync(VerifyWindowPlacementHandlesExtremeValues)),
     ("窗口有效像素安全换算为物理像素", () => RunSync(VerifyEffectivePixelConversion)),
     ("窗口位置仅在普通状态发生变化时保存", () => RunSync(VerifyWindowPlacementSavePolicy)),
+    ("剪贴板写入成功且只调用一次", () => RunSync(VerifyClipboardWriteSuccess)),
+    ("剪贴板 COM 失败转换为中性结果", () => RunSync(VerifyClipboardWriteComFailure)),
+    ("剪贴板拒绝空白验证码", () => RunSync(VerifyClipboardRejectsBlankText)),
 };
 
 foreach (var check in checks)
@@ -230,6 +233,45 @@ static void VerifyWindowPlacementSavePolicy()
     Assert(WindowPlacementService.ShouldSave(false, true, true), "普通状态下尺寸变化应保存。");
     Assert(!WindowPlacementService.ShouldSave(true, false, false), "最小化状态不应保存。");
     Assert(!WindowPlacementService.ShouldSave(false, true, false), "最大化状态不应保存。");
+}
+
+static void VerifyClipboardWriteSuccess()
+{
+    var writeCount = 0;
+    string? writtenText = null;
+    var service = new ClipboardService(text =>
+    {
+        writeCount++;
+        writtenText = text;
+    });
+
+    Assert(service.TryCopyText("123456"), "正常剪贴板写入应返回成功。");
+    Assert(writeCount == 1, "一次复制只能调用一次剪贴板写入。");
+    Assert(writtenText == "123456", "剪贴板写入内容错误。");
+}
+
+static void VerifyClipboardWriteComFailure()
+{
+    var writeCount = 0;
+    var service = new ClipboardService(_ =>
+    {
+        writeCount++;
+        throw new System.Runtime.InteropServices.COMException(
+            "模拟剪贴板占用",
+            unchecked((int)0x800401D0));
+    });
+
+    Assert(!service.TryCopyText("123456"), "剪贴板 COM 失败应返回 false，不能逸出异常。");
+    Assert(writeCount == 1, "剪贴板失败后不得后台重试。");
+}
+
+static void VerifyClipboardRejectsBlankText()
+{
+    var service = new ClipboardService(_ => throw new InvalidOperationException("空白文本不应进入写入委托。"));
+
+    AssertThrows<ArgumentException>(
+        () => service.TryCopyText("   "),
+        "空白验证码必须在进入系统剪贴板前被拒绝。");
 }
 
 static void VerifySearch()
