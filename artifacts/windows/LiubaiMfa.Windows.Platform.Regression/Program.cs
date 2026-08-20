@@ -106,6 +106,10 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("截图新请求替换旧请求和延期令牌", () => RunSync(VerifySnippingCaptureBeginReplacesPreviousState)),
     ("截图放弃请求会清除活动状态和延期令牌", () => RunSync(VerifySnippingCaptureAbandonClearsState)),
     ("截图请求拒绝空关联 ID", () => RunSync(VerifySnippingCaptureRejectsEmptyCorrelationId)),
+    ("并发截图响应只允许一次立即兑换", VerifyConcurrentSnippingReceiveRedeemsOnceAsync),
+    ("并发解锁恢复只允许一次立即兑换", VerifyConcurrentSnippingResumeRedeemsOnceAsync),
+    ("新截图请求不会被旧响应回填延期令牌", VerifyConcurrentSnippingBeginRejectsOldPendingTokenAsync),
+    ("放弃截图不会被旧响应回填延期令牌", VerifyConcurrentSnippingAbandonRejectsOldPendingTokenAsync),
     ("截图协议生成精确且安全编码的捕获 URI", () => RunSync(VerifySnippingToolCaptureUri)),
     ("截图协议解析有效响应和可选令牌", () => RunSync(VerifySnippingToolParsesValidResponses)),
     ("截图协议拒绝非目标响应端点", () => RunSync(VerifySnippingToolRejectsInvalidResponseEndpoints)),
@@ -342,6 +346,124 @@ static void VerifySnippingCaptureRejectsEmptyCorrelationId()
 {
     var state = new SnippingCaptureState();
     AssertThrows<ArgumentException>(() => state.Begin(Guid.Empty), "空关联 ID 必须被拒绝。");
+}
+
+static async Task VerifyConcurrentSnippingReceiveRedeemsOnceAsync()
+{
+    const int workerCount = 8;
+    const int trialCount = 1_000;
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+    for (var trial = 0; trial < trialCount; trial++)
+    {
+        var state = new SnippingCaptureState();
+        var correlationId = Guid.NewGuid();
+        state.Begin(correlationId);
+        using var start = new ManualResetEventSlim();
+        var tasks = Enumerable.Range(0, workerCount)
+            .Select(_ => Task.Run(() =>
+            {
+                start.Wait(timeout.Token);
+                return state.Receive(correlationId, 200, "concurrent-token", sessionCurrent: true);
+            }, timeout.Token))
+            .ToArray();
+
+        start.Set();
+        var decisions = await Task.WhenAll(tasks).WaitAsync(timeout.Token);
+        Assert(decisions.Count(decision => decision.Kind == SnippingCaptureDecisionKind.RedeemNow) == 1,
+            "同一截图响应并发到达时只允许一个调用立即兑换。");
+        Assert(decisions.Count(decision => decision.Kind == SnippingCaptureDecisionKind.Ignore) == workerCount - 1,
+            "同一截图响应的其余并发调用必须忽略。");
+    }
+}
+
+static async Task VerifyConcurrentSnippingResumeRedeemsOnceAsync()
+{
+    const int workerCount = 8;
+    const int trialCount = 1_000;
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+    for (var trial = 0; trial < trialCount; trial++)
+    {
+        var state = new SnippingCaptureState();
+        var correlationId = Guid.NewGuid();
+        state.Begin(correlationId);
+        state.Receive(correlationId, 200, "pending-token", sessionCurrent: false);
+        using var start = new ManualResetEventSlim();
+        var tasks = Enumerable.Range(0, workerCount)
+            .Select(_ => Task.Run(() =>
+            {
+                start.Wait(timeout.Token);
+                return state.ResumeAfterUnlock(sessionCurrent: true);
+            }, timeout.Token))
+            .ToArray();
+
+        start.Set();
+        var decisions = await Task.WhenAll(tasks).WaitAsync(timeout.Token);
+        Assert(decisions.Count(decision => decision.Kind == SnippingCaptureDecisionKind.RedeemNow) == 1,
+            "延期令牌并发恢复时只允许一个调用立即兑换。");
+        Assert(decisions.Count(decision => decision.Kind == SnippingCaptureDecisionKind.Ignore) == workerCount - 1,
+            "延期令牌的其余并发恢复调用必须忽略。");
+    }
+}
+
+static async Task VerifyConcurrentSnippingBeginRejectsOldPendingTokenAsync()
+{
+    const int trialCount = 5_000;
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+    for (var trial = 0; trial < trialCount; trial++)
+    {
+        var state = new SnippingCaptureState();
+        var oldCorrelationId = Guid.NewGuid();
+        var newCorrelationId = Guid.NewGuid();
+        state.Begin(oldCorrelationId);
+        using var start = new ManualResetEventSlim();
+        var receive = Task.Run(() =>
+        {
+            start.Wait(timeout.Token);
+            state.Receive(oldCorrelationId, 200, "old-token", sessionCurrent: false);
+        }, timeout.Token);
+        var begin = Task.Run(() =>
+        {
+            start.Wait(timeout.Token);
+            state.Begin(newCorrelationId);
+        }, timeout.Token);
+
+        start.Set();
+        await Task.WhenAll(receive, begin).WaitAsync(timeout.Token);
+        Assert(state.ResumeAfterUnlock(sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+            "新 Begin 与旧响应交错后不得保留旧延期令牌。");
+    }
+}
+
+static async Task VerifyConcurrentSnippingAbandonRejectsOldPendingTokenAsync()
+{
+    const int trialCount = 5_000;
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+    for (var trial = 0; trial < trialCount; trial++)
+    {
+        var state = new SnippingCaptureState();
+        var correlationId = Guid.NewGuid();
+        state.Begin(correlationId);
+        using var start = new ManualResetEventSlim();
+        var receive = Task.Run(() =>
+        {
+            start.Wait(timeout.Token);
+            state.Receive(correlationId, 200, "old-token", sessionCurrent: false);
+        }, timeout.Token);
+        var abandon = Task.Run(() =>
+        {
+            start.Wait(timeout.Token);
+            state.Abandon();
+        }, timeout.Token);
+
+        start.Set();
+        await Task.WhenAll(receive, abandon).WaitAsync(timeout.Token);
+        Assert(state.ResumeAfterUnlock(sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+            "Abandon 与旧响应交错后不得保留旧延期令牌。");
+    }
 }
 
 static void VerifyStartupProtectionDefaultsOff()
