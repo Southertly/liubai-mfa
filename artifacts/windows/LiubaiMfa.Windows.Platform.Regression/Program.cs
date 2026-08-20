@@ -5,6 +5,7 @@ using LiubaiMfa.Windows.ViewModels;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Xml.Linq;
 
 var checks = new List<(string Name, Func<Task> Run)>
 {
@@ -116,7 +117,153 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("截图协议拒绝缺失或无效的必填参数", () => RunSync(VerifySnippingToolRejectsInvalidRequiredParameters)),
     ("截图协议拒绝重复关键参数", () => RunSync(VerifySnippingToolRejectsDuplicateCriticalParameters)),
     ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
+    ("单实例协议激活入口源契约", () => RunSync(VerifySingleInstanceActivationSourceContract)),
 };
+
+static void VerifySingleInstanceActivationSourceContract()
+{
+    var programPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Program.cs"));
+    var programSource = File.ReadAllText(programPath);
+    var programRoot = ParseCSharpRoot(programSource, "Program.cs");
+    var projectPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "LiubaiMfa.Windows.csproj"));
+    var project = XDocument.Load(projectPath);
+    var defineConstants = project.Descendants()
+        .Where(element => element.Name.LocalName == "DefineConstants")
+        .Select(element => element.Value.Trim())
+        .ToArray();
+    Assert(defineConstants.Contains("$(DefineConstants);DISABLE_XAML_GENERATED_MAIN", StringComparer.Ordinal),
+        "WinUI 项目必须追加 DISABLE_XAML_GENERATED_MAIN，且不得覆盖已有编译常量。");
+
+    var programClass = FindUniqueClass(programRoot, "Program");
+    var main = programClass.Members.OfType<MethodDeclarationSyntax>()
+        .SingleOrDefault(method => method.Identifier.ValueText == "Main")
+        ?? throw new InvalidOperationException("Program 必须声明自定义 Main 入口。");
+    Assert(main.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.StaticKeyword))
+            && main.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.AsyncKeyword))
+            && main.AttributeLists.SelectMany(list => list.Attributes)
+                .Any(attribute => attribute.Name.ToString() == "STAThread"),
+        "自定义 Main 必须是带 STAThread 的 static async 入口。");
+    Assert(main.ReturnType.ToString() == "Task", "自定义 Main 必须返回 Task。");
+    Assert(main.Body is { Statements.Count: > 0 }, "自定义 Main 必须有可检查的语句体。");
+    Assert(main.Body!.Statements[0].ToString() == "WinRT.ComWrappersSupport.InitializeComWrappers();",
+        "Main 必须先初始化 WinRT COM wrappers，再调用任何 AppInstance 或 UI API。");
+
+    var mainSource = main.ToFullString();
+    AssertOrderedSource(mainSource,
+        "WinRT.ComWrappersSupport.InitializeComWrappers()",
+        "AppInstance.GetCurrent()",
+        "GetActivatedEventArgs()",
+        "AppInstance.FindOrRegisterForKey(\"liubai-mfa-main\")",
+        "App.SetInitialActivation",
+        "main.Activated += App.OnAppInstanceActivated",
+        "Application.Start");
+    Assert(CountOccurrences(mainSource, "Application.Start") == 1,
+        "主实例必须且只能调用一次 Application.Start。");
+
+    var redirectBranch = main.DescendantNodes().OfType<IfStatementSyntax>()
+        .SingleOrDefault(statement => statement.Condition.ToString().Replace(" ", string.Empty, StringComparison.Ordinal)
+            == "!main.IsCurrent");
+    Assert(redirectBranch is not null, "非主实例必须通过 !main.IsCurrent 分支重定向。");
+    var redirectSource = redirectBranch!.Statement.ToFullString();
+    Assert(redirectSource.Contains("await main.RedirectActivationToAsync(initial)", StringComparison.Ordinal)
+            && redirectBranch.Statement.DescendantNodes().OfType<ReturnStatementSyntax>().Any(),
+        "非主实例必须 await RedirectActivationToAsync 后 return。");
+    Assert(!redirectSource.Contains("Application.Start", StringComparison.Ordinal),
+        "非主实例不得调用 Application.Start。");
+    Assert(mainSource.IndexOf(redirectBranch.ToFullString(), StringComparison.Ordinal)
+            < mainSource.IndexOf("App.SetInitialActivation", StringComparison.Ordinal),
+        "只有通过非主实例重定向分支后，当前实例才能继续启动应用。");
+
+    var appPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "App.xaml.cs"));
+    var appSource = File.ReadAllText(appPath);
+    var appRoot = ParseCSharpRoot(appSource, "App.xaml.cs");
+    var appClass = FindUniqueClass(appRoot, "App");
+    Assert(appClass.Members.OfType<MethodDeclarationSyntax>()
+            .Any(method => method.Identifier.ValueText == "SetInitialActivation"),
+        "App 必须提供 SetInitialActivation。");
+    Assert(appClass.Members.OfType<MethodDeclarationSyntax>()
+            .Any(method => method.Identifier.ValueText == "OnAppInstanceActivated"),
+        "App 必须提供 OnAppInstanceActivated。");
+    Assert(appSource.Contains("lock (ActivationGate)", StringComparison.Ordinal)
+            && appSource.Contains("Queue<AppActivationArguments>", StringComparison.Ordinal)
+            && appSource.Contains("PendingActivations.Enqueue", StringComparison.Ordinal)
+            && appSource.Contains("PendingActivations.Dequeue", StringComparison.Ordinal),
+        "首次和重定向激活必须由静态 gate 保护的 FIFO 保存和排空。");
+    AssertOrderedSource(appSource,
+        "private static readonly object ActivationGate",
+        "private static readonly Queue<AppActivationArguments> PendingActivations");
+    Assert(appSource.Contains("DispatcherQueue.GetForCurrentThread()", StringComparison.Ordinal)
+            && appSource.Contains("_dispatcherQueue.TryEnqueue", StringComparison.Ordinal),
+        "App 必须记录 UI Dispatcher，并只通过 TryEnqueue 安排跨线程激活排空。");
+    Assert(appSource.Contains("_window ??= new MainWindow()", StringComparison.Ordinal)
+            && CountOccurrences(appSource, "new MainWindow()") == 1,
+        "OnLaunched 必须且只能创建一个 MainWindow。");
+    Assert(appSource.Contains("_isDrainScheduled", StringComparison.Ordinal)
+            && appSource.Contains("await HandleActivationAsync", StringComparison.Ordinal)
+            && appSource.Contains("shouldReschedule = _window is not null && PendingActivations.Count > 0", StringComparison.Ordinal),
+        "激活 FIFO 必须防止并发 drain、在 UI 线程串行 await，并在收尾竞态中重新安排排空。");
+    Assert(appSource.Contains("activation.Kind != ExtendedActivationKind.Protocol", StringComparison.Ordinal)
+            && appSource.Contains("activation.Data is not IProtocolActivatedEventArgs", StringComparison.Ordinal)
+            && appSource.Contains("await _window.HandleProtocolActivationAsync(protocolArgs.Uri)", StringComparison.Ordinal)
+            && CountOccurrences(appSource, "HandleProtocolActivationAsync(protocolArgs.Uri)") == 1,
+        "只有 Protocol 且数据实现 IProtocolActivatedEventArgs 时才能路由 URI。");
+    Assert(appSource.Contains("_window.Activate();", StringComparison.Ordinal),
+        "Launch 和未知激活必须只激活现有窗口。");
+    var debugStatements = appRoot.DescendantNodes().OfType<InvocationExpressionSyntax>()
+        .Where(invocation => invocation.Expression.ToString() == "Debug.WriteLine")
+        .Select(invocation => invocation.ToString())
+        .ToArray();
+    Assert(appSource.Contains("Debug.WriteLine($\"Activation routing failed: {exception.GetType().Name}\")", StringComparison.Ordinal)
+            && debugStatements.All(statement => !statement.Contains("Uri", StringComparison.OrdinalIgnoreCase)
+                && !statement.Contains("token", StringComparison.OrdinalIgnoreCase)),
+        "异步激活异常必须在安全边界观察，且日志只能记录异常类型，不能记录 URI 或令牌。");
+    Assert(!appClass.Members.OfType<MethodDeclarationSyntax>()
+            .Any(method => method.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.AsyncKeyword))
+                && method.ReturnType is PredefinedTypeSyntax type
+                && type.Keyword.IsKind(SyntaxKind.VoidKeyword)),
+        "App 激活路由不得使用 async void 形成未观察异常边界。");
+
+    var mainWindowPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var mainWindowSource = File.ReadAllText(mainWindowPath);
+    var mainWindowRoot = ParseCSharpRoot(mainWindowSource, "MainWindow.xaml.cs");
+    var mainWindowClass = FindUniqueClass(mainWindowRoot, "MainWindow");
+    var protocolHandler = mainWindowClass.Members.OfType<MethodDeclarationSyntax>()
+        .SingleOrDefault(method => method.Identifier.ValueText == "HandleProtocolActivationAsync")
+        ?? throw new InvalidOperationException(
+            "MainWindow 必须提供 internal Task HandleProtocolActivationAsync(Uri uri) 临时接缝。");
+    Assert(protocolHandler.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.InternalKeyword))
+            && protocolHandler.ReturnType.ToString() == "Task",
+        "MainWindow 必须提供 internal Task HandleProtocolActivationAsync(Uri uri) 临时接缝。");
+    var protocolHandlerBody = protocolHandler.Body?.ToString() ?? string.Empty;
+    Assert(protocolHandlerBody.Contains("ArgumentNullException.ThrowIfNull(uri);", StringComparison.Ordinal)
+            && protocolHandlerBody.Contains("return Task.CompletedTask;", StringComparison.Ordinal),
+        "协议激活临时接缝必须只校验 URI 并返回已完成任务。");
+}
+
+static void AssertOrderedSource(string source, params string[] fragments)
+{
+    var position = -1;
+    foreach (var fragment in fragments)
+    {
+        var next = source.IndexOf(fragment, position + 1, StringComparison.Ordinal);
+        Assert(next >= 0, $"源契约缺少片段：{fragment}");
+        Assert(next > position, $"源契约顺序错误：{fragment}");
+        position = next;
+    }
+}
+
+static int CountOccurrences(string source, string fragment)
+{
+    var count = 0;
+    var position = 0;
+    while ((position = source.IndexOf(fragment, position, StringComparison.Ordinal)) >= 0)
+    {
+        count++;
+        position += fragment.Length;
+    }
+
+    return count;
+}
 
 static void VerifySnippingToolCaptureUri()
 {

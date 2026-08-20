@@ -79,6 +79,12 @@ public sealed partial class MainWindow : Window
 
     public MainViewModel ViewModel { get; }
 
+    internal Task HandleProtocolActivationAsync(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        return Task.CompletedTask;
+    }
+
     private async void RootGrid_Loaded(object sender, RoutedEventArgs e)
     {
         RootGrid.Loaded -= RootGrid_Loaded;
