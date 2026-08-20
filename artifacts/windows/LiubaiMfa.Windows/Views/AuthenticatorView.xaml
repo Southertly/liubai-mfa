@@ -41,6 +41,17 @@
                         <FontIcon Glyph="&#xE8B9;" FontSize="16" />
                     </Button>
                     <Button
+                        Width="36"
+                        Height="36"
+                        Padding="0"
+                        Style="{StaticResource CompactIconButtonStyle}"
+                        ToolTipService.ToolTip="启动保护设置"
+                        AutomationProperties.Name="启动保护设置"
+                        Click="SettingsButton_Click">
+                        <FontIcon Glyph="&#xE713;" FontSize="16" />
+                    </Button>
+                    <Button
+                        x:Name="LockButton"
                         Style="{StaticResource CompactIconButtonStyle}"
                         ToolTipService.ToolTip="立即锁定"
                         AutomationProperties.Name="立即锁定"
@@ -313,7 +324,8 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock
-                Text="本地加密 · Windows Hello 保护"
+                x:Name="ProtectionStatusText"
+                Text="本机加密存储"
                 FontSize="12"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 VerticalAlignment="Center" />

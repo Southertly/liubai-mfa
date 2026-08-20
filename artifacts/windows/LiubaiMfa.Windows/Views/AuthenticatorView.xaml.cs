@@ -36,6 +36,7 @@ public sealed partial class AuthenticatorView : UserControl
     public event EventHandler? AddRequested;
     public event EventHandler? ImportQrRequested;
     public event EventHandler? LockRequested;
+    public event EventHandler? SettingsRequested;
     public event EventHandler? ImportBackupRequested;
     public event EventHandler? ExportBackupRequested;
     public event EventHandler<AccountRequestedEventArgs>? CopyRequested;
@@ -163,6 +164,14 @@ public sealed partial class AuthenticatorView : UserControl
         AccountsList.Visibility = _viewModel.HasVisibleAccounts ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    public void ApplyStartupProtection(bool enabled)
+    {
+        LockButton.Visibility = StartupProtectionPolicy.ShouldShowManualLock(enabled)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ProtectionStatusText.Text = enabled ? "本机加密 · Windows Hello 保护" : "本机加密存储";
+    }
+
     public AccountItemViewModel? FindAccount(string id) =>
         _viewModel?.VisibleAccounts.FirstOrDefault(item => item.Id == id);
 
@@ -279,6 +288,7 @@ public sealed partial class AuthenticatorView : UserControl
     private void AddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
     private void ImportQrButton_Click(object sender, RoutedEventArgs e) => ImportQrRequested?.Invoke(this, EventArgs.Empty);
     private void LockButton_Click(object sender, RoutedEventArgs e) => LockRequested?.Invoke(this, EventArgs.Empty);
+    private void SettingsButton_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
     private void ImportBackupItem_Click(object sender, RoutedEventArgs e) => ImportBackupRequested?.Invoke(this, EventArgs.Empty);
     private void ExportBackupItem_Click(object sender, RoutedEventArgs e) => ExportBackupRequested?.Invoke(this, EventArgs.Empty);
 
