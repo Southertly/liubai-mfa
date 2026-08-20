@@ -12,15 +12,16 @@ internal static class Program
         WinRT.ComWrappersSupport.InitializeComWrappers();
         var current = AppInstance.GetCurrent();
         var initial = current.GetActivatedEventArgs();
+        App.SetInitialActivation(initial);
+        current.Activated += App.OnAppInstanceActivated;
         var main = AppInstance.FindOrRegisterForKey("liubai-mfa-main");
         if (!main.IsCurrent)
         {
+            current.Activated -= App.OnAppInstanceActivated;
             await main.RedirectActivationToAsync(initial);
             return;
         }
 
-        App.SetInitialActivation(initial);
-        main.Activated += App.OnAppInstanceActivated;
         Application.Start(callbackParams =>
         {
             var dispatcher = DispatcherQueue.GetForCurrentThread();

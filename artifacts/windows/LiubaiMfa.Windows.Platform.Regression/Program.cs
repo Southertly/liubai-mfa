@@ -117,8 +117,122 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("截图协议拒绝缺失或无效的必填参数", () => RunSync(VerifySnippingToolRejectsInvalidRequiredParameters)),
     ("截图协议拒绝重复关键参数", () => RunSync(VerifySnippingToolRejectsDuplicateCriticalParameters)),
     ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
+    ("激活调度队列保持首次参数优先的 FIFO", () => RunSync(VerifyActivationDispatchQueueInitialFirstFifo)),
+    ("激活调度队列并发入队不丢失且只保留一个排空预约", () => RunSync(VerifyActivationDispatchQueueConcurrentEnqueue)),
+    ("激活调度队列在线性化判空后不会丢失唤醒", () => RunSync(VerifyActivationDispatchQueueDrainRace)),
+    ("激活调度队列可从调度失败预约中恢复", () => RunSync(VerifyActivationDispatchQueueScheduleFailureRelease)),
+    ("激活调度队列停止后清空并拒绝后续参数", () => RunSync(VerifyActivationDispatchQueueStop)),
     ("单实例协议激活入口源契约", () => RunSync(VerifySingleInstanceActivationSourceContract)),
 };
+
+static void VerifyActivationDispatchQueueInitialFirstFifo()
+{
+    var queue = new ActivationDispatchQueue<string>();
+    Assert(queue.TryEnqueue("initial"), "首次激活参数必须成功入队。");
+    Assert(queue.TryEnqueue("redirect-1") && queue.TryEnqueue("redirect-2"),
+        "启动间隙内的重定向参数必须成功入队。");
+    Assert(queue.TryReserveDrain(), "有待处理参数时必须能预约排空。");
+    Assert(!queue.TryReserveDrain(), "同一批参数只能保留一个排空预约。");
+    Assert(queue.TryBeginDrain(), "已预约的排空必须能开始。");
+
+    var actual = new List<string>();
+    while (queue.TryTake(out var item))
+    {
+        actual.Add(item);
+    }
+
+    Assert(actual.SequenceEqual(["initial", "redirect-1", "redirect-2"]),
+        "激活参数必须保持 initial-first FIFO 顺序。");
+    Assert(!queue.CompleteDrain(), "队列已空时不应预约下一轮排空。");
+}
+
+static void VerifyActivationDispatchQueueConcurrentEnqueue()
+{
+    const int itemCount = 512;
+    var queue = new ActivationDispatchQueue<int>();
+    var acceptedCount = 0;
+    Parallel.For(0, itemCount, item =>
+    {
+        if (queue.TryEnqueue(item))
+        {
+            Interlocked.Increment(ref acceptedCount);
+        }
+    });
+
+    Assert(acceptedCount == itemCount, "并发入队不得拒绝、丢失或重复参数。");
+    var reservationCount = 0;
+    Parallel.For(0, 64, _ =>
+    {
+        if (queue.TryReserveDrain())
+        {
+            Interlocked.Increment(ref reservationCount);
+        }
+    });
+
+    Assert(reservationCount == 1, "并发预约必须只有一个调用方获得排空权。");
+    Assert(queue.TryBeginDrain(), "唯一预约必须能开始排空。");
+    Assert(!queue.TryBeginDrain(), "同一时刻不得开始第二个排空。");
+
+    var actual = new List<int>();
+    while (queue.TryTake(out var item))
+    {
+        actual.Add(item);
+    }
+
+    Assert(!queue.CompleteDrain(), "并发入队全部消费后不应安排空排空。");
+    Assert(actual.Count == itemCount
+            && actual.Distinct().Count() == itemCount
+            && actual.OrderBy(item => item).SequenceEqual(Enumerable.Range(0, itemCount)),
+        "并发入队的每个参数必须且只能排空一次。");
+}
+
+static void VerifyActivationDispatchQueueDrainRace()
+{
+    var queue = new ActivationDispatchQueue<string>();
+    Assert(queue.TryEnqueue("first") && queue.TryReserveDrain() && queue.TryBeginDrain(),
+        "测试必须先开始第一轮排空。");
+    Assert(queue.TryTake(out var first) && first == "first", "第一轮必须先取出既有参数。");
+
+    Assert(queue.TryEnqueue("during-drain"), "排空期间必须接受新参数。");
+    Assert(!queue.TryReserveDrain(), "排空期间不得并发预约第二个 drain。");
+    Assert(queue.TryTake(out var duringDrain) && duringDrain == "during-drain",
+        "排空期间先到达的参数可由同一 drain 顺序取出。");
+    Assert(!queue.TryTake(out _), "判空点必须可被测试观察。");
+
+    Assert(queue.TryEnqueue("after-empty-check"), "判空后、收尾前到达的参数必须成功入队。");
+    Assert(queue.CompleteDrain(), "收尾必须为竞态到达的新参数原子预约下一轮 drain。");
+    Assert(queue.TryBeginDrain(), "收尾预约的下一轮 drain 必须可开始。");
+    Assert(queue.TryTake(out var afterEmptyCheck) && afterEmptyCheck == "after-empty-check",
+        "判空竞态中的参数不得丢失或永久卡住。");
+    Assert(!queue.TryTake(out _) && !queue.CompleteDrain(), "第二轮排空后队列必须回到空闲状态。");
+}
+
+static void VerifyActivationDispatchQueueScheduleFailureRelease()
+{
+    var queue = new ActivationDispatchQueue<int>();
+    Assert(queue.TryEnqueue(7) && queue.TryReserveDrain(), "测试必须先取得调度预约。");
+    queue.ReleaseDrainReservation();
+    Assert(queue.TryReserveDrain(), "调度失败释放预约后，同一参数必须可重新预约。");
+    Assert(queue.TryBeginDrain() && queue.TryTake(out var item) && item == 7,
+        "重新预约后不得丢失原参数。");
+    Assert(!queue.TryTake(out _) && !queue.CompleteDrain(), "恢复后的 drain 必须能正常完成。");
+}
+
+static void VerifyActivationDispatchQueueStop()
+{
+    var queue = new ActivationDispatchQueue<int>();
+    Assert(queue.TryEnqueue(1) && queue.TryReserveDrain() && queue.TryBeginDrain(),
+        "测试必须先进入排空状态。");
+    Assert(queue.TryEnqueue(2), "停止前必须接受排空期间的新参数。");
+
+    queue.Stop();
+
+    Assert(!queue.TryEnqueue(3), "停止后必须拒绝后续参数。");
+    Assert(!queue.TryTake(out _), "停止必须清除尚未消费的参数。");
+    Assert(!queue.CompleteDrain(), "停止后不得预约后续排空。");
+    queue.ReleaseDrainReservation();
+    Assert(!queue.TryReserveDrain() && !queue.TryBeginDrain(), "停止状态不得被释放预约操作恢复。");
+}
 
 static void VerifySingleInstanceActivationSourceContract()
 {
@@ -153,9 +267,9 @@ static void VerifySingleInstanceActivationSourceContract()
         "WinRT.ComWrappersSupport.InitializeComWrappers()",
         "AppInstance.GetCurrent()",
         "GetActivatedEventArgs()",
-        "AppInstance.FindOrRegisterForKey(\"liubai-mfa-main\")",
         "App.SetInitialActivation",
-        "main.Activated += App.OnAppInstanceActivated",
+        "current.Activated += App.OnAppInstanceActivated",
+        "AppInstance.FindOrRegisterForKey(\"liubai-mfa-main\")",
         "Application.Start");
     Assert(CountOccurrences(mainSource, "Application.Start") == 1,
         "主实例必须且只能调用一次 Application.Start。");
@@ -165,14 +279,15 @@ static void VerifySingleInstanceActivationSourceContract()
             == "!main.IsCurrent");
     Assert(redirectBranch is not null, "非主实例必须通过 !main.IsCurrent 分支重定向。");
     var redirectSource = redirectBranch!.Statement.ToFullString();
-    Assert(redirectSource.Contains("await main.RedirectActivationToAsync(initial)", StringComparison.Ordinal)
-            && redirectBranch.Statement.DescendantNodes().OfType<ReturnStatementSyntax>().Any(),
-        "非主实例必须 await RedirectActivationToAsync 后 return。");
+    AssertOrderedSource(redirectSource,
+        "current.Activated -= App.OnAppInstanceActivated",
+        "await main.RedirectActivationToAsync(initial)",
+        "return");
     Assert(!redirectSource.Contains("Application.Start", StringComparison.Ordinal),
         "非主实例不得调用 Application.Start。");
     Assert(mainSource.IndexOf(redirectBranch.ToFullString(), StringComparison.Ordinal)
-            < mainSource.IndexOf("App.SetInitialActivation", StringComparison.Ordinal),
-        "只有通过非主实例重定向分支后，当前实例才能继续启动应用。");
+            < mainSource.IndexOf("Application.Start", StringComparison.Ordinal),
+        "只有通过非主实例重定向分支后，主实例才能启动应用。");
 
     var appPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "App.xaml.cs"));
     var appSource = File.ReadAllText(appPath);
@@ -184,24 +299,35 @@ static void VerifySingleInstanceActivationSourceContract()
     Assert(appClass.Members.OfType<MethodDeclarationSyntax>()
             .Any(method => method.Identifier.ValueText == "OnAppInstanceActivated"),
         "App 必须提供 OnAppInstanceActivated。");
-    Assert(appSource.Contains("lock (ActivationGate)", StringComparison.Ordinal)
-            && appSource.Contains("Queue<AppActivationArguments>", StringComparison.Ordinal)
-            && appSource.Contains("PendingActivations.Enqueue", StringComparison.Ordinal)
-            && appSource.Contains("PendingActivations.Dequeue", StringComparison.Ordinal),
-        "首次和重定向激活必须由静态 gate 保护的 FIFO 保存和排空。");
-    AssertOrderedSource(appSource,
-        "private static readonly object ActivationGate",
-        "private static readonly Queue<AppActivationArguments> PendingActivations");
+    Assert(appSource.Contains("ActivationDispatchQueue<AppActivationArguments>", StringComparison.Ordinal)
+            && !appClass.Members.OfType<FieldDeclarationSyntax>()
+                .Any(field => field.Declaration.Type is GenericNameSyntax genericType
+                    && genericType.Identifier.ValueText == "Queue")
+            && !appSource.Contains("lock (ActivationGate)", StringComparison.Ordinal),
+        "App 必须只使用可测试的 ActivationDispatchQueue 协调激活，不得保留第二套手写 Queue/gate 状态。");
+    var setInitialActivation = appClass.Members.OfType<MethodDeclarationSyntax>()
+        .Single(method => method.Identifier.ValueText == "SetInitialActivation");
+    Assert(setInitialActivation.ToFullString().Contains("PendingActivations.TryEnqueue(activation)", StringComparison.Ordinal),
+        "首次激活必须先进入统一调度队列。");
+    var redirectedActivation = appClass.Members.OfType<MethodDeclarationSyntax>()
+        .Single(method => method.Identifier.ValueText == "OnAppInstanceActivated");
+    AssertOrderedSource(redirectedActivation.ToFullString(),
+        "PendingActivations.TryEnqueue(activation)",
+        "Volatile.Read(ref _current)?.RequestActivationDrain()");
     Assert(appSource.Contains("DispatcherQueue.GetForCurrentThread()", StringComparison.Ordinal)
-            && appSource.Contains("_dispatcherQueue.TryEnqueue", StringComparison.Ordinal),
-        "App 必须记录 UI Dispatcher，并只通过 TryEnqueue 安排跨线程激活排空。");
-    Assert(appSource.Contains("_window ??= new MainWindow()", StringComparison.Ordinal)
-            && CountOccurrences(appSource, "new MainWindow()") == 1,
+            && appSource.Contains("_dispatcherQueue.TryEnqueue(DispatchActivationDrain)", StringComparison.Ordinal)
+            && appSource.Contains("PendingActivations.Stop();", StringComparison.Ordinal),
+        "App 必须记录 UI Dispatcher；TryEnqueue 失败时停止并清理队列，不得向系统激活线程抛错。");
+    Assert(appSource.Contains("if (_window is null)", StringComparison.Ordinal)
+            && CountOccurrences(appSource, "new MainWindow()") == 1
+            && appSource.Contains("Volatile.Write(ref _windowReady, 1)", StringComparison.Ordinal),
         "OnLaunched 必须且只能创建一个 MainWindow。");
-    Assert(appSource.Contains("_isDrainScheduled", StringComparison.Ordinal)
+    Assert(appSource.Contains("PendingActivations.TryReserveDrain()", StringComparison.Ordinal)
+            && appSource.Contains("PendingActivations.TryBeginDrain()", StringComparison.Ordinal)
+            && appSource.Contains("while (PendingActivations.TryTake(out var activation))", StringComparison.Ordinal)
             && appSource.Contains("await HandleActivationAsync", StringComparison.Ordinal)
-            && appSource.Contains("shouldReschedule = _window is not null && PendingActivations.Count > 0", StringComparison.Ordinal),
-        "激活 FIFO 必须防止并发 drain、在 UI 线程串行 await，并在收尾竞态中重新安排排空。");
+            && appSource.Contains("PendingActivations.CompleteDrain()", StringComparison.Ordinal),
+        "App 必须仅在预约成功后派发，并在 UI 线程串行 drain；判空收尾竞态由调度队列处理。");
     Assert(appSource.Contains("activation.Kind != ExtendedActivationKind.Protocol", StringComparison.Ordinal)
             && appSource.Contains("activation.Data is not IProtocolActivatedEventArgs", StringComparison.Ordinal)
             && appSource.Contains("await _window.HandleProtocolActivationAsync(protocolArgs.Uri)", StringComparison.Ordinal)
@@ -222,6 +348,35 @@ static void VerifySingleInstanceActivationSourceContract()
                 && method.ReturnType is PredefinedTypeSyntax type
                 && type.Keyword.IsKind(SyntaxKind.VoidKeyword)),
         "App 激活路由不得使用 async void 形成未观察异常边界。");
+
+    var dispatchQueuePath = FindWorkspaceSourceFile(
+        Path.Combine("LiubaiMfa.Windows", "Services", "ActivationDispatchQueue.cs"));
+    var dispatchQueueSource = File.ReadAllText(dispatchQueuePath);
+    var dispatchQueueRoot = ParseCSharpRoot(dispatchQueueSource, "ActivationDispatchQueue.cs");
+    var dispatchQueueClass = FindUniqueClass(dispatchQueueRoot, "ActivationDispatchQueue");
+    Assert(dispatchQueueClass.TypeParameterList?.Parameters.Count == 1,
+        "ActivationDispatchQueue 必须是单类型参数的泛型协调器。");
+    Assert(!dispatchQueueSource.Contains("Microsoft.UI", StringComparison.Ordinal)
+            && !dispatchQueueSource.Contains("Dispatcher", StringComparison.Ordinal)
+            && !dispatchQueueSource.Contains("Func<", StringComparison.Ordinal)
+            && !dispatchQueueSource.Contains("Action<", StringComparison.Ordinal)
+            && !dispatchQueueClass.Members.OfType<MethodDeclarationSyntax>()
+                .Any(method => method.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.AsyncKeyword))),
+        "ActivationDispatchQueue 不得依赖 WinUI、Dispatcher、异步或外部委托。");
+    var queueMethodNames = dispatchQueueClass.Members.OfType<MethodDeclarationSyntax>()
+        .Select(method => method.Identifier.ValueText)
+        .ToArray();
+    Assert(new[]
+        {
+            "TryEnqueue",
+            "TryReserveDrain",
+            "ReleaseDrainReservation",
+            "TryBeginDrain",
+            "TryTake",
+            "CompleteDrain",
+            "Stop",
+        }.All(queueMethodNames.Contains),
+        "ActivationDispatchQueue 必须完整提供入队、预约、排空、失败释放和停止状态操作。");
 
     var mainWindowPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
     var mainWindowSource = File.ReadAllText(mainWindowPath);

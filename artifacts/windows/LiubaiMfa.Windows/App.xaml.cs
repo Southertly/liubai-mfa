@@ -1,3 +1,4 @@
+using LiubaiMfa.Windows.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -8,13 +9,12 @@ namespace LiubaiMfa.Windows;
 
 public partial class App : Application
 {
-    private static readonly object ActivationGate = new();
-    private static readonly Queue<AppActivationArguments> PendingActivations = new();
+    private static readonly ActivationDispatchQueue<AppActivationArguments> PendingActivations = new();
     private static App? _current;
 
     private readonly DispatcherQueue _dispatcherQueue;
     private MainWindow? _window;
-    private bool _isDrainScheduled;
+    private int _windowReady;
 
     public App()
     {
@@ -25,82 +25,75 @@ public partial class App : Application
             Debug.WriteLine($"Unhandled application error: {args.Exception.GetType().Name}");
         };
 
-        lock (ActivationGate)
-        {
-            _current = this;
-        }
+        Volatile.Write(ref _current, this);
     }
 
     internal static void SetInitialActivation(AppActivationArguments activation)
     {
         ArgumentNullException.ThrowIfNull(activation);
-        lock (ActivationGate)
-        {
-            PendingActivations.Enqueue(activation);
-        }
+        _ = PendingActivations.TryEnqueue(activation);
     }
 
     internal static void OnAppInstanceActivated(object? sender, AppActivationArguments activation)
     {
         ArgumentNullException.ThrowIfNull(activation);
-        App? app;
-        lock (ActivationGate)
-        {
-            PendingActivations.Enqueue(activation);
-            app = _current;
-        }
-
-        app?.ScheduleActivationDrain();
-    }
-
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
-    {
-        _window ??= new MainWindow();
-        _window.Activate();
-        ScheduleActivationDrain();
-    }
-
-    private void ScheduleActivationDrain()
-    {
-        lock (ActivationGate)
-        {
-            if (_window is null || PendingActivations.Count == 0 || _isDrainScheduled)
-            {
-                return;
-            }
-
-            _isDrainScheduled = true;
-        }
-
-        if (_dispatcherQueue.TryEnqueue(() => ObserveActivationDrain(DrainActivationsAsync())))
+        if (!PendingActivations.TryEnqueue(activation))
         {
             return;
         }
 
-        lock (ActivationGate)
+        Volatile.Read(ref _current)?.RequestActivationDrain();
+    }
+
+    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        if (_window is null)
         {
-            _isDrainScheduled = false;
+            _window = new MainWindow();
+            _window.Closed += (_, _) => StopActivationDispatch();
         }
+
+        _window.Activate();
+        Volatile.Write(ref _windowReady, 1);
+        RequestActivationDrain();
+    }
+
+    private void RequestActivationDrain()
+    {
+        if (Volatile.Read(ref _windowReady) == 0 || !PendingActivations.TryReserveDrain())
+        {
+            return;
+        }
+
+        ScheduleReservedDrain();
+    }
+
+    private void ScheduleReservedDrain()
+    {
+        if (_dispatcherQueue.TryEnqueue(DispatchActivationDrain))
+        {
+            return;
+        }
+
+        PendingActivations.Stop();
+    }
+
+    private void DispatchActivationDrain()
+    {
+        if (!PendingActivations.TryBeginDrain())
+        {
+            return;
+        }
+
+        ObserveActivationDrain(DrainActivationsAsync());
     }
 
     private async Task DrainActivationsAsync()
     {
-        var shouldReschedule = false;
         try
         {
-            while (true)
+            while (PendingActivations.TryTake(out var activation))
             {
-                AppActivationArguments activation;
-                lock (ActivationGate)
-                {
-                    if (PendingActivations.Count == 0)
-                    {
-                        return;
-                    }
-
-                    activation = PendingActivations.Dequeue();
-                }
-
                 try
                 {
                     await HandleActivationAsync(activation);
@@ -117,15 +110,9 @@ public partial class App : Application
         }
         finally
         {
-            lock (ActivationGate)
+            if (PendingActivations.CompleteDrain())
             {
-                _isDrainScheduled = false;
-                shouldReschedule = _window is not null && PendingActivations.Count > 0;
-            }
-
-            if (shouldReschedule)
-            {
-                ScheduleActivationDrain();
+                ScheduleReservedDrain();
             }
         }
     }
@@ -166,5 +153,12 @@ public partial class App : Application
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
+    }
+
+    private void StopActivationDispatch()
+    {
+        Volatile.Write(ref _windowReady, 0);
+        PendingActivations.Stop();
+        Interlocked.CompareExchange(ref _current, null, this);
     }
 }
