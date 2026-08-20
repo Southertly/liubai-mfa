@@ -4,9 +4,11 @@ using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
 using LiubaiMfa.Windows.Views;
 using Microsoft.UI;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System.Runtime.InteropServices;
 using WinRT.Interop;
 
@@ -39,6 +41,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
         var dataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Liubai MFA");

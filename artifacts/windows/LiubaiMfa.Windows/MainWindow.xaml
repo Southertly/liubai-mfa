@@ -10,7 +10,7 @@
 
     <Grid
         x:Name="RootGrid"
-        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        Background="Transparent">
         <views:AuthenticatorView
             x:Name="AuthenticatorView"
             Visibility="Collapsed" />
