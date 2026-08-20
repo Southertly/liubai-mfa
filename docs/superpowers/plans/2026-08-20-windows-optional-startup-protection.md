@@ -355,16 +355,13 @@ Expected: 只提交实际有差异的目标文件，不包含 `Package.appxmanif
 
 ```csharp
 private readonly StartupProtectionSettings _startupProtectionSettings;
-private readonly ProtectionSettingsDialogService _protectionSettingsDialogs;
 private bool _startupProtectionEnabled;
 ```
 
 在构造函数中加入：
 
 ```csharp
-AuthenticatorView.SettingsRequested += Settings_Click;
 _startupProtectionSettings = new StartupProtectionSettings();
-_protectionSettingsDialogs = new ProtectionSettingsDialogService(ShowDialogAsync, IsSessionCurrent);
 ```
 
 - [ ] **Step 2: 将根视图加载改为按设置分流**
@@ -558,6 +555,21 @@ Expected: `Package.appxmanifest` 未暂存。
 - Modify: `LiubaiMfa.Windows/MainWindow.xaml.cs`
 
 - [ ] **Step 1: 实现设置事件编排**
+
+先在 `MainWindow` 字段区加入：
+
+```csharp
+private readonly ProtectionSettingsDialogService _protectionSettingsDialogs;
+```
+
+在构造函数中加入：
+
+```csharp
+AuthenticatorView.SettingsRequested += Settings_Click;
+_protectionSettingsDialogs = new ProtectionSettingsDialogService(ShowDialogAsync, IsSessionCurrent);
+```
+
+然后加入事件处理器：
 
 ```csharp
 private async void Settings_Click(object? sender, EventArgs e)
