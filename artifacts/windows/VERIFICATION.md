@@ -41,20 +41,31 @@ dotnet build .\LiubaiMfa.sln -c Release -p:Platform=x64
 ## MSIX 构建、安装与启动
 
 - 只读检查在当前用户证书库中找到了 `CN=LiubaiMFA-Development` 开发证书，且证书具有私钥。
-- 执行 `./scripts/build-msix.ps1 -CertificateThumbprint <现有证书指纹>` 后生成 `AppPackages\LiubaiMfa.Windows_1.0.0.2_x64_Test\LiubaiMfa.Windows_1.0.0.2_x64.msix`。
+- 执行 `./scripts/build-msix.ps1 -CertificateThumbprint <现有证书指纹>` 后生成 `AppPackages\LiubaiMfa.Windows_1.0.0.2_x64_Test\LiubaiMfa.Windows_1.0.0.2_x64.msix`。本次构建读取了工作区用户本地、未提交的 `Package.appxmanifest`；因此该 `1.0.0.2` 包不是从 `HEAD` 的干净工作树可复现的构建产物。
 - 打包命令退出代码为 0，但有 1 条警告：未找到 `mspdbcmf.exe`，因此未生成符号包；未出现错误。
 - `Add-AppxPackage -ForceApplicationShutdown` 未能安装刚生成的包：系统已有相同版本、但内容不同的包，返回 `0x80073CFB`。未移除或替换任何已安装包。
 - `Get-AppxPackage -Name 'com.mfaverifier.app.windows'` 确认现有包状态为 `Ok`，版本为 `1.0.0.2`；已请求启动该已安装包并观察到应用进程。由于安装被拒绝，这不能证明刚生成的 MSIX 已安装成功。
 
 ## 待真人确认
 
-- 设置关闭后重启：主界面前不出现 Windows Hello。
+- 启动保护保持默认关闭时重启：主界面前不出现 Windows Hello。
 - 添加账户：不出现 Windows Hello。
-- 开启启动保护：分别确认取消与成功路径。
-- 关闭启动保护：分别确认取消与成功路径。
-- 启动保护关闭时离开 60 秒不锁定；开启时离开 60 秒后锁定。
-- 真实敏感操作（查看/复制 MFA 原始密钥、导出备份）触发 Windows Hello。
-- 若需验收刚生成的 MSIX，先在不影响现有用户包的测试环境中处理同版本冲突，再验证安装、启动、升级和卸载。
+- 开启启动保护时：保存设置的 Windows Hello 取消和成功路径。
+- 已开启启动保护后重启：启动解锁的 Windows Hello 取消和成功路径。
+- 已开启启动保护后：手动锁定及重新解锁。
+- 已开启启动保护后：离开应用 60 秒触发锁定。
+- 已开启启动保护后：Windows Hello 不可用、验证失败和重试路径。
+- 关闭启动保护时：保存设置的 Windows Hello 取消和成功路径。
+- 已关闭启动保护后重启：主界面前不出现 Windows Hello。
+- 已关闭启动保护后：离开应用 60 秒不锁定。
+- 查看 MFA 原始密钥：Windows Hello 取消和成功路径。
+- 复制 MFA 原始密钥：Windows Hello 取消和成功路径。
+- 导出备份：Windows Hello 取消和成功路径。
+- 锁定后：账户元数据、验证码和敏感对话框立即遮挡并清理。
+- DPAPI：重启、切换 Windows 用户及本地数据损坏后的行为。
+- 真实二维码图片选择与解码。
+- Android 与 Windows 真实备份文件双向导入。
+- 新生成的 MSIX 实际安装、升级和启动；当前受同版本内容冲突（`0x80073CFB`）阻塞，未完成。
 
 ## 当前不在首个 Spike 内
 

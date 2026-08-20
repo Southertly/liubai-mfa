@@ -31,7 +31,7 @@
 1. Visual Studio 的 Windows 应用开发工作负载；
 2. .NET 8 SDK；
 3. Windows 11 SDK；
-4. 如需启用启动保护或执行敏感操作，已配置 Windows Hello（系统 PIN、指纹或面容之一）。未配置时仍可打开主界面。
+4. 如需启用启动保护或执行敏感操作，已配置 Windows Hello（系统 PIN、指纹或面容之一）。仅当启动保护保持默认关闭时，未配置 Windows Hello 仍可直接打开主界面；如果此前已开启启动保护而 Windows Hello 不可用，应用保持锁定并提示重试或配置 Windows Hello。
 
 先运行核心回归：
 
