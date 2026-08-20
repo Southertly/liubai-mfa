@@ -225,21 +225,6 @@
                                     </MenuFlyout>
                                 </Border.ContextFlyout>
                                 <Grid RowSpacing="9">
-                                    <VisualStateManager.VisualStateGroups>
-                                        <VisualStateGroup x:Name="ExpiryStates">
-                                            <VisualState x:Name="NormalExpiry" />
-                                            <VisualState x:Name="Expiring">
-                                                <VisualState.StateTriggers>
-                                                    <StateTrigger IsActive="{Binding Tag, ElementName=ExpiryProgress}" />
-                                                </VisualState.StateTriggers>
-                                                <VisualState.Setters>
-                                                    <Setter
-                                                        Target="ExpiryProgress.Foreground"
-                                                        Value="{ThemeResource SystemFillColorCriticalBrush}" />
-                                                </VisualState.Setters>
-                                            </VisualState>
-                                        </VisualStateGroup>
-                                    </VisualStateManager.VisualStateGroups>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -341,15 +326,25 @@
                                             <FontIcon Glyph="&#xE8C8;" FontSize="14" />
                                         </Button>
                                     </Grid>
-                                    <ProgressBar
-                                        x:Name="ExpiryProgress"
-                                        Grid.Row="1"
-                                        Height="3"
-                                        Maximum="1"
-                                        Value="{x:Bind ProgressValue, Mode=OneWay}"
-                                        Tag="{x:Bind IsExpiring, Mode=OneWay}"
-                                        Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                        Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
+                                    <Grid Grid.Row="1">
+                                        <ProgressBar
+                                            x:Name="ExpiryProgress"
+                                            Height="3"
+                                            Maximum="1"
+                                            Value="{x:Bind ProgressValue, Mode=OneWay}"
+                                            Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
+                                        <ProgressBar
+                                            x:Name="ExpiryAlertProgress"
+                                            Height="3"
+                                            Maximum="1"
+                                            Value="{x:Bind ProgressValue, Mode=OneWay}"
+                                            Opacity="{x:Bind ExpiryAlertOpacity, Mode=OneWay}"
+                                            Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}"
+                                            IsHitTestVisible="False"
+                                            AutomationProperties.AccessibilityView="Raw" />
+                                    </Grid>
                                     <Border
                                         Grid.RowSpan="2"
                                         BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"

@@ -72,8 +72,8 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("紧凑账户行服务图标文字保持可读对比", () => RunSync(VerifyServiceIconForegroundContrast)),
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
     ("验证码最后五秒进入临期状态", () => RunSync(VerifyAccountExpiryState)),
-    ("账户临期触发器避免危险 x:Bind", () => RunSync(VerifyExpiryStateAvoidsTriggerXBind)),
-    ("账户临期状态通过可视元素桥接", () => RunSync(VerifyExpiryStateUsesVisualElementBridge)),
+    ("账户临期覆盖层状态随剩余时间更新", () => RunSync(VerifyExpiryAlertOverlayState)),
+    ("账户临期状态使用直接绑定的警示覆盖层", () => RunSync(VerifyExpiryProgressUsesDirectAlertOverlay)),
     ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
     ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
     ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
@@ -650,52 +650,60 @@ static void VerifyAccountExpiryState()
     Assert(changes.Contains(nameof(AccountItemViewModel.IsExpiring)), "跨越临界值时必须通知临期状态。");
 }
 
-static void VerifyExpiryStateUsesVisualElementBridge()
+static void VerifyExpiryAlertOverlayState()
 {
-    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
-    var source = File.ReadAllText(sourcePath);
-    const string groupMarker = "<VisualStateGroup x:Name=\"ExpiryStates\">";
-    var groupStart = source.IndexOf(groupMarker, StringComparison.Ordinal);
-    var groupEnd = source.IndexOf("</VisualStateGroup>", groupStart, StringComparison.Ordinal);
-    Assert(groupStart >= 0 && groupEnd > groupStart, "无法定位账户卡片 ExpiryStates 视觉状态组。");
+    var item = new AccountItemViewModel(new MfaAccount
+    {
+        Id = "expiry-overlay", Issuer = "GitHub", Account = "qa", Secret = "JBSWY3DPEHPK3PXP",
+    });
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(24));
+    Assert(item.ExpiryAlertOpacity == 0, "6 秒时临期警示覆盖层必须完全透明。");
 
-    var expiryStates = source[groupStart..(groupEnd + "</VisualStateGroup>".Length)];
-    const string progressMarker = "x:Name=\"ExpiryProgress\"";
-    var progressName = source.IndexOf(progressMarker, groupEnd, StringComparison.Ordinal);
-    var progressStart = source.LastIndexOf("<ProgressBar", progressName, StringComparison.Ordinal);
-    var progressEnd = source.IndexOf("/>", progressName, StringComparison.Ordinal);
-    Assert(progressName >= 0 && progressStart >= 0 && progressEnd > progressName,
-        "无法定位账户卡片 ExpiryProgress 进度条。");
+    var changes = new List<string?>();
+    item.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(25));
+    Assert(item.ExpiryAlertOpacity == 1, "5 秒时临期警示覆盖层必须完全显示。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.ExpiryAlertOpacity)),
+        "跨越临界值时必须通知临期警示覆盖层透明度。");
 
-    var expiryProgress = source[progressStart..(progressEnd + 2)];
-    Assert(!expiryStates.Contains("{x:Bind IsExpiring", StringComparison.Ordinal),
-        "账户临期 StateTrigger 不得使用会生成生命周期不安全 setter 的 x:Bind。");
-    Assert(!expiryStates.Contains("{Binding IsExpiring", StringComparison.Ordinal),
-        "账户临期 StateTrigger 不得依赖无法继承项 DataContext 的无 Source Binding。");
-    Assert(expiryProgress.Contains("Tag=\"{x:Bind IsExpiring, Mode=OneWay}\"", StringComparison.Ordinal),
-        "ExpiryProgress 必须通过生命周期安全的 x:Bind 暴露临期状态。");
-    Assert(expiryStates.Contains("<StateTrigger IsActive=\"{Binding Tag, ElementName=ExpiryProgress}\" />", StringComparison.Ordinal),
-        "账户临期 StateTrigger 必须通过 ElementName 读取 ExpiryProgress.Tag。");
-    Assert(expiryStates.Contains("Target=\"ExpiryProgress.Foreground\"", StringComparison.Ordinal)
-        && expiryStates.Contains("Value=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
-        "账户临期状态必须保留进度条 CriticalBrush Setter。");
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(29));
+    Assert(item.SecondsRemaining == 1 && item.ExpiryAlertOpacity == 1,
+        "1 秒时临期警示覆盖层必须保持显示。");
+    changes.Clear();
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(30));
+    Assert(item.SecondsRemaining == 30 && item.ExpiryAlertOpacity == 0,
+        "新周期开始时临期警示覆盖层必须恢复透明。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.ExpiryAlertOpacity)),
+        "跨越周期边界时必须通知临期警示覆盖层透明度。");
 }
 
-static void VerifyExpiryStateAvoidsTriggerXBind()
+static void VerifyExpiryProgressUsesDirectAlertOverlay()
 {
     var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
     var source = File.ReadAllText(sourcePath);
-    const string groupMarker = "<VisualStateGroup x:Name=\"ExpiryStates\">";
-    var groupStart = source.IndexOf(groupMarker, StringComparison.Ordinal);
-    var groupEnd = source.IndexOf("</VisualStateGroup>", groupStart, StringComparison.Ordinal);
-    Assert(groupStart >= 0 && groupEnd > groupStart, "无法定位账户卡片 ExpiryStates 视觉状态组。");
+    Assert(!source.Contains("<StateTrigger", StringComparison.Ordinal),
+        "账户临期颜色不得继续依赖模板内无法可靠解析名称域的 StateTrigger。");
+    Assert(!source.Contains("Tag=\"{x:Bind IsExpiring", StringComparison.Ordinal),
+        "账户临期颜色不得通过 Tag 和二次 Binding 中转。");
 
-    var expiryStates = source[groupStart..(groupEnd + "</VisualStateGroup>".Length)];
-    Assert(!expiryStates.Contains("{x:Bind IsExpiring", StringComparison.Ordinal),
-        "账户临期 StateTrigger 不得使用会生成生命周期不安全 setter 的 x:Bind。");
-    Assert(expiryStates.Contains("Target=\"ExpiryProgress.Foreground\"", StringComparison.Ordinal)
-        && expiryStates.Contains("Value=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
-        "账户临期状态必须保留进度条 CriticalBrush Setter。");
+    var baseName = source.IndexOf("x:Name=\"ExpiryProgress\"", StringComparison.Ordinal);
+    var alertName = source.IndexOf("x:Name=\"ExpiryAlertProgress\"", StringComparison.Ordinal);
+    Assert(baseName >= 0 && alertName > baseName, "临期警示进度条必须覆盖在普通进度条之上。");
+
+    var alertStart = source.LastIndexOf("<ProgressBar", alertName, StringComparison.Ordinal);
+    var alertEnd = source.IndexOf("/>", alertName, StringComparison.Ordinal);
+    Assert(alertStart >= 0 && alertEnd > alertName, "无法定位临期警示进度条。");
+    var alertProgress = source[alertStart..(alertEnd + 2)];
+    Assert(alertProgress.Contains("Value=\"{x:Bind ProgressValue, Mode=OneWay}\"", StringComparison.Ordinal),
+        "临期警示进度条必须与普通进度条使用相同进度值。");
+    Assert(alertProgress.Contains("Opacity=\"{x:Bind ExpiryAlertOpacity, Mode=OneWay}\"", StringComparison.Ordinal),
+        "临期警示进度条必须直接绑定警示透明度。");
+    Assert(alertProgress.Contains("Foreground=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
+        "临期警示进度条必须使用主题感知的 CriticalBrush。");
+    Assert(alertProgress.Contains("IsHitTestVisible=\"False\"", StringComparison.Ordinal),
+        "临期警示覆盖层不得拦截账户卡片输入。");
+    Assert(alertProgress.Contains("AutomationProperties.AccessibilityView=\"Raw\"", StringComparison.Ordinal),
+        "临期警示覆盖层不得在无障碍树中重复暴露进度语义。");
 }
 
 static void VerifyCompactAccountRowNullModelSafety()

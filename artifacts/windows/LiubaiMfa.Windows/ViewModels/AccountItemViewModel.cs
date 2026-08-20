@@ -30,6 +30,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     public string FormattedCode => FormatCode(Code);
     public double ProgressValue => CalculateProgress(SecondsRemaining, TotpPeriod);
     public bool IsExpiring => IsExpiringAt(SecondsRemaining);
+    public double ExpiryAlertOpacity => IsExpiring ? 1 : 0;
     public string AccessibleName => $"{DisplayIssuer} {DisplayAccount}，验证码 {FormattedCode}，剩余 {SecondsRemaining} 秒";
 
     public string Code
@@ -55,6 +56,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(RemainingLabel));
                 OnPropertyChanged(nameof(ProgressValue));
                 OnPropertyChanged(nameof(IsExpiring));
+                OnPropertyChanged(nameof(ExpiryAlertOpacity));
                 OnPropertyChanged(nameof(AccessibleName));
             }
         }
