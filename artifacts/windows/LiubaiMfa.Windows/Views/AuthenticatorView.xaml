@@ -41,13 +41,6 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button
                         Style="{StaticResource CompactIconButtonStyle}"
-                        ToolTipService.ToolTip="导入二维码"
-                        AutomationProperties.Name="导入二维码"
-                        Click="ImportQrButton_Click">
-                        <FontIcon Glyph="&#xE8B9;" FontSize="16" />
-                    </Button>
-                    <Button
-                        Style="{StaticResource CompactIconButtonStyle}"
                         ToolTipService.ToolTip="启动保护设置"
                         AutomationProperties.Name="启动保护设置"
                         Click="SettingsButton_Click">
@@ -62,8 +55,8 @@
                         <FontIcon Glyph="&#xE72E;" FontSize="16" />
                     </Button>
                     <Button
-                        Width="36"
-                        Height="36"
+                        Width="44"
+                        Height="44"
                         Padding="0"
                         Style="{StaticResource AccentButtonStyle}"
                         ToolTipService.ToolTip="添加账户"
@@ -138,17 +131,13 @@
                     TextAlignment="Center"
                     TextWrapping="Wrap"
                     MaxWidth="320" />
-                <StackPanel HorizontalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                    <Button
-                        Content="添加账户"
-                        Style="{StaticResource AccentButtonStyle}"
-                        AutomationProperties.Name="添加账户"
-                        Click="EmptyAddButton_Click" />
-                    <Button
-                        Content="导入二维码"
-                        AutomationProperties.Name="导入二维码"
-                        Click="EmptyImportQrButton_Click" />
-                </StackPanel>
+                <Button
+                    MinHeight="44"
+                    Content="添加账户"
+                    HorizontalAlignment="Center"
+                    Style="{StaticResource AccentButtonStyle}"
+                    AutomationProperties.Name="添加账户"
+                    Click="EmptyAddButton_Click" />
             </StackPanel>
             <StackPanel
                 x:Name="NoResultsState"

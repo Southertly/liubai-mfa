@@ -34,7 +34,6 @@ public sealed partial class AuthenticatorView : UserControl
     }
 
     public event EventHandler? AddRequested;
-    public event EventHandler? ImportQrRequested;
     public event EventHandler? LockRequested;
     public event EventHandler? SettingsRequested;
     public event EventHandler? ImportBackupRequested;
@@ -268,8 +267,6 @@ public sealed partial class AuthenticatorView : UserControl
 
     private void EmptyAddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
 
-    private void EmptyImportQrButton_Click(object sender, RoutedEventArgs e) => ImportQrRequested?.Invoke(this, EventArgs.Empty);
-
     private void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel is null)
@@ -292,7 +289,6 @@ public sealed partial class AuthenticatorView : UserControl
     }
 
     private void AddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
-    private void ImportQrButton_Click(object sender, RoutedEventArgs e) => ImportQrRequested?.Invoke(this, EventArgs.Empty);
     private void LockButton_Click(object sender, RoutedEventArgs e) => LockRequested?.Invoke(this, EventArgs.Empty);
     private void SettingsButton_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
     private void ImportBackupItem_Click(object sender, RoutedEventArgs e) => ImportBackupRequested?.Invoke(this, EventArgs.Empty);

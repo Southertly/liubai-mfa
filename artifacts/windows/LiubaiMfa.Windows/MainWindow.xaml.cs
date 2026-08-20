@@ -47,7 +47,6 @@ public sealed partial class MainWindow : Window
             "Liubai MFA");
         ViewModel = new MainViewModel(new EncryptedAccountRepository(dataDirectory));
         AuthenticatorView.AddRequested += AddAccount_Click;
-        AuthenticatorView.ImportQrRequested += ImportQr_Click;
         AuthenticatorView.LockRequested += Lock_Click;
         AuthenticatorView.ImportBackupRequested += ImportBackup_Click;
         AuthenticatorView.ExportBackupRequested += ExportBackup_Click;

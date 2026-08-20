@@ -17,6 +17,7 @@
   <ItemGroup>
     <Compile Include="../LiubaiMfa.Windows/App.xaml.cs" Link="App.xaml.cs" />
     <Compile Include="../LiubaiMfa.Windows/MainWindow.xaml.cs" Link="MainWindow.xaml.cs" />
+    <Compile Include="../LiubaiMfa.Windows/Views/AddAccountView.xaml.cs" Link="Views/AddAccountView.xaml.cs" />
     <Compile Include="../LiubaiMfa.Windows/Views/AuthenticatorView.xaml.cs" Link="Views/AuthenticatorView.xaml.cs" />
     <Compile Include="../LiubaiMfa.Windows/Views/LockView.xaml.cs" Link="Views/LockView.xaml.cs" />
     <Compile Include="GeneratedXamlStubs.cs" />

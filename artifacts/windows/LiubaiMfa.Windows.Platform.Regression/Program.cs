@@ -97,6 +97,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("敏感密钥复制必须消费剪贴板失败结果", () => RunSync(VerifySensitiveClipboardResultHandling)),
     ("剪贴板提示策略区分成功和失败", () => RunSync(VerifyClipboardStatusFeedbackPolicy)),
     ("恢复密钥策略只在成功时允许继续", () => RunSync(VerifyRecoveryKeyClipboardFeedbackPolicy)),
+    ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
 };
 
 static void VerifyStartupProtectionDefaultsOff()
@@ -1481,6 +1482,46 @@ static void VerifyRecoveryKeyClipboardFeedbackPolicy()
     var success = ClipboardResultPolicy.CreateRecoveryKey(true);
     Assert(success.ButtonText == "恢复密钥已复制", "恢复密钥成功按钮错误。");
     Assert(success.CanContinue, "恢复密钥成功后应允许继续。");
+}
+
+static void VerifyUnifiedAddAccountEntrySourceContract()
+{
+    var authenticatorXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var authenticatorCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs"));
+    var mainWindowCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var addAccountXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml"));
+    var authenticatorXaml = File.ReadAllText(authenticatorXamlPath);
+    var authenticatorCode = File.ReadAllText(authenticatorCodePath);
+    var mainWindowCode = File.ReadAllText(mainWindowCodePath);
+    var addAccountXaml = File.ReadAllText(addAccountXamlPath);
+
+    Assert(!authenticatorXaml.Contains("ImportQrButton_Click", StringComparison.Ordinal),
+        "验证码首页不得保留独立二维码导入按钮。");
+    Assert(!authenticatorCode.Contains("ImportQrRequested", StringComparison.Ordinal),
+        "验证码首页不得保留独立二维码导入事件。");
+    Assert(!mainWindowCode.Contains("ImportQrRequested", StringComparison.Ordinal),
+        "主窗口不得继续订阅已移除的二维码导入事件。");
+    Assert(authenticatorCode.Split("public event EventHandler? AddRequested;", StringSplitOptions.None).Length == 2,
+        "验证码首页必须只公开一个添加账户意图事件。");
+
+    foreach (var intent in new[] { "ScreenshotScanRequested", "ImportImageRequested", "ManualEntryRequested", "BackRequested" })
+    {
+        Assert(addAccountXaml.Contains(intent, StringComparison.Ordinal), $"添加账户页缺少 {intent} 意图入口。");
+    }
+
+    foreach (var text in new[]
+    {
+        "添加账户", "选择一种添加方式",
+        "截图并扫描二维码", "框选屏幕上的二维码，识别后可确认账户信息",
+        "其他方式", "从图片导入", "选择 PNG、JPG 或 BMP 图片",
+        "手动输入", "输入服务、账户和密钥",
+    })
+    {
+        Assert(addAccountXaml.Contains(text, StringComparison.Ordinal), $"添加账户页缺少文案：{text}");
+    }
+
+    Assert(addAccountXaml.Contains("AutomationProperties.Name=\"返回验证码列表\"", StringComparison.Ordinal),
+        "返回按钮必须提供清晰的自动化名称。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)

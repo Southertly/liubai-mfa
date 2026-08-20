@@ -25,6 +25,15 @@ namespace LiubaiMfa.Windows
 
 namespace LiubaiMfa.Windows.Views
 {
+    public sealed partial class AddAccountView
+    {
+        private readonly Button ScreenshotScanButton = new();
+
+        private void InitializeComponent()
+        {
+        }
+    }
+
     public sealed partial class AuthenticatorView
     {
         private readonly InfoBar StatusBar = new();
