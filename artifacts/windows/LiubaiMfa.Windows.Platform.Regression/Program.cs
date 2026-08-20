@@ -11,6 +11,13 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("启动保护只在开启时阻断启动", () => RunSync(VerifyStartupProtectionOpenPolicy)),
     ("启动保护切换只在验证和会话有效时提交", () => RunSync(VerifyStartupProtectionTransitionPolicy)),
     ("启动保护只在开启且已进入主界面时自动锁定", () => RunSync(VerifyStartupProtectionAutoLockPolicy)),
+    ("加载期间失活保留原始自动锁定时限", () => RunSync(VerifyAutoLockStatePreservesDeactivationDuringLoad)),
+    ("加载超过失活时限时立即锁定", () => RunSync(VerifyAutoLockStateLocksWhenLoadFinishesAfterDeadline)),
+    ("加载期间重新激活会清除失活状态", () => RunSync(VerifyAutoLockStateClearsWhenActivatedDuringLoad)),
+    ("时限内重新激活不会继续安排锁定", () => RunSync(VerifyAutoLockStateActivationBeforeDeadlineReturnsNone)),
+    ("关闭启动保护时不记录失活状态", () => RunSync(VerifyAutoLockStateIgnoresDeactivationWhenDisabled)),
+    ("关闭启动保护可清除既有失活状态", () => RunSync(VerifyAutoLockStateCanClearExistingDeactivation)),
+    ("系统时钟回拨不会延长自动锁定时限", () => RunSync(VerifyAutoLockStateClampsClockRollback)),
     ("搜索覆盖服务、账户和分组", () => RunSync(VerifySearch)),
     ("分组过滤与搜索叠加", () => RunSync(VerifyGroupAndSearch)),
     ("排序忽略大小写且稳定", () => RunSync(VerifyStableSort)),
@@ -168,6 +175,90 @@ static void VerifyStartupProtectionAutoLockPolicy()
     Assert(StartupProtectionPolicy.ShouldLockAfterDelay(true, true, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "达到延迟时间应允许锁定。");
     Assert(!StartupProtectionPolicy.ShouldLockAfterDelay(false, true, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "保护关闭时不得自动锁定。");
     Assert(!StartupProtectionPolicy.ShouldLockAfterDelay(true, false, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "未解锁时不得自动锁定。");
+}
+
+static void VerifyAutoLockStatePreservesDeactivationDuringLoad()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(true, startedAt);
+
+    var whileLoading = state.Evaluate(true, false, startedAt.AddSeconds(20), TimeSpan.FromMinutes(1));
+    Assert(whileLoading.Kind == AutoLockDecisionKind.None, "尚未建立主会话时不得安排自动锁定，但必须保留失活时间。");
+
+    state.RecordDeactivated(true, startedAt.AddSeconds(30));
+    var afterLoad = state.Evaluate(true, true, startedAt.AddSeconds(40), TimeSpan.FromMinutes(1));
+    Assert(afterLoad.Kind == AutoLockDecisionKind.Schedule, "加载完成且未到时限时必须安排自动锁定。");
+    Assert(afterLoad.RemainingDelay == TimeSpan.FromSeconds(20), "必须从首次失活时间计算精确剩余时长，重复失活不得重置起点。");
+}
+
+static void VerifyAutoLockStateLocksWhenLoadFinishesAfterDeadline()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(true, startedAt);
+
+    var afterLoad = state.Evaluate(true, true, startedAt.AddMinutes(1), TimeSpan.FromMinutes(1));
+    Assert(afterLoad.Kind == AutoLockDecisionKind.LockNow, "加载完成时已达到失活时限必须立即锁定，不得发布可见会话。");
+}
+
+static void VerifyAutoLockStateClearsWhenActivatedDuringLoad()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(true, startedAt);
+
+    var activation = state.Activate(true, false, startedAt.AddSeconds(20), TimeSpan.FromMinutes(1));
+    Assert(activation.Kind == AutoLockDecisionKind.None, "加载期间重新激活且尚无会话时不应锁定。");
+
+    var afterLoad = state.Evaluate(true, true, startedAt.AddMinutes(2), TimeSpan.FromMinutes(1));
+    Assert(afterLoad.Kind == AutoLockDecisionKind.None, "重新激活后必须清除失活时间，后续加载完成可正常发布会话。");
+}
+
+static void VerifyAutoLockStateActivationBeforeDeadlineReturnsNone()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(true, startedAt);
+
+    var activation = state.Activate(true, true, startedAt.AddSeconds(20), TimeSpan.FromMinutes(1));
+    Assert(activation.Kind == AutoLockDecisionKind.None, "时限内重新激活后窗口保持前台，不得继续安排自动锁定。");
+
+    var later = state.Evaluate(true, true, startedAt.AddMinutes(2), TimeSpan.FromMinutes(1));
+    Assert(later.Kind == AutoLockDecisionKind.None, "Activated 作出决策后必须清除失活时间。");
+}
+
+static void VerifyAutoLockStateIgnoresDeactivationWhenDisabled()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(false, startedAt);
+
+    var decision = state.Evaluate(true, true, startedAt.AddMinutes(2), TimeSpan.FromMinutes(1));
+    Assert(decision.Kind == AutoLockDecisionKind.None, "启动保护关闭时不得记录可在稍后触发锁定的失活状态。");
+}
+
+static void VerifyAutoLockStateCanClearExistingDeactivation()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(true, startedAt);
+
+    state.Clear();
+
+    var decision = state.Evaluate(true, true, startedAt.AddMinutes(2), TimeSpan.FromMinutes(1));
+    Assert(decision.Kind == AutoLockDecisionKind.None, "显式清空后重新开启保护不得沿用旧失活时间。");
+}
+
+static void VerifyAutoLockStateClampsClockRollback()
+{
+    var state = new AutoLockActivationState();
+    var startedAt = new DateTimeOffset(2026, 8, 20, 10, 0, 0, TimeSpan.Zero);
+    state.RecordDeactivated(true, startedAt);
+
+    var decision = state.Evaluate(true, true, startedAt.AddSeconds(-10), TimeSpan.FromMinutes(1));
+    Assert(decision.Kind == AutoLockDecisionKind.Schedule, "系统时钟回拨时仍应安排自动锁定。");
+    Assert(decision.RemainingDelay == TimeSpan.FromMinutes(1), "负失活时长必须按零处理，剩余时长不得超过完整延迟。");
 }
 
 foreach (var check in checks)

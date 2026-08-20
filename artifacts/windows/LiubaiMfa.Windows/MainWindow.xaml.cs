@@ -24,8 +24,8 @@ public sealed partial class MainWindow : Window
     private readonly WindowPlacementService _placementService;
     private readonly UnlockSessionGuard _sessionGuard = new();
     private readonly SessionCancellationGuard _sessionCancellation = new();
+    private readonly AutoLockActivationState _autoLockActivationState = new();
     private readonly DispatcherTimer _timer;
-    private DateTimeOffset? _deactivatedAt;
     private CancellationTokenSource? _backgroundLockCancellation;
     private ContentDialog? _activeDialog;
     private long _activeSession;
@@ -107,54 +107,117 @@ public sealed partial class MainWindow : Window
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
-        if (!StartupProtectionPolicy.ShouldScheduleAutoLock(_startupProtectionEnabled, _isUnlocked))
+        var now = DateTimeOffset.UtcNow;
+        CancelBackgroundLock();
+        if (!_startupProtectionEnabled)
         {
-            _backgroundLockCancellation?.Cancel();
-            _backgroundLockCancellation = null;
-            _deactivatedAt = null;
+            _autoLockActivationState.Clear();
             return;
         }
 
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            _deactivatedAt = DateTimeOffset.UtcNow;
-            _backgroundLockCancellation?.Cancel();
-            _backgroundLockCancellation = new CancellationTokenSource();
-            _ = ScheduleBackgroundLockAsync(_backgroundLockCancellation.Token);
+            _autoLockActivationState.RecordDeactivated(true, now);
+            ApplyBackgroundLockDecision(_autoLockActivationState.Evaluate(
+                true,
+                _isUnlocked,
+                now,
+                BackgroundLockDelay));
             return;
         }
 
-        _backgroundLockCancellation?.Cancel();
-        if (_deactivatedAt is { } deactivatedAt && StartupProtectionPolicy.ShouldLockAfterDelay(
-                _startupProtectionEnabled,
-                _isUnlocked,
-                DateTimeOffset.UtcNow - deactivatedAt,
-                BackgroundLockDelay))
+        var activationDecision = _autoLockActivationState.Activate(
+            _startupProtectionEnabled,
+            _isUnlocked,
+            now,
+            BackgroundLockDelay);
+        if (activationDecision.Kind == AutoLockDecisionKind.LockNow)
         {
             Lock();
         }
-
-        _deactivatedAt = null;
     }
 
-    private async Task ScheduleBackgroundLockAsync(CancellationToken cancellationToken)
+    private void ApplyBackgroundLockDecision(AutoLockDecision decision)
+    {
+        if (decision.Kind == AutoLockDecisionKind.LockNow)
+        {
+            Lock();
+            return;
+        }
+
+        if (decision.Kind != AutoLockDecisionKind.Schedule)
+        {
+            return;
+        }
+
+        var sessionToken = Volatile.Read(ref _activeSession);
+        if (!IsSessionCurrent(sessionToken))
+        {
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _backgroundLockCancellation = cancellation;
+        _ = ScheduleBackgroundLockAsync(decision.RemainingDelay, sessionToken, cancellation);
+    }
+
+    private async Task ScheduleBackgroundLockAsync(
+        TimeSpan remainingDelay,
+        long sessionToken,
+        CancellationTokenSource cancellation)
     {
         try
         {
-            await Task.Delay(BackgroundLockDelay, cancellationToken);
-            if (_deactivatedAt is { } deactivatedAt && StartupProtectionPolicy.ShouldLockAfterDelay(
+            while (true)
+            {
+                await Task.Delay(remainingDelay, cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
+                if (!ReferenceEquals(_backgroundLockCancellation, cancellation) ||
+                    !IsSessionCurrent(sessionToken))
+                {
+                    return;
+                }
+
+                var decision = _autoLockActivationState.Evaluate(
                     _startupProtectionEnabled,
                     _isUnlocked,
-                    DateTimeOffset.UtcNow - deactivatedAt,
-                    BackgroundLockDelay))
-            {
-                Lock();
+                    DateTimeOffset.UtcNow,
+                    BackgroundLockDelay);
+                if (decision.Kind == AutoLockDecisionKind.LockNow)
+                {
+                    _backgroundLockCancellation = null;
+                    Lock();
+                    return;
+                }
+
+                if (decision.Kind != AutoLockDecisionKind.Schedule)
+                {
+                    return;
+                }
+
+                remainingDelay = decision.RemainingDelay;
             }
         }
         catch (OperationCanceledException)
         {
             // The app returned to the foreground before the lock deadline.
         }
+        finally
+        {
+            if (ReferenceEquals(_backgroundLockCancellation, cancellation))
+            {
+                _backgroundLockCancellation = null;
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private void CancelBackgroundLock()
+    {
+        var cancellation = _backgroundLockCancellation;
+        _backgroundLockCancellation = null;
+        cancellation?.Cancel();
     }
 
     private async void Unlock_Click(object? sender, EventArgs e)
@@ -270,6 +333,17 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        var backgroundLockDecision = _autoLockActivationState.Evaluate(
+            _startupProtectionEnabled,
+            true,
+            DateTimeOffset.UtcNow,
+            BackgroundLockDelay);
+        if (backgroundLockDecision.Kind == AutoLockDecisionKind.LockNow)
+        {
+            ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
+            return false;
+        }
+
         var sessionToken = _sessionGuard.BeginUnlockedSession();
         _sessionCancellation.Begin(sessionToken);
         Volatile.Write(ref _activeSession, sessionToken);
@@ -281,6 +355,7 @@ public sealed partial class MainWindow : Window
         AuthenticatorView.Visibility = Visibility.Visible;
         _timer.Start();
         TryDeliverCancelledBackupNotice(sessionToken);
+        ApplyBackgroundLockDecision(backgroundLockDecision);
         return true;
     }
 
@@ -308,6 +383,8 @@ public sealed partial class MainWindow : Window
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         AuthenticatorView.Visibility = Visibility.Collapsed;
         LockView.Visibility = Visibility.Visible;
+        CancelBackgroundLock();
+        _autoLockActivationState.Clear();
     }
 
     private async void AddAccount_Click(object? sender, EventArgs e)
