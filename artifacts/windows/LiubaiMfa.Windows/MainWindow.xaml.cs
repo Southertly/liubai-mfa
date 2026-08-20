@@ -4,14 +4,19 @@ using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
 using LiubaiMfa.Windows.Views;
 using Microsoft.UI;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using WinRT.Interop;
 using Windows.Storage;
+using Windows.UI.ViewManagement;
 
 namespace LiubaiMfa.Windows;
 
@@ -24,6 +29,8 @@ public sealed partial class MainWindow : Window
     }
 
     private static readonly TimeSpan BackgroundLockDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan PageTransitionDuration = TimeSpan.FromMilliseconds(180);
+    private const float PageTransitionOffset = 20f;
     private readonly WindowsHelloService _windowsHello;
     private readonly StartupProtectionSettings _startupProtectionSettings;
     private readonly NativeFileService _files;
@@ -38,6 +45,7 @@ public sealed partial class MainWindow : Window
     private readonly SnippingCaptureState _snippingCaptureState = new();
     private readonly SnippingToolCaptureService _snippingToolCaptureService = new();
     private readonly QrAccountImportCoordinator _qrImportCoordinator;
+    private readonly UISettings _uiSettings = new();
     private readonly DispatcherTimer _timer;
     private CancellationTokenSource? _backgroundLockCancellation;
     private ContentDialog? _activeDialog;
@@ -46,6 +54,7 @@ public sealed partial class MainWindow : Window
     private bool _unlockInProgress;
     private bool _settingsInProgress;
     private bool _startupProtectionEnabled;
+    private long _navigationEpoch;
     private readonly DeferredNoticeGate _cancelledBackupNotice = new();
 
     public MainWindow()
@@ -328,6 +337,7 @@ public sealed partial class MainWindow : Window
 
             if (!isVerified)
             {
+                _snippingCaptureState.Abandon();
                 LockView.Message = "身份验证未完成，应用仍保持锁定。";
                 return;
             }
@@ -405,6 +415,11 @@ public sealed partial class MainWindow : Window
         TryDeliverCancelledBackupNotice(sessionToken);
         ApplyBackgroundLockDecision(backgroundLockDecision);
         var pendingCapture = _snippingCaptureState.ResumeAfterUnlock(sessionCurrent: true);
+        if (pendingCapture.Kind != SnippingCaptureDecisionKind.Ignore)
+        {
+            ShowAddAccountViewImmediately();
+        }
+
         await ProcessSnippingCaptureDecisionAsync(pendingCapture, sessionToken);
         return true;
     }
@@ -493,6 +508,9 @@ public sealed partial class MainWindow : Window
         _timer.Stop();
         AuthenticatorView.Detach();
         ViewModel.Unload();
+        Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(AddAccountView);
         LockView.Message = message;
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         AuthenticatorView.Visibility = Visibility.Collapsed;
@@ -502,34 +520,173 @@ public sealed partial class MainWindow : Window
         _autoLockActivationState.Clear();
     }
 
-    private void ShowAddAccountView(object? sender, EventArgs e)
+    private async void ShowAddAccountView(object? sender, EventArgs e)
     {
-        if (!TryCaptureUnlockedSession(out _))
+        if (!TryCaptureUnlockedSession(out var token))
         {
             return;
         }
 
+        var keyboardInitiated = IsKeyboardNavigation();
+        try
+        {
+            await NavigateToAddAccountViewAsync(token, keyboardInitiated);
+        }
+        catch (Exception)
+        {
+            if (IsSessionCurrent(token))
+            {
+                ShowAddAccountViewImmediately();
+            }
+        }
+    }
+
+    private async void ShowAuthenticatorView(object? sender, EventArgs e)
+    {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
+        var keyboardInitiated = IsKeyboardNavigation();
+        try
+        {
+            await NavigateToAuthenticatorViewAsync(token, keyboardInitiated);
+        }
+        catch (Exception)
+        {
+            if (IsSessionCurrent(token))
+            {
+                ShowAuthenticatorView();
+            }
+        }
+    }
+
+    private void ShowAuthenticatorView()
+    {
+        Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AddAccountView);
+        ResetPageVisual(AuthenticatorView);
+        AddAccountView.Visibility = Visibility.Collapsed;
+        AuthenticatorView.Visibility = Visibility.Visible;
+        AuthenticatorView.FocusAddAction();
+    }
+
+    private void ShowAddAccountViewImmediately()
+    {
+        Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(AddAccountView);
         AuthenticatorView.Visibility = Visibility.Collapsed;
         AddAccountView.Visibility = Visibility.Visible;
         AddAccountView.ClearStatus();
         AddAccountView.FocusPrimaryAction();
     }
 
-    private void ShowAuthenticatorView(object? sender, EventArgs e)
+    private async Task NavigateToAddAccountViewAsync(long sessionToken, bool keyboardInitiated)
     {
-        if (!TryCaptureUnlockedSession(out _))
+        if (!IsSessionCurrent(sessionToken))
         {
             return;
         }
 
-        ShowAuthenticatorView();
+        var navigationEpoch = Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(AddAccountView);
+        AuthenticatorView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Visible;
+        AddAccountView.ClearStatus();
+        await RunPageEntranceTransitionAsync(
+            AddAccountView,
+            keyboardInitiated ? 0f : PageTransitionOffset);
+        if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+        {
+            AddAccountView.FocusPrimaryAction();
+        }
     }
 
-    private void ShowAuthenticatorView()
+    private async Task NavigateToAuthenticatorViewAsync(long sessionToken, bool keyboardInitiated)
     {
+        if (!IsSessionCurrent(sessionToken))
+        {
+            return;
+        }
+
+        var navigationEpoch = Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AddAccountView);
+        ResetPageVisual(AuthenticatorView);
         AddAccountView.Visibility = Visibility.Collapsed;
         AuthenticatorView.Visibility = Visibility.Visible;
-        AuthenticatorView.FocusAddAction();
+        await RunPageEntranceTransitionAsync(
+            AuthenticatorView,
+            keyboardInitiated ? 0f : -PageTransitionOffset);
+        if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+        {
+            AuthenticatorView.FocusAddAction();
+        }
+    }
+
+    private async Task RunPageEntranceTransitionAsync(FrameworkElement target, float horizontalOffset)
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(target);
+        var effectiveOffset = AreSystemAnimationsEnabled() ? horizontalOffset : 0f;
+        visual.StopAnimation(nameof(visual.Opacity));
+        visual.StopAnimation(nameof(visual.Offset));
+        visual.Opacity = 0f;
+        visual.Offset = new Vector3(effectiveOffset, 0f, 0f);
+
+        var compositor = visual.Compositor;
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+        batch.Completed += (_, _) => completion.TrySetResult(true);
+
+        var opacityAnimation = compositor.CreateScalarKeyFrameAnimation();
+        opacityAnimation.Duration = PageTransitionDuration;
+        opacityAnimation.InsertKeyFrame(1f, 1f);
+        visual.StartAnimation(nameof(visual.Opacity), opacityAnimation);
+
+        if (effectiveOffset != 0f)
+        {
+            var offsetAnimation = compositor.CreateVector3KeyFrameAnimation();
+            offsetAnimation.Duration = PageTransitionDuration;
+            offsetAnimation.InsertKeyFrame(1f, Vector3.Zero);
+            visual.StartAnimation(nameof(visual.Offset), offsetAnimation);
+        }
+
+        batch.End();
+        await completion.Task;
+        ResetPageVisual(target);
+    }
+
+    private bool AreSystemAnimationsEnabled()
+    {
+        try
+        {
+            return _uiSettings.AnimationsEnabled;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private bool IsKeyboardNavigation() =>
+        FocusManager.GetFocusedElement(RootGrid.XamlRoot) is Control { FocusState: FocusState.Keyboard };
+
+    private static void ResetPageVisual(UIElement element)
+    {
+        try
+        {
+            var visual = ElementCompositionPreview.GetElementVisual(element);
+            visual.StopAnimation(nameof(visual.Opacity));
+            visual.StopAnimation(nameof(visual.Offset));
+            visual.Opacity = 1f;
+            visual.Offset = Vector3.Zero;
+        }
+        catch (Exception)
+        {
+            // 动效清理不得阻止锁定、关闭或页面切换。
+        }
     }
 
     private async void ManualEntry_Click(object? sender, EventArgs e)
@@ -613,14 +770,24 @@ public sealed partial class MainWindow : Window
             var launched = await _snippingToolCaptureService.LaunchAsync(correlationId);
             if (!launched)
             {
-                _snippingCaptureState.Abandon();
-                ShowAddAccountStatus(token, "无法打开截图工具，请稍后重试。", InfoBarSeverity.Error);
+                if (_snippingCaptureState.Abandon(correlationId))
+                {
+                    ShowAddAccountStatus(
+                        token,
+                        "未能打开截图工具，请使用图片导入或手动输入",
+                        InfoBarSeverity.Error);
+                }
             }
         }
         catch (Exception)
         {
-            _snippingCaptureState.Abandon();
-            ShowAddAccountStatus(token, "无法打开截图工具，请稍后重试。", InfoBarSeverity.Error);
+            if (_snippingCaptureState.Abandon(correlationId))
+            {
+                ShowAddAccountStatus(
+                    token,
+                    "未能打开截图工具，请使用图片导入或手动输入",
+                    InfoBarSeverity.Error);
+            }
         }
     }
 
@@ -702,7 +869,7 @@ public sealed partial class MainWindow : Window
                 ShowAddAccountStatus(
                     sessionToken,
                     source == QrImportSource.Screenshot
-                        ? "截图中没有可识别的 TOTP 二维码。"
+                        ? "选区中没有可识别的 TOTP 二维码"
                         : "图片中没有可识别的 TOTP 二维码。",
                     InfoBarSeverity.Warning);
                 break;
@@ -731,13 +898,19 @@ public sealed partial class MainWindow : Window
 
                 return;
             case SnippingCaptureDecisionKind.BadRequest:
-                ShowAddAccountStatus(sessionToken, "截图请求无效，请重新截图。", InfoBarSeverity.Warning);
+                ShowAddAccountStatus(
+                    sessionToken,
+                    "截图功能暂时不可用，请使用图片导入或手动输入",
+                    InfoBarSeverity.Warning);
                 return;
             case SnippingCaptureDecisionKind.Timeout:
-                ShowAddAccountStatus(sessionToken, "截图已超时，请重新截图。", InfoBarSeverity.Warning);
+                ShowAddAccountStatus(sessionToken, "截图已超时，请重新截图", InfoBarSeverity.Warning);
                 return;
             case SnippingCaptureDecisionKind.Failed:
-                ShowAddAccountStatus(sessionToken, "截图未完成，请重新尝试。", InfoBarSeverity.Error);
+                ShowAddAccountStatus(
+                    sessionToken,
+                    "未能打开截图工具，请使用图片导入或手动输入",
+                    InfoBarSeverity.Error);
                 return;
             case SnippingCaptureDecisionKind.RedeemNow:
                 break;
@@ -784,7 +957,10 @@ public sealed partial class MainWindow : Window
             }
             catch (Exception)
             {
-                ShowAddAccountStatus(sessionToken, "截图未完成，请重新尝试。", InfoBarSeverity.Error);
+                ShowAddAccountStatus(
+                    sessionToken,
+                    "未能打开截图工具，请使用图片导入或手动输入",
+                    InfoBarSeverity.Error);
             }
         }
     }
@@ -1244,8 +1420,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        AuthenticatorView.Visibility = Visibility.Collapsed;
-        AddAccountView.Visibility = Visibility.Visible;
+        ShowAddAccountViewImmediately();
         AddAccountView.ShowStatus(message, severity);
     }
 

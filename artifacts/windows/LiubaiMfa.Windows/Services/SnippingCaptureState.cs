@@ -19,7 +19,7 @@ internal sealed class SnippingCaptureState
 {
     private readonly object _gate = new();
     private Guid? _activeCorrelationId;
-    private string? _pendingFileAccessToken;
+    private SnippingCaptureDecision? _pendingDecision;
 
     public Guid Begin(Guid correlationId)
     {
@@ -31,7 +31,7 @@ internal sealed class SnippingCaptureState
             }
 
             _activeCorrelationId = correlationId;
-            _pendingFileAccessToken = null;
+            _pendingDecision = null;
             return correlationId;
         }
     }
@@ -50,15 +50,22 @@ internal sealed class SnippingCaptureState
             }
 
             _activeCorrelationId = null;
-
-            return statusCode switch
+            var decision = statusCode switch
             {
-                200 => ReceiveSuccess(fileAccessToken, sessionCurrent),
+                200 => ReceiveSuccess(fileAccessToken),
                 400 => new SnippingCaptureDecision(SnippingCaptureDecisionKind.BadRequest),
                 408 => new SnippingCaptureDecision(SnippingCaptureDecisionKind.Timeout),
                 499 => new SnippingCaptureDecision(SnippingCaptureDecisionKind.Cancelled),
                 _ => new SnippingCaptureDecision(SnippingCaptureDecisionKind.Failed),
             };
+
+            if (sessionCurrent)
+            {
+                return decision;
+            }
+
+            _pendingDecision = decision;
+            return new SnippingCaptureDecision(SnippingCaptureDecisionKind.DeferUntilUnlock);
         }
     }
 
@@ -66,7 +73,7 @@ internal sealed class SnippingCaptureState
     {
         lock (_gate)
         {
-            if (_pendingFileAccessToken is null)
+            if (_pendingDecision is not SnippingCaptureDecision pendingDecision)
             {
                 return new SnippingCaptureDecision(SnippingCaptureDecisionKind.Ignore);
             }
@@ -76,9 +83,28 @@ internal sealed class SnippingCaptureState
                 return new SnippingCaptureDecision(SnippingCaptureDecisionKind.DeferUntilUnlock);
             }
 
-            var fileAccessToken = _pendingFileAccessToken;
-            _pendingFileAccessToken = null;
-            return new SnippingCaptureDecision(SnippingCaptureDecisionKind.RedeemNow, fileAccessToken);
+            _pendingDecision = null;
+            return pendingDecision;
+        }
+    }
+
+    public bool Abandon(Guid correlationId)
+    {
+        if (correlationId == Guid.Empty)
+        {
+            throw new ArgumentException("截图请求关联 ID 不能为空。", nameof(correlationId));
+        }
+
+        lock (_gate)
+        {
+            if (_activeCorrelationId != correlationId)
+            {
+                return false;
+            }
+
+            _activeCorrelationId = null;
+            _pendingDecision = null;
+            return true;
         }
     }
 
@@ -87,23 +113,17 @@ internal sealed class SnippingCaptureState
         lock (_gate)
         {
             _activeCorrelationId = null;
-            _pendingFileAccessToken = null;
+            _pendingDecision = null;
         }
     }
 
-    private SnippingCaptureDecision ReceiveSuccess(string? fileAccessToken, bool sessionCurrent)
+    private static SnippingCaptureDecision ReceiveSuccess(string? fileAccessToken)
     {
         if (string.IsNullOrWhiteSpace(fileAccessToken))
         {
             return new SnippingCaptureDecision(SnippingCaptureDecisionKind.Failed);
         }
 
-        if (sessionCurrent)
-        {
-            return new SnippingCaptureDecision(SnippingCaptureDecisionKind.RedeemNow, fileAccessToken);
-        }
-
-        _pendingFileAccessToken = fileAccessToken;
-        return new SnippingCaptureDecision(SnippingCaptureDecisionKind.DeferUntilUnlock);
+        return new SnippingCaptureDecision(SnippingCaptureDecisionKind.RedeemNow, fileAccessToken);
     }
 }

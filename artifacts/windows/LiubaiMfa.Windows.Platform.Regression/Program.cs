@@ -104,10 +104,12 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("剪贴板提示策略区分成功和失败", () => RunSync(VerifyClipboardStatusFeedbackPolicy)),
     ("恢复密钥策略只在成功时允许继续", () => RunSync(VerifyRecoveryKeyClipboardFeedbackPolicy)),
     ("截图响应锁定时延期且解锁后只消费一次", () => RunSync(VerifySnippingCaptureDefersUntilUnlockOnce)),
+    ("锁定时截图终态延期到解锁并只消费一次", () => RunSync(VerifySnippingCaptureDefersTerminalStatusesUntilUnlockOnce)),
     ("截图响应忽略错误关联和重复回调", () => RunSync(VerifySnippingCaptureIgnoresMismatchedAndDuplicateResponses)),
     ("截图响应状态映射和令牌校验", () => RunSync(VerifySnippingCaptureStatusMappingAndTokenValidation)),
     ("截图新请求替换旧请求和延期令牌", () => RunSync(VerifySnippingCaptureBeginReplacesPreviousState)),
     ("截图放弃请求会清除活动状态和延期令牌", () => RunSync(VerifySnippingCaptureAbandonClearsState)),
+    ("旧截图启动失败不得放弃较新的活动请求", () => RunSync(VerifySnippingCaptureConditionalAbandonPreservesNewerRequest)),
     ("截图请求拒绝空关联 ID", () => RunSync(VerifySnippingCaptureRejectsEmptyCorrelationId)),
     ("并发截图响应只允许一次立即兑换", VerifyConcurrentSnippingReceiveRedeemsOnceAsync),
     ("并发解锁恢复只允许一次立即兑换", VerifyConcurrentSnippingResumeRedeemsOnceAsync),
@@ -1171,6 +1173,36 @@ static void VerifySnippingCaptureDefersUntilUnlockOnce()
     Assert(state.ResumeAfterUnlock(true).Kind == SnippingCaptureDecisionKind.Ignore, "一次性令牌不得重复返回。");
 }
 
+static void VerifySnippingCaptureDefersTerminalStatusesUntilUnlockOnce()
+{
+    var cases = new[]
+    {
+        (StatusCode: 400, Token: (string?)"must-not-escape", Expected: SnippingCaptureDecisionKind.BadRequest, Name: "错误请求"),
+        (StatusCode: 408, Token: (string?)"must-not-escape", Expected: SnippingCaptureDecisionKind.Timeout, Name: "超时"),
+        (StatusCode: 499, Token: (string?)"must-not-escape", Expected: SnippingCaptureDecisionKind.Cancelled, Name: "用户取消"),
+        (StatusCode: 500, Token: (string?)"must-not-escape", Expected: SnippingCaptureDecisionKind.Failed, Name: "服务失败"),
+        (StatusCode: 200, Token: (string?)null, Expected: SnippingCaptureDecisionKind.Failed, Name: "成功响应缺少令牌"),
+    };
+
+    foreach (var testCase in cases)
+    {
+        var state = new SnippingCaptureState();
+        var correlationId = state.Begin(Guid.NewGuid());
+        var deferred = state.Receive(correlationId, testCase.StatusCode, testCase.Token, sessionCurrent: false);
+        Assert(deferred.Kind == SnippingCaptureDecisionKind.DeferUntilUnlock,
+            $"锁定时{testCase.Name}必须先延期到新解锁会话。");
+        Assert(state.ResumeAfterUnlock(sessionCurrent: false).Kind == SnippingCaptureDecisionKind.DeferUntilUnlock,
+            $"会话仍无效时不得消费{testCase.Name}终态。");
+        var resumed = state.ResumeAfterUnlock(sessionCurrent: true);
+        Assert(resumed.Kind == testCase.Expected,
+            $"解锁后必须恢复原始{testCase.Name}终态。");
+        Assert(resumed.FileAccessToken is null,
+            $"解锁后恢复{testCase.Name}终态时不得泄露无关文件令牌。");
+        Assert(state.ResumeAfterUnlock(sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+            $"{testCase.Name}终态只能恢复一次。");
+    }
+}
+
 static void VerifySnippingCaptureIgnoresMismatchedAndDuplicateResponses()
 {
     var state = new SnippingCaptureState();
@@ -1263,10 +1295,39 @@ static void VerifySnippingCaptureAbandonClearsState()
         "Abandon 必须清除延期令牌。");
 }
 
+static void VerifySnippingCaptureConditionalAbandonPreservesNewerRequest()
+{
+    var state = new SnippingCaptureState();
+    var first = state.Begin(Guid.NewGuid());
+    var second = state.Begin(Guid.NewGuid());
+
+    Assert(!state.Abandon(first), "旧截图请求失败不得清除较新的活动请求。");
+    var accepted = state.Receive(second, 200, "new-token", sessionCurrent: true);
+    Assert(accepted.Kind == SnippingCaptureDecisionKind.RedeemNow
+            && accepted.FileAccessToken == "new-token",
+        "旧请求条件放弃后，新请求仍必须能兑换自己的令牌。");
+
+    var third = state.Begin(Guid.NewGuid());
+    Assert(state.Abandon(third), "当前活动请求必须能被关联感知地放弃。");
+    Assert(state.Receive(third, 200, "abandoned-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "条件放弃当前请求后，迟到回调必须被忽略。");
+
+    var verified = state.Begin(Guid.NewGuid());
+    Assert(state.Receive(verified, 200, "verified-token", sessionCurrent: false).Kind
+            == SnippingCaptureDecisionKind.DeferUntilUnlock,
+        "测试必须先建立已验证的延期回调。");
+    Assert(!state.Abandon(verified), "启动结果迟到时不得条件清理已验证的延期回调。");
+    var resumed = state.ResumeAfterUnlock(sessionCurrent: true);
+    Assert(resumed.Kind == SnippingCaptureDecisionKind.RedeemNow
+            && resumed.FileAccessToken == "verified-token",
+        "已验证的延期回调必须保留到解锁后一次性兑换。");
+}
+
 static void VerifySnippingCaptureRejectsEmptyCorrelationId()
 {
     var state = new SnippingCaptureState();
     AssertThrows<ArgumentException>(() => state.Begin(Guid.Empty), "空关联 ID 必须被拒绝。");
+    AssertThrows<ArgumentException>(() => state.Abandon(Guid.Empty), "条件放弃也必须拒绝空关联 ID。");
 }
 
 static async Task VerifyConcurrentSnippingReceiveRedeemsOnceAsync()
@@ -2945,8 +3006,10 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         "协议回调必须严格解析、进入截图状态机并统一处理决策。");
     var enterMainView = FindUniqueMethod(mainWindowClass, "EnterMainViewAsync").ToFullString();
     Assert(enterMainView.Contains("_snippingCaptureState.ResumeAfterUnlock", StringComparison.Ordinal)
+            && enterMainView.Contains("pendingCapture.Kind != SnippingCaptureDecisionKind.Ignore", StringComparison.Ordinal)
+            && enterMainView.Contains("ShowAddAccountViewImmediately", StringComparison.Ordinal)
             && enterMainView.Contains("ProcessSnippingCaptureDecisionAsync", StringComparison.Ordinal),
-        "新解锁会话建立后必须恢复并只消费一次延期截图。");
+        "新解锁会话建立后必须先恢复添加页，再只消费一次延期截图终态。");
     var forceLock = FindUniqueMethod(mainWindowClass, "ForceLock").ToFullString();
     Assert(!forceLock.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
         "自动锁定不得丢弃已验证的延期截图令牌。");
@@ -2965,8 +3028,41 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         "二维码保存适配器只能将专用 DuplicateMfaSecretException 分类为冲突。");
     var screenshotHandler = FindUniqueMethod(mainWindowClass, "ScreenshotScan_Click").ToFullString();
     Assert(screenshotHandler.Contains("if (!launched)", StringComparison.Ordinal)
-            && screenshotHandler.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
-        "截图工具返回 false 时必须无条件放弃活动请求，再按当前会话显示提示。");
+            && CountOccurrences(screenshotHandler, "_snippingCaptureState.Abandon(correlationId)") == 2,
+        "截图工具返回 false 或异常时必须按关联 ID 条件放弃请求。");
+    var unlockMethod = FindUniqueMethod(mainWindowClass, "UnlockAsync");
+    var cancelledVerificationBranches = unlockMethod.DescendantNodes()
+        .OfType<IfStatementSyntax>()
+        .Where(statement => statement.Condition is PrefixUnaryExpressionSyntax
+            {
+                OperatorToken.RawKind: (int)SyntaxKind.ExclamationToken,
+                Operand: IdentifierNameSyntax { Identifier.ValueText: "isVerified" },
+            })
+        .ToArray();
+    Assert(cancelledVerificationBranches.Length == 1
+            && cancelledVerificationBranches[0].Statement.ToFullString()
+                .Contains("_snippingCaptureState.Abandon()", StringComparison.Ordinal),
+        "用户取消 Windows Hello 解锁时必须永久放弃延期截图终态。");
+    foreach (var message in new[]
+    {
+        "截图功能暂时不可用，请使用图片导入或手动输入",
+        "截图已超时，请重新截图",
+        "未能打开截图工具，请使用图片导入或手动输入",
+        "选区中没有可识别的 TOTP 二维码",
+    })
+    {
+        Assert(mainWindowSource.Contains(message, StringComparison.Ordinal), $"截图流程缺少已通过文案：{message}");
+    }
+    foreach (var rejectedMessage in new[]
+    {
+        "截图请求无效，请重新截图。",
+        "截图未完成，请重新尝试。",
+        "截图中没有可识别的 TOTP 二维码。",
+    })
+    {
+        Assert(!mainWindowSource.Contains(rejectedMessage, StringComparison.Ordinal),
+            $"截图流程仍保留未通过文案：{rejectedMessage}");
+    }
     var focusAddAction = FindUniqueMethod(authenticatorClass, "FocusAddAction");
     Assert(focusAddAction.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PublicKeyword))
             && focusAddAction.ToFullString().Contains("AddButton.Focus(FocusState.Programmatic)", StringComparison.Ordinal),
@@ -2978,6 +3074,39 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         .ToFullString();
     Assert(parameterlessShowAuthenticator.Contains("AuthenticatorView.FocusAddAction", StringComparison.Ordinal),
         "从添加账户页返回列表后必须恢复到唯一添加入口。");
+    Assert(!parameterlessShowAuthenticator.Contains("RunPageEntranceTransitionAsync", StringComparison.Ordinal),
+        "导入或手动添加成功后的程序化列表跳转不得错误播放返回动画。");
+    var addNavigationHandler = FindUniqueMethod(mainWindowClass, "ShowAddAccountView").ToFullString();
+    var backNavigationHandler = mainWindowClass.Members
+        .OfType<MethodDeclarationSyntax>()
+        .Single(method => method.Identifier.ValueText == "ShowAuthenticatorView"
+            && method.ParameterList.Parameters.Count == 2)
+        .ToFullString();
+    Assert(addNavigationHandler.Contains("IsKeyboardNavigation", StringComparison.Ordinal)
+            && addNavigationHandler.Contains("NavigateToAddAccountViewAsync", StringComparison.Ordinal),
+        "进入添加页必须在事件边界判断键盘触发并调用真实页面过渡。");
+    Assert(backNavigationHandler.Contains("IsKeyboardNavigation", StringComparison.Ordinal)
+            && backNavigationHandler.Contains("NavigateToAuthenticatorViewAsync", StringComparison.Ordinal),
+        "返回列表必须在事件边界判断键盘触发并使用相反方向过渡。");
+    var pageTransition = FindUniqueMethod(mainWindowClass, "RunPageEntranceTransitionAsync").ToFullString();
+    Assert(mainWindowSource.Contains("TimeSpan.FromMilliseconds(180)", StringComparison.Ordinal)
+            && mainWindowSource.Contains("UISettings", StringComparison.Ordinal)
+            && mainWindowSource.Contains("AnimationsEnabled", StringComparison.Ordinal)
+            && mainWindowSource.Contains("FocusState.Keyboard", StringComparison.Ordinal),
+        "页面过渡必须固定为 180ms，并同时遵循系统动画设置和键盘输入来源。");
+    Assert(pageTransition.Contains("ElementCompositionPreview.GetElementVisual", StringComparison.Ordinal)
+            && pageTransition.Contains("CreateScalarKeyFrameAnimation", StringComparison.Ordinal)
+            && pageTransition.Contains("CreateVector3KeyFrameAnimation", StringComparison.Ordinal)
+            && pageTransition.Contains("visual.Opacity", StringComparison.Ordinal)
+            && pageTransition.Contains("visual.Offset", StringComparison.Ordinal)
+            && !pageTransition.Contains("Scale", StringComparison.Ordinal)
+            && !pageTransition.Contains("Rotation", StringComparison.Ordinal),
+        "真实页面过渡只能通过 Composition 修改 opacity 和 offset。");
+    var addNavigation = FindUniqueMethod(mainWindowClass, "NavigateToAddAccountViewAsync").ToFullString();
+    var backNavigation = FindUniqueMethod(mainWindowClass, "NavigateToAuthenticatorViewAsync").ToFullString();
+    Assert(addNavigation.Contains("PageTransitionOffset", StringComparison.Ordinal)
+            && backNavigation.Contains("-PageTransitionOffset", StringComparison.Ordinal),
+        "进入与返回页面的横向位移方向必须相反。");
 }
 
 static MethodDeclarationSyntax FindUniqueMethod(ClassDeclarationSyntax targetClass, string methodName)
