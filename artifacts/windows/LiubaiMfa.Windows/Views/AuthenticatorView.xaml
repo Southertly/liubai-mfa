@@ -7,7 +7,7 @@
     xmlns:viewModels="using:LiubaiMfa.Windows.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="20,16,20,14" RowSpacing="10">
+    <Grid Padding="{StaticResource MfaPagePadding}" RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -16,23 +16,29 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Spacing="8">
+        <StackPanel Grid.Row="0" Spacing="10">
             <InfoBar
                 x:Name="StatusBar"
                 IsOpen="False"
                 IsClosable="True" />
-            <Grid>
+            <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock
-                    Text="验证码"
-                    FontSize="24"
-                    FontWeight="SemiBold"
-                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                    VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock
+                        Text="验证码"
+                        FontSize="28"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    <TextBlock
+                        x:Name="ProtectionStatusText"
+                        Text="本机加密存储"
+                        FontSize="12"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button
                         Style="{StaticResource CompactIconButtonStyle}"
                         ToolTipService.ToolTip="导入二维码"
@@ -41,9 +47,6 @@
                         <FontIcon Glyph="&#xE8B9;" FontSize="16" />
                     </Button>
                     <Button
-                        Width="36"
-                        Height="36"
-                        Padding="0"
                         Style="{StaticResource CompactIconButtonStyle}"
                         ToolTipService.ToolTip="启动保护设置"
                         AutomationProperties.Name="启动保护设置"
@@ -75,7 +78,8 @@
         <AutoSuggestBox
             x:Name="SearchBox"
             Grid.Row="1"
-            PlaceholderText="搜索账户"
+            Height="40"
+            PlaceholderText="搜索服务、账户或分组"
             QueryIcon="Find"
             AutomationProperties.Name="搜索账户"
             TextChanged="SearchBox_TextChanged" />
@@ -98,8 +102,9 @@
                 <Style TargetType="ListViewItem">
                     <Setter Property="MinWidth" Value="0" />
                     <Setter Property="MinHeight" Value="32" />
-                    <Setter Property="Padding" Value="10,4" />
-                    <Setter Property="Margin" Value="0,0,4,0" />
+                    <Setter Property="Padding" Value="12,4" />
+                    <Setter Property="Margin" Value="0,0,6,0" />
+                    <Setter Property="CornerRadius" Value="16" />
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
@@ -115,13 +120,34 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Spacing="10">
+                <FontIcon
+                    Glyph="&#xE77B;"
+                    FontSize="32"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    HorizontalAlignment="Center" />
                 <TextBlock
                     Text="尚未添加账户"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    FontSize="18"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                     TextAlignment="Center" />
+                <TextBlock
+                    Text="添加账户后，验证码会安全地保存在这台设备上。"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap"
+                    MaxWidth="320" />
                 <StackPanel HorizontalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                    <Button Content="添加账户" Click="EmptyAddButton_Click" />
-                    <Button Content="导入二维码" Click="EmptyImportQrButton_Click" />
+                    <Button
+                        Content="添加账户"
+                        Style="{StaticResource AccentButtonStyle}"
+                        AutomationProperties.Name="添加账户"
+                        Click="EmptyAddButton_Click" />
+                    <Button
+                        Content="导入二维码"
+                        AutomationProperties.Name="导入二维码"
+                        Click="EmptyImportQrButton_Click" />
                 </StackPanel>
             </StackPanel>
             <StackPanel
@@ -132,6 +158,13 @@
                 Spacing="10">
                 <TextBlock
                     Text="没有匹配的账户"
+                    FontSize="18"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                    TextAlignment="Center" />
+                <TextBlock
+                    Text="请更换关键词或选择其他分组。"
+                    FontSize="12"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     TextAlignment="Center" />
                 <Button
@@ -141,18 +174,11 @@
             </StackPanel>
             <ListView
                 x:Name="AccountsList"
+                ItemContainerStyle="{StaticResource MfaAccountItemStyle}"
                 SelectionMode="None"
                 IsItemClickEnabled="False"
                 Visibility="Collapsed"
                 AutomationProperties.Name="验证码账户列表">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Margin" Value="0,0,0,4" />
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="IsTabStop" Value="False" />
-                    </Style>
-                </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="viewModels:AccountItemViewModel">
                         <SwipeControl IsTabStop="False">
@@ -173,13 +199,10 @@
                                 </SwipeItems>
                             </SwipeControl.RightItems>
                             <Border
-                                MinHeight="60"
-                                Padding="10,7"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                CornerRadius="8"
+                                Tag="{x:Bind Id}"
+                                Background="Transparent"
                                 IsTabStop="True"
                                 UseSystemFocusVisuals="True"
-                                Tag="{x:Bind Id}"
                                 AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
                                 KeyDown="AccountRow_KeyDown">
                                 <Border.ContextFlyout>
@@ -201,115 +224,147 @@
                                             Click="DeleteMenuItem_Click" />
                                     </MenuFlyout>
                                 </Border.ContextFlyout>
-                                <Grid ColumnSpacing="10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="36" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="36" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border
-                                        Width="36"
-                                        Height="36"
-                                        Background="{x:Bind Icon.BackgroundColor}"
-                                        HighContrastAdjustment="Auto"
-                                        CornerRadius="18"
-                                        VerticalAlignment="Center"
-                                        AutomationProperties.Name="服务图标">
-                                        <TextBlock
-                                            Text="{x:Bind Icon.FallbackText}"
-                                            Foreground="{x:Bind Icon.ForegroundColor}"
-                                            FontWeight="SemiBold"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center" />
-                                    </Border>
-                                    <Grid Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <TextBlock
-                                            Text="{x:Bind Issuer}"
-                                            FontWeight="SemiBold"
-                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                            MaxLines="1"
-                                            TextWrapping="NoWrap"
-                                            TextTrimming="CharacterEllipsis" />
-                                        <Grid Grid.Row="1" ColumnSpacing="4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
+                                <Grid RowSpacing="9">
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup x:Name="ExpiryStates">
+                                            <VisualState x:Name="NormalExpiry" />
+                                            <VisualState x:Name="Expiring">
+                                                <VisualState.StateTriggers>
+                                                    <StateTrigger IsActive="{x:Bind IsExpiring, Mode=OneWay}" />
+                                                </VisualState.StateTriggers>
+                                                <VisualState.Setters>
+                                                    <Setter
+                                                        Target="ExpiryProgress.Foreground"
+                                                        Value="{ThemeResource SystemFillColorCriticalBrush}" />
+                                                </VisualState.Setters>
+                                            </VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="36" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border
+                                            Width="40"
+                                            Height="40"
+                                            Background="{x:Bind Icon.BackgroundColor}"
+                                            CornerRadius="10"
+                                            HighContrastAdjustment="Auto"
+                                            VerticalAlignment="Center"
+                                            AutomationProperties.Name="服务图标">
                                             <TextBlock
-                                                Text="{x:Bind Account}"
-                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{x:Bind Icon.FallbackText}"
+                                                Foreground="{x:Bind Icon.ForegroundColor}"
+                                                FontSize="15"
+                                                FontWeight="SemiBold"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel
+                                            Grid.Column="1"
+                                            Spacing="3"
+                                            VerticalAlignment="Center">
+                                            <TextBlock
+                                                Text="{x:Bind Issuer}"
+                                                FontSize="15"
+                                                FontWeight="SemiBold"
+                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                 MaxLines="1"
                                                 TextWrapping="NoWrap"
                                                 TextTrimming="CharacterEllipsis" />
+                                            <Grid ColumnSpacing="6">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Text="{x:Bind Account}"
+                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    MaxLines="1"
+                                                    TextWrapping="NoWrap"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    Text="{x:Bind GroupLabel}"
+                                                    FontSize="11"
+                                                    MaxWidth="72"
+                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                    MaxLines="1"
+                                                    TextWrapping="NoWrap"
+                                                    TextTrimming="CharacterEllipsis" />
+                                            </Grid>
+                                        </StackPanel>
+                                        <StackPanel
+                                            Grid.Column="2"
+                                            MinWidth="118"
+                                            Spacing="2"
+                                            VerticalAlignment="Center">
+                                            <Button
+                                                Padding="0"
+                                                Tag="{x:Bind Id}"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                HorizontalAlignment="Right"
+                                                IsTabStop="False"
+                                                ToolTipService.ToolTip="复制验证码"
+                                                AutomationProperties.Name="复制验证码"
+                                                Click="CopyCodeButton_Click">
+                                                <TextBlock
+                                                    Text="{x:Bind FormattedCode, Mode=OneWay}"
+                                                    FontFamily="Consolas"
+                                                    FontSize="24"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                            </Button>
                                             <TextBlock
-                                                Grid.Column="1"
-                                                Text="{x:Bind GroupLabel}"
+                                                Text="{x:Bind RemainingLabel, Mode=OneWay}"
                                                 FontSize="11"
-                                                MaxWidth="64"
                                                 Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                MaxLines="1"
-                                                TextWrapping="NoWrap"
-                                                TextTrimming="CharacterEllipsis" />
-                                        </Grid>
-                                    </Grid>
-                                    <StackPanel Grid.Column="2" Spacing="1" VerticalAlignment="Center" MinWidth="112">
+                                                HorizontalAlignment="Right" />
+                                        </StackPanel>
                                         <Button
-                                            Padding="0"
+                                            Grid.Column="3"
+                                            Style="{StaticResource CompactIconButtonStyle}"
                                             Tag="{x:Bind Id}"
-                                            Background="Transparent"
-                                            BorderThickness="0"
-                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
                                             IsTabStop="False"
                                             ToolTipService.ToolTip="复制验证码"
                                             AutomationProperties.Name="复制验证码"
                                             Click="CopyCodeButton_Click">
-                                            <TextBlock
-                                                Text="{x:Bind FormattedCode, Mode=OneWay}"
-                                                FontFamily="Consolas"
-                                                FontSize="22"
-                                                FontWeight="SemiBold"
-                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                            <FontIcon Glyph="&#xE8C8;" FontSize="14" />
                                         </Button>
-                                        <ProgressBar
-                                            Height="3"
-                                            Maximum="1"
-                                            Value="{x:Bind ProgressValue, Mode=OneWay}"
-                                            Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
-                                    </StackPanel>
-                                    <Button
-                                        Grid.Column="3"
-                                        Width="36"
-                                        Height="36"
-                                        Padding="0"
-                                        Tag="{x:Bind Id}"
-                                        VerticalAlignment="Center"
-                                        IsTabStop="False"
-                                        ToolTipService.ToolTip="复制验证码"
-                                        AutomationProperties.Name="复制验证码"
-                                        Click="CopyCodeButton_Click">
-                                        <FontIcon Glyph="&#xE8C8;" FontSize="14" />
-                                    </Button>
+                                    </Grid>
+                                    <ProgressBar
+                                        x:Name="ExpiryProgress"
+                                        Grid.Row="1"
+                                        Height="3"
+                                        Maximum="1"
+                                        Value="{x:Bind ProgressValue, Mode=OneWay}"
+                                        Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                        Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
                                     <Border
-                                        Grid.ColumnSpan="4"
+                                        Grid.RowSpan="2"
                                         BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
                                         BorderThickness="2"
-                                        CornerRadius="8"
+                                        CornerRadius="10"
                                         IsHitTestVisible="False"
                                         Opacity="{x:Bind RevealHintOpacity, Mode=OneWay}" />
-                                    <StackPanel
-                                        Grid.Column="3"
+                                    <FontIcon
+                                        Grid.RowSpan="2"
+                                        Glyph="&#xE73E;"
+                                        FontSize="12"
+                                        Margin="0,2,2,0"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
                                         IsHitTestVisible="False"
-                                        Opacity="{x:Bind RevealHintOpacity, Mode=OneWay}">
-                                        <FontIcon Glyph="&#xE73E;" FontSize="12" />
-                                    </StackPanel>
+                                        Opacity="{x:Bind RevealHintOpacity, Mode=OneWay}" />
                                 </Grid>
                             </Border>
                         </SwipeControl>
@@ -324,14 +379,16 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock
-                x:Name="ProtectionStatusText"
-                Text="本机加密存储"
+                Text="验证码每 30 秒自动更新"
                 FontSize="12"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 VerticalAlignment="Center" />
             <Button
                 Grid.Column="1"
                 Content="备份与恢复"
+                Background="Transparent"
+                BorderThickness="0"
+                FontSize="12"
                 AutomationProperties.Name="备份与恢复">
                 <Button.Flyout>
                     <MenuFlyout>
