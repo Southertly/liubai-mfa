@@ -2934,6 +2934,26 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
 
 static void VerifyMainWindowAddAccountFlowSourceContract()
 {
+    var inactiveFakeRoot = ParseCSharpRoot(
+        """
+        class FakeWindow
+        {
+            FakeWindow()
+            {
+                // ExtendsContentIntoTitleBar = true;
+                _ = "ExtendsContentIntoTitleBar = true";
+        #if CONTRACT_DISABLED
+                ExtendsContentIntoTitleBar = true;
+        #endif
+            }
+        }
+        """,
+        "InactiveMainWindowContractFake.cs");
+    var inactiveFakeConstructor = FindUniqueClass(inactiveFakeRoot, "FakeWindow")
+        .Members.OfType<ConstructorDeclarationSyntax>().Single();
+    Assert(!HasBooleanTrueAssignment(inactiveFakeConstructor, "ExtendsContentIntoTitleBar"),
+        "活动 AST 契约不得把注释、字符串或 disabled #if 中的伪实现当成标题栏实现。");
+
     var mainWindowXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml"));
     var mainWindowCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
     var authenticatorXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
@@ -2979,44 +2999,49 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         "添加账户页必须公开最小 ShowStatus 边界，且不得自行访问服务。");
 
     var constructor = mainWindowClass.Members.OfType<ConstructorDeclarationSyntax>().Single();
-    var constructorSource = constructor.ToFullString();
-    Assert(constructorSource.Contains("ExtendsContentIntoTitleBar = true", StringComparison.Ordinal),
+    Assert(HasBooleanTrueAssignment(constructor, "ExtendsContentIntoTitleBar"),
         "主窗口必须启用扩展自定义标题栏。");
-    Assert(constructorSource.Contains("SetTitleBar(TitleBarDragRegion)", StringComparison.Ordinal),
+    Assert(HasInvocation(constructor, null, "SetTitleBar", "TitleBarDragRegion"),
         "主窗口必须将空白拖动区注册为标题栏。");
-    Assert(constructorSource.Contains("ButtonBackgroundColor = Colors.Transparent", StringComparison.Ordinal)
-            && constructorSource.Contains("ButtonInactiveBackgroundColor = Colors.Transparent", StringComparison.Ordinal),
+    Assert(HasSimpleAssignment(constructor, "AppWindow.TitleBar.ButtonBackgroundColor", "Colors.Transparent")
+            && HasSimpleAssignment(constructor, "AppWindow.TitleBar.ButtonInactiveBackgroundColor", "Colors.Transparent"),
         "系统标题按钮必须使用透明且主题感知的背景。");
     foreach (var subscription in new[]
     {
-        "AuthenticatorView.AddRequested += ShowAddAccountView",
-        "AddAccountView.BackRequested += ShowAuthenticatorView",
-        "AddAccountView.ScreenshotScanRequested += ScreenshotScan_Click",
-        "AddAccountView.ImportImageRequested += ImportImage_Click",
-        "AddAccountView.ManualEntryRequested += ManualEntry_Click",
+        (Event: "AuthenticatorView.AddRequested", Handler: "ShowAddAccountView"),
+        (Event: "AddAccountView.BackRequested", Handler: "ShowAuthenticatorView"),
+        (Event: "AddAccountView.ScreenshotScanRequested", Handler: "ScreenshotScan_Click"),
+        (Event: "AddAccountView.ImportImageRequested", Handler: "ImportImage_Click"),
+        (Event: "AddAccountView.ManualEntryRequested", Handler: "ManualEntry_Click"),
+        (Event: "Closed", Handler: "MainWindow_Closed"),
     })
     {
-        Assert(constructorSource.Contains(subscription, StringComparison.Ordinal), $"主窗口缺少关键导航接线：{subscription}");
+        Assert(HasEventSubscription(constructor, subscription.Event, subscription.Handler),
+            $"主窗口缺少活动事件接线：{subscription.Event} += {subscription.Handler}");
     }
 
-    var protocolHandler = FindUniqueMethod(mainWindowClass, "HandleProtocolActivationAsync").ToFullString();
-    Assert(protocolHandler.Contains("SnippingToolProtocol.TryParseResponse", StringComparison.Ordinal)
-            && protocolHandler.Contains("_snippingCaptureState.Receive", StringComparison.Ordinal)
-            && protocolHandler.Contains("ProcessSnippingCaptureDecisionAsync", StringComparison.Ordinal),
+    var protocolHandler = FindUniqueMethod(mainWindowClass, "HandleProtocolActivationAsync");
+    Assert(HasInvocation(protocolHandler, "SnippingToolProtocol", "TryParseResponse")
+            && HasInvocation(protocolHandler, "_snippingCaptureState", "Receive")
+            && HasInvocation(protocolHandler, null, "ProcessSnippingCaptureDecisionAsync"),
         "协议回调必须严格解析、进入截图状态机并统一处理决策。");
-    var enterMainView = FindUniqueMethod(mainWindowClass, "EnterMainViewAsync").ToFullString();
-    Assert(enterMainView.Contains("_snippingCaptureState.ResumeAfterUnlock", StringComparison.Ordinal)
-            && enterMainView.Contains("pendingCapture.Kind != SnippingCaptureDecisionKind.Ignore", StringComparison.Ordinal)
-            && enterMainView.Contains("ShowAddAccountViewImmediately", StringComparison.Ordinal)
-            && enterMainView.Contains("ProcessSnippingCaptureDecisionAsync", StringComparison.Ordinal),
+    var enterMainView = FindUniqueMethod(mainWindowClass, "EnterMainViewAsync");
+    Assert(HasInvocation(enterMainView, "_snippingCaptureState", "ResumeAfterUnlock")
+            && enterMainView.DescendantNodes().OfType<IfStatementSyntax>().Any(statement =>
+                statement.Condition is BinaryExpressionSyntax binary
+                && binary.IsKind(SyntaxKind.NotEqualsExpression)
+                && binary.Left.ToString() == "pendingCapture.Kind"
+                && binary.Right.ToString() == "SnippingCaptureDecisionKind.Ignore"
+                && HasInvocation(statement.Statement, null, "ShowAddAccountViewImmediately"))
+            && HasInvocation(enterMainView, null, "ProcessSnippingCaptureDecisionAsync"),
         "新解锁会话建立后必须先恢复添加页，再只消费一次延期截图终态。");
-    var forceLock = FindUniqueMethod(mainWindowClass, "ForceLock").ToFullString();
-    Assert(!forceLock.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
+    var forceLock = FindUniqueMethod(mainWindowClass, "ForceLock");
+    Assert(!HasInvocation(forceLock, "_snippingCaptureState", "Abandon"),
         "自动锁定不得丢弃已验证的延期截图令牌。");
-    Assert(constructorSource.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
-        "窗口关闭时必须放弃内存中的截图请求与延期令牌。");
-    Assert(mainWindowSource.Contains("_sessionCancellation.TryAcquire", StringComparison.Ordinal)
-            && mainWindowSource.Contains("_qrImportCoordinator.ImportAsync", StringComparison.Ordinal),
+    var closedHandler = FindUniqueMethod(mainWindowClass, "MainWindow_Closed");
+    AssertClosedHandlerContract(closedHandler);
+    Assert(HasInvocation(mainWindowClass, "_sessionCancellation", "TryAcquire")
+            && HasInvocation(mainWindowClass, "_qrImportCoordinator", "ImportAsync"),
         "截图和图片导入必须使用会话租约进入统一二维码协调器。");
     var saveQrAccount = FindUniqueMethod(mainWindowClass, "SaveQrAccountAsync");
     var caughtTypes = saveQrAccount.DescendantNodes()
@@ -3026,9 +3051,12 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         .ToArray();
     Assert(caughtTypes.SequenceEqual(["DuplicateMfaSecretException"]),
         "二维码保存适配器只能将专用 DuplicateMfaSecretException 分类为冲突。");
-    var screenshotHandler = FindUniqueMethod(mainWindowClass, "ScreenshotScan_Click").ToFullString();
-    Assert(screenshotHandler.Contains("if (!launched)", StringComparison.Ordinal)
-            && CountOccurrences(screenshotHandler, "_snippingCaptureState.Abandon(correlationId)") == 2,
+    var screenshotHandler = FindUniqueMethod(mainWindowClass, "ScreenshotScan_Click");
+    Assert(screenshotHandler.DescendantNodes().OfType<IfStatementSyntax>().Any(statement =>
+                statement.Condition is PrefixUnaryExpressionSyntax prefix
+                && prefix.IsKind(SyntaxKind.LogicalNotExpression)
+                && prefix.Operand is IdentifierNameSyntax { Identifier.ValueText: "launched" })
+            && CountInvocations(screenshotHandler, "_snippingCaptureState", "Abandon", "correlationId") == 2,
         "截图工具返回 false 或异常时必须按关联 ID 条件放弃请求。");
     var unlockMethod = FindUniqueMethod(mainWindowClass, "UnlockAsync");
     var cancelledVerificationBranches = unlockMethod.DescendantNodes()
@@ -3040,9 +3068,22 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
             })
         .ToArray();
     Assert(cancelledVerificationBranches.Length == 1
-            && cancelledVerificationBranches[0].Statement.ToFullString()
-                .Contains("_snippingCaptureState.Abandon()", StringComparison.Ordinal),
+            && HasInvocation(cancelledVerificationBranches[0].Statement, "_snippingCaptureState", "Abandon"),
         "用户取消 Windows Hello 解锁时必须永久放弃延期截图终态。");
+    var processCapture = FindUniqueMethod(mainWindowClass, "ProcessSnippingCaptureDecisionAsync");
+    var processMessages = GetActiveStringLiterals(processCapture);
+    var launchMessages = GetActiveStringLiterals(screenshotHandler);
+    var startupFailureMessageOwners = mainWindowClass.Members.OfType<MethodDeclarationSyntax>()
+        .Where(method => GetActiveStringLiterals(method)
+            .Contains("未能打开截图工具，请使用图片导入或手动输入"))
+        .Select(method => method.Identifier.ValueText)
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+    Assert(processMessages.Contains("截图账户未导入，请稍后重试。")
+            && !processMessages.Contains("未能打开截图工具，请使用图片导入或手动输入")
+            && launchMessages.Contains("未能打开截图工具，请使用图片导入或手动输入")
+            && startupFailureMessageOwners.SequenceEqual(["ScreenshotScan_Click"]),
+        "截图启动失败文案只能位于启动阶段，识别/保存通用异常必须使用阶段中性文案。");
     foreach (var message in new[]
     {
         "截图功能暂时不可用，请使用图片导入或手动输入",
@@ -3051,7 +3092,7 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         "选区中没有可识别的 TOTP 二维码",
     })
     {
-        Assert(mainWindowSource.Contains(message, StringComparison.Ordinal), $"截图流程缺少已通过文案：{message}");
+        Assert(GetActiveStringLiterals(mainWindowClass).Contains(message), $"截图流程缺少活动文案：{message}");
     }
     foreach (var rejectedMessage in new[]
     {
@@ -3060,52 +3101,76 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         "截图中没有可识别的 TOTP 二维码。",
     })
     {
-        Assert(!mainWindowSource.Contains(rejectedMessage, StringComparison.Ordinal),
+        Assert(!GetActiveStringLiterals(mainWindowClass).Contains(rejectedMessage),
             $"截图流程仍保留未通过文案：{rejectedMessage}");
     }
     var focusAddAction = FindUniqueMethod(authenticatorClass, "FocusAddAction");
     Assert(focusAddAction.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PublicKeyword))
-            && focusAddAction.ToFullString().Contains("AddButton.Focus(FocusState.Programmatic)", StringComparison.Ordinal),
+            && HasInvocation(focusAddAction, "AddButton", "Focus", "FocusState.Programmatic"),
         "验证码列表必须公开最小焦点恢复边界。");
     var parameterlessShowAuthenticator = mainWindowClass.Members
         .OfType<MethodDeclarationSyntax>()
         .Single(method => method.Identifier.ValueText == "ShowAuthenticatorView"
-            && method.ParameterList.Parameters.Count == 0)
-        .ToFullString();
-    Assert(parameterlessShowAuthenticator.Contains("AuthenticatorView.FocusAddAction", StringComparison.Ordinal),
+            && method.ParameterList.Parameters.Count == 0);
+    Assert(HasInvocation(parameterlessShowAuthenticator, "AuthenticatorView", "FocusAddAction"),
         "从添加账户页返回列表后必须恢复到唯一添加入口。");
-    Assert(!parameterlessShowAuthenticator.Contains("RunPageEntranceTransitionAsync", StringComparison.Ordinal),
+    Assert(!HasInvocation(parameterlessShowAuthenticator, null, "RunPageEntranceTransitionAsync"),
         "导入或手动添加成功后的程序化列表跳转不得错误播放返回动画。");
-    var addNavigationHandler = FindUniqueMethod(mainWindowClass, "ShowAddAccountView").ToFullString();
+    var addNavigationHandler = FindUniqueMethod(mainWindowClass, "ShowAddAccountView");
     var backNavigationHandler = mainWindowClass.Members
         .OfType<MethodDeclarationSyntax>()
         .Single(method => method.Identifier.ValueText == "ShowAuthenticatorView"
-            && method.ParameterList.Parameters.Count == 2)
-        .ToFullString();
-    Assert(addNavigationHandler.Contains("IsKeyboardNavigation", StringComparison.Ordinal)
-            && addNavigationHandler.Contains("NavigateToAddAccountViewAsync", StringComparison.Ordinal),
+            && method.ParameterList.Parameters.Count == 2);
+    Assert(HasInvocation(addNavigationHandler, null, "IsKeyboardNavigation")
+            && HasInvocation(addNavigationHandler, null, "NavigateToAddAccountViewAsync"),
         "进入添加页必须在事件边界判断键盘触发并调用真实页面过渡。");
-    Assert(backNavigationHandler.Contains("IsKeyboardNavigation", StringComparison.Ordinal)
-            && backNavigationHandler.Contains("NavigateToAuthenticatorViewAsync", StringComparison.Ordinal),
+    Assert(HasInvocation(backNavigationHandler, null, "IsKeyboardNavigation")
+            && HasInvocation(backNavigationHandler, null, "NavigateToAuthenticatorViewAsync"),
         "返回列表必须在事件边界判断键盘触发并使用相反方向过渡。");
-    var pageTransition = FindUniqueMethod(mainWindowClass, "RunPageEntranceTransitionAsync").ToFullString();
-    Assert(mainWindowSource.Contains("TimeSpan.FromMilliseconds(180)", StringComparison.Ordinal)
-            && mainWindowSource.Contains("UISettings", StringComparison.Ordinal)
-            && mainWindowSource.Contains("AnimationsEnabled", StringComparison.Ordinal)
-            && mainWindowSource.Contains("FocusState.Keyboard", StringComparison.Ordinal),
+    var pageTransition = FindUniqueMethod(mainWindowClass, "RunPageEntranceTransitionAsync");
+    Assert(HasInvocation(mainWindowClass, "TimeSpan", "FromMilliseconds", "180")
+            && mainWindowClass.Members.OfType<FieldDeclarationSyntax>().Any(field =>
+                field.Declaration.Type.ToString() == "UISettings"
+                && field.Declaration.Variables.Any(variable => variable.Initializer is not null))
+            && mainWindowClass.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+                .Any(access => access.Name.Identifier.ValueText == "AnimationsEnabled")
+            && mainWindowClass.DescendantNodes().OfType<RecursivePatternSyntax>()
+                .Any(pattern => pattern.ToString().Contains("FocusState.Keyboard", StringComparison.Ordinal)),
         "页面过渡必须固定为 180ms，并同时遵循系统动画设置和键盘输入来源。");
-    Assert(pageTransition.Contains("ElementCompositionPreview.GetElementVisual", StringComparison.Ordinal)
-            && pageTransition.Contains("CreateScalarKeyFrameAnimation", StringComparison.Ordinal)
-            && pageTransition.Contains("CreateVector3KeyFrameAnimation", StringComparison.Ordinal)
-            && pageTransition.Contains("visual.Opacity", StringComparison.Ordinal)
-            && pageTransition.Contains("visual.Offset", StringComparison.Ordinal)
-            && !pageTransition.Contains("Scale", StringComparison.Ordinal)
-            && !pageTransition.Contains("Rotation", StringComparison.Ordinal),
+    Assert(HasInvocation(pageTransition, "ElementCompositionPreview", "GetElementVisual")
+            && HasInvocation(pageTransition, "compositor", "CreateScalarKeyFrameAnimation")
+            && HasInvocation(pageTransition, "compositor", "CreateVector3KeyFrameAnimation")
+            && HasSimpleAssignment(pageTransition, "visual.Opacity", "0f")
+            && HasSimpleAssignment(pageTransition, "visual.Offset", "new Vector3(effectiveOffset, 0f, 0f)")
+            && !pageTransition.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+                .Any(access => access.Name.Identifier.ValueText is "Scale" or "Rotation"),
         "真实页面过渡只能通过 Composition 修改 opacity 和 offset。");
-    var addNavigation = FindUniqueMethod(mainWindowClass, "NavigateToAddAccountViewAsync").ToFullString();
-    var backNavigation = FindUniqueMethod(mainWindowClass, "NavigateToAuthenticatorViewAsync").ToFullString();
-    Assert(addNavigation.Contains("PageTransitionOffset", StringComparison.Ordinal)
-            && backNavigation.Contains("-PageTransitionOffset", StringComparison.Ordinal),
+    var completionHandlers = pageTransition.DescendantNodes()
+        .OfType<VariableDeclaratorSyntax>()
+        .Where(variable => variable.Identifier.ValueText == "completedHandler")
+        .ToArray();
+    var transitionDelays = pageTransition.DescendantNodes().OfType<InvocationExpressionSyntax>()
+        .Where(invocation => InvocationMatches(invocation, "Task", "Delay", Array.Empty<string>()))
+        .ToArray();
+    Assert(completionHandlers.Length == 1
+            && HasEventAssignment(pageTransition, "batch.Completed", "completedHandler", SyntaxKind.AddAssignmentExpression)
+            && pageTransition.DescendantNodes().OfType<FinallyClauseSyntax>().Any(finallyClause =>
+                HasEventAssignment(finallyClause, "batch.Completed", "completedHandler", SyntaxKind.SubtractAssignmentExpression)
+                && HasInvocation(finallyClause, "batch", "Dispose")
+                && HasInvocation(finallyClause, null, "ResetPageVisual"))
+            && HasInvocation(pageTransition, "Task", "WhenAny")
+            && transitionDelays.Length == 1
+            && transitionDelays[0].ArgumentList.Arguments.Single().Expression is BinaryExpressionSyntax delayAddition
+            && delayAddition.IsKind(SyntaxKind.AddExpression)
+            && delayAddition.Left is IdentifierNameSyntax { Identifier.ValueText: "PageTransitionDuration" }
+            && delayAddition.Right is InvocationExpressionSyntax delayPadding
+            && InvocationMatches(delayPadding, "TimeSpan", "FromMilliseconds", ["100"]),
+        "Composition ScopedBatch 必须使用具名完成处理器、有限等待，并在 finally 解订阅、释放和复位视觉状态。");
+    Assert(HasIdentifierReference(FindUniqueMethod(mainWindowClass, "NavigateToAddAccountViewAsync"), "PageTransitionOffset")
+            && FindUniqueMethod(mainWindowClass, "NavigateToAuthenticatorViewAsync").DescendantNodes()
+                .OfType<PrefixUnaryExpressionSyntax>()
+                .Any(prefix => prefix.IsKind(SyntaxKind.UnaryMinusExpression)
+                    && prefix.Operand is IdentifierNameSyntax { Identifier.ValueText: "PageTransitionOffset" }),
         "进入与返回页面的横向位移方向必须相反。");
 }
 
@@ -3118,6 +3183,144 @@ static MethodDeclarationSyntax FindUniqueMethod(ClassDeclarationSyntax targetCla
     Assert(methods.Length == 1, $"{targetClass.Identifier.ValueText} 必须唯一声明 {methodName}。");
     return methods.Single();
 }
+
+static bool HasBooleanTrueAssignment(SyntaxNode node, string targetName) =>
+    node.DescendantNodes().OfType<AssignmentExpressionSyntax>().Any(assignment =>
+        assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+        && GetRightmostName(assignment.Left) == targetName
+        && assignment.Right.IsKind(SyntaxKind.TrueLiteralExpression));
+
+static bool HasSimpleAssignment(SyntaxNode node, string left, string right) =>
+    node.DescendantNodes().OfType<AssignmentExpressionSyntax>().Any(assignment =>
+        assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+        && assignment.Left.ToString() == left
+        && assignment.Right.ToString() == right);
+
+static bool HasEventSubscription(SyntaxNode node, string eventExpression, string handler) =>
+    HasEventAssignment(node, eventExpression, handler, SyntaxKind.AddAssignmentExpression);
+
+static bool HasEventAssignment(SyntaxNode node, string eventExpression, string handler, SyntaxKind assignmentKind) =>
+    node.DescendantNodes().OfType<AssignmentExpressionSyntax>().Any(assignment =>
+        assignment.IsKind(assignmentKind)
+        && assignment.Left.ToString() == eventExpression
+        && assignment.Right is IdentifierNameSyntax identifier
+        && identifier.Identifier.ValueText == handler);
+
+static bool HasInvocation(
+    SyntaxNode node,
+    string? receiver,
+    string methodName,
+    params string[] argumentExpressions) =>
+    CountInvocations(node, receiver, methodName, argumentExpressions) > 0;
+
+static int CountInvocations(
+    SyntaxNode node,
+    string? receiver,
+    string methodName,
+    params string[] argumentExpressions) =>
+    node.DescendantNodes().OfType<InvocationExpressionSyntax>().Count(invocation =>
+        InvocationMatches(invocation, receiver, methodName, argumentExpressions));
+
+static bool InvocationMatches(
+    InvocationExpressionSyntax invocation,
+    string? receiver,
+    string methodName,
+    IReadOnlyList<string> argumentExpressions)
+{
+    string? actualReceiver;
+    string? actualMethod;
+    if (invocation.Expression is MemberAccessExpressionSyntax memberAccess)
+    {
+        actualReceiver = memberAccess.Expression.ToString();
+        actualMethod = memberAccess.Name.Identifier.ValueText;
+    }
+    else if (invocation.Expression is IdentifierNameSyntax identifier)
+    {
+        actualReceiver = null;
+        actualMethod = identifier.Identifier.ValueText;
+    }
+    else
+    {
+        return false;
+    }
+
+    return actualReceiver == receiver
+        && actualMethod == methodName
+        && (argumentExpressions.Count == 0
+            || invocation.ArgumentList.Arguments.Select(argument => argument.ToString())
+                .SequenceEqual(argumentExpressions));
+}
+
+static string? GetRightmostName(ExpressionSyntax expression) => expression switch
+{
+    IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+    MemberAccessExpressionSyntax memberAccess => memberAccess.Name.Identifier.ValueText,
+    _ => null,
+};
+
+static bool HasIdentifierReference(SyntaxNode node, string identifier) =>
+    node.DescendantTokens().Any(token => token.IsKind(SyntaxKind.IdentifierToken)
+        && token.ValueText == identifier);
+
+static HashSet<string> GetActiveStringLiterals(SyntaxNode node) =>
+    node.DescendantNodes().OfType<LiteralExpressionSyntax>()
+        .Where(literal => literal.IsKind(SyntaxKind.StringLiteralExpression))
+        .Select(literal => literal.Token.ValueText)
+        .ToHashSet(StringComparer.Ordinal);
+
+static void AssertClosedHandlerContract(MethodDeclarationSyntax closedHandler)
+{
+    Assert(closedHandler.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PrivateKeyword))
+            && !closedHandler.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.AsyncKeyword))
+            && closedHandler.ReturnType is PredefinedTypeSyntax returnType
+            && returnType.Keyword.IsKind(SyntaxKind.VoidKeyword)
+            && closedHandler.Body is { Statements.Count: > 0 },
+        "窗口关闭处理必须是同步 private void 命名方法。");
+    var firstStatement = closedHandler.Body!.Statements[0];
+    Assert(firstStatement is IfStatementSyntax closeGate
+            && HasInvocation(closeGate.Condition, "Interlocked", "Exchange", "ref _isClosed", "1"),
+        "窗口关闭处理必须先通过 _isClosed 原子门保证幂等。");
+
+    var orderedPositions = new[]
+    {
+        FindInvocationPosition(closedHandler, "_sessionGuard", "Invalidate"),
+        FindInvocationPosition(closedHandler, "_sessionCancellation", "Invalidate"),
+        FindInvocationPosition(closedHandler, "Volatile", "Write", "ref _activeSession", "0"),
+        FindAssignmentPosition(closedHandler, "_isUnlocked", "false"),
+        FindInvocationPosition(closedHandler, "_timer", "Stop"),
+        FindInvocationPosition(closedHandler, null, "CancelBackgroundLock"),
+        FindInvocationPosition(closedHandler, "ViewModel", "Unload"),
+        FindInvocationPosition(closedHandler, "_snippingCaptureState", "Abandon"),
+        FindInvocationPosition(closedHandler, "_sessionCancellation", "Dispose"),
+    };
+    Assert(orderedPositions.All(position => position >= 0)
+            && orderedPositions.SequenceEqual(orderedPositions.OrderBy(position => position)),
+        "窗口关闭必须依次失效会话、停止计时、卸载视图模型、放弃截图并释放取消域。");
+    Assert(!HasInvocation(closedHandler, null, "HideActiveDialog")
+            && !closedHandler.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+                .Any(assignment => GetRightmostName(assignment.Left) == "Visibility"),
+        "窗口关闭路径不得依赖已关闭窗口的可视 UI 调用。");
+}
+
+static int FindInvocationPosition(
+    SyntaxNode node,
+    string? receiver,
+    string methodName,
+    params string[] argumentExpressions) =>
+    node.DescendantNodes().OfType<InvocationExpressionSyntax>()
+        .Where(invocation => InvocationMatches(invocation, receiver, methodName, argumentExpressions))
+        .Select(invocation => invocation.SpanStart)
+        .DefaultIfEmpty(-1)
+        .First();
+
+static int FindAssignmentPosition(SyntaxNode node, string left, string right) =>
+    node.DescendantNodes().OfType<AssignmentExpressionSyntax>()
+        .Where(assignment => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+            && assignment.Left.ToString() == left
+            && assignment.Right.ToString() == right)
+        .Select(assignment => assignment.SpanStart)
+        .DefaultIfEmpty(-1)
+        .First();
 
 static string? GetRuntimeXamlAttribute(System.Xml.Linq.XElement element, string localName)
 {

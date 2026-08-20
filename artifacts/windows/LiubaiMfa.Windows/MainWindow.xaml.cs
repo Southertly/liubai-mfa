@@ -15,6 +15,7 @@ using Microsoft.UI.Xaml.Media;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using WinRT.Interop;
+using Windows.Foundation;
 using Windows.Storage;
 using Windows.UI.ViewManagement;
 
@@ -55,6 +56,7 @@ public sealed partial class MainWindow : Window
     private bool _settingsInProgress;
     private bool _startupProtectionEnabled;
     private long _navigationEpoch;
+    private int _isClosed;
     private readonly DeferredNoticeGate _cancelledBackupNotice = new();
 
     public MainWindow()
@@ -95,11 +97,7 @@ public sealed partial class MainWindow : Window
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => ViewModel.UpdateCodes();
         Activated += Window_Activated;
-        Closed += (_, _) =>
-        {
-            _snippingCaptureState.Abandon();
-            _sessionCancellation.Dispose();
-        };
+        Closed += MainWindow_Closed;
         RootGrid.Loaded += RootGrid_Loaded;
         _placementService.Configure(AppWindow, GetWindowDpi());
         _placementService.RestoreOrApplyDefault(AppWindow, GetWindowDpi);
@@ -111,6 +109,24 @@ public sealed partial class MainWindow : Window
     }
 
     public MainViewModel ViewModel { get; }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        if (Interlocked.Exchange(ref _isClosed, 1) != 0)
+        {
+            return;
+        }
+
+        _sessionGuard.Invalidate();
+        _sessionCancellation.Invalidate();
+        Volatile.Write(ref _activeSession, 0);
+        _isUnlocked = false;
+        _timer.Stop();
+        CancelBackgroundLock();
+        ViewModel.Unload();
+        _snippingCaptureState.Abandon();
+        _sessionCancellation.Dispose();
+    }
 
     internal async Task HandleProtocolActivationAsync(Uri uri)
     {
@@ -638,24 +654,46 @@ public sealed partial class MainWindow : Window
         var compositor = visual.Compositor;
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-        batch.Completed += (_, _) => completion.TrySetResult(true);
-
-        var opacityAnimation = compositor.CreateScalarKeyFrameAnimation();
-        opacityAnimation.Duration = PageTransitionDuration;
-        opacityAnimation.InsertKeyFrame(1f, 1f);
-        visual.StartAnimation(nameof(visual.Opacity), opacityAnimation);
-
-        if (effectiveOffset != 0f)
+        TypedEventHandler<object, CompositionBatchCompletedEventArgs> completedHandler =
+            (_, _) => completion.TrySetResult(true);
+        batch.Completed += completedHandler;
+        try
         {
-            var offsetAnimation = compositor.CreateVector3KeyFrameAnimation();
-            offsetAnimation.Duration = PageTransitionDuration;
-            offsetAnimation.InsertKeyFrame(1f, Vector3.Zero);
-            visual.StartAnimation(nameof(visual.Offset), offsetAnimation);
-        }
+            var opacityAnimation = compositor.CreateScalarKeyFrameAnimation();
+            opacityAnimation.Duration = PageTransitionDuration;
+            opacityAnimation.InsertKeyFrame(1f, 1f);
+            visual.StartAnimation(nameof(visual.Opacity), opacityAnimation);
 
-        batch.End();
-        await completion.Task;
-        ResetPageVisual(target);
+            if (effectiveOffset != 0f)
+            {
+                var offsetAnimation = compositor.CreateVector3KeyFrameAnimation();
+                offsetAnimation.Duration = PageTransitionDuration;
+                offsetAnimation.InsertKeyFrame(1f, Vector3.Zero);
+                visual.StartAnimation(nameof(visual.Offset), offsetAnimation);
+            }
+
+            batch.End();
+            var timeout = Task.Delay(PageTransitionDuration + TimeSpan.FromMilliseconds(100));
+            await Task.WhenAny(completion.Task, timeout);
+        }
+        finally
+        {
+            try
+            {
+                batch.Completed -= completedHandler;
+            }
+            finally
+            {
+                try
+                {
+                    batch.Dispose();
+                }
+                finally
+                {
+                    ResetPageVisual(target);
+                }
+            }
+        }
     }
 
     private bool AreSystemAnimationsEnabled()
@@ -909,7 +947,7 @@ public sealed partial class MainWindow : Window
             case SnippingCaptureDecisionKind.Failed:
                 ShowAddAccountStatus(
                     sessionToken,
-                    "未能打开截图工具，请使用图片导入或手动输入",
+                    "截图账户未导入，请稍后重试。",
                     InfoBarSeverity.Error);
                 return;
             case SnippingCaptureDecisionKind.RedeemNow:
@@ -959,7 +997,7 @@ public sealed partial class MainWindow : Window
             {
                 ShowAddAccountStatus(
                     sessionToken,
-                    "未能打开截图工具，请使用图片导入或手动输入",
+                    "截图账户未导入，请稍后重试。",
                     InfoBarSeverity.Error);
             }
         }
