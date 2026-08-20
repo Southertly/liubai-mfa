@@ -70,6 +70,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("紧凑账户行服务图标回退", () => RunSync(VerifyServiceIconResolution)),
     ("紧凑账户行服务图标文字保持可读对比", () => RunSync(VerifyServiceIconForegroundContrast)),
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
+    ("验证码最后五秒进入临期状态", () => RunSync(VerifyAccountExpiryState)),
     ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
     ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
     ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
@@ -84,6 +85,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("窗口位置计算防止整数溢出", () => RunSync(VerifyWindowPlacementHandlesExtremeValues)),
     ("窗口有效像素安全换算为物理像素", () => RunSync(VerifyEffectivePixelConversion)),
     ("窗口位置仅在普通状态发生变化时保存", () => RunSync(VerifyWindowPlacementSavePolicy)),
+    ("柔和卡片窗口使用新默认和最小尺寸", () => RunSync(VerifySoftCardWindowDimensions)),
     ("剪贴板写入成功且只调用一次", () => RunSync(VerifyClipboardWriteSuccess)),
     ("剪贴板 COM 失败转换为中性结果", () => RunSync(VerifyClipboardWriteComFailure)),
     ("剪贴板拒绝空白验证码", () => RunSync(VerifyClipboardRejectsBlankText)),
@@ -335,8 +337,8 @@ static void VerifyWindowPlacementClampsToPrimaryWorkArea()
     var actual = WindowPlacementService.Clamp(
         new PixelRect(1800, 900, 520, 680),
         workArea,
-        460,
-        560);
+        480,
+        620);
 
     Assert(actual == new PixelRect(1400, 360, 520, 680), "窗口应完整限制在工作区内。");
 }
@@ -346,10 +348,10 @@ static void VerifyWindowPlacementRepairsDamagedSize()
     var actual = WindowPlacementService.Clamp(
         new PixelRect(-200, -300, 200, 300),
         new PixelRect(0, 0, 1920, 1040),
-        460,
-        560);
+        480,
+        620);
 
-    Assert(actual == new PixelRect(0, 0, 460, 560), "损坏的窗口尺寸应恢复到安全最小值。");
+    Assert(actual == new PixelRect(0, 0, 480, 620), "损坏的窗口尺寸应恢复到安全最小值。");
 }
 
 static void VerifyWindowPlacementPreservesNegativeMonitorCoordinates()
@@ -358,8 +360,8 @@ static void VerifyWindowPlacementPreservesNegativeMonitorCoordinates()
     var actual = WindowPlacementService.Clamp(
         desired,
         new PixelRect(-1920, 0, 1920, 1040),
-        460,
-        560);
+        480,
+        620);
 
     Assert(actual == desired, "负坐标副屏内的合法窗口位置不应改变。");
 }
@@ -378,8 +380,8 @@ static void VerifyWindowPlacementFitsWorkArea()
     var actual = WindowPlacementService.Clamp(
         new PixelRect(200, 300, 2400, 1600),
         new PixelRect(-1920, -100, 1280, 720),
-        460,
-        560);
+        480,
+        620);
 
     Assert(actual == new PixelRect(-1920, -100, 1280, 720), "超大窗口应缩小到工作区并对齐工作区起点。");
 }
@@ -390,15 +392,15 @@ static void VerifyWindowPlacementHandlesExtremeValues()
     var damaged = WindowPlacementService.Clamp(
         new PixelRect(int.MinValue, int.MaxValue, 0, -1),
         workArea,
-        460,
-        560);
+        480,
+        620);
     var extreme = WindowPlacementService.Clamp(
         new PixelRect(int.MaxValue, int.MinValue, int.MaxValue, int.MaxValue),
         workArea,
-        460,
-        560);
+        480,
+        620);
 
-    Assert(damaged == new PixelRect(0, 480, 460, 560), "非法尺寸和极端坐标应安全限制。");
+    Assert(damaged == new PixelRect(0, 420, 480, 620), "非法尺寸和极端坐标应安全限制。");
     Assert(extreme == workArea, "极端尺寸不应导致整数溢出。");
 }
 
@@ -409,6 +411,14 @@ static void VerifyEffectivePixelConversion()
     Assert(WindowPlacementService.EffectiveToPhysical(520, 0) == 520, "0 DPI 应回退到 96 DPI。");
     Assert(WindowPlacementService.EffectiveToPhysical(0, 144) >= 1, "换算结果至少应为 1 像素。");
     Assert(WindowPlacementService.EffectiveToPhysical(int.MaxValue, uint.MaxValue) == int.MaxValue, "极端 DPI 换算应防止溢出。");
+}
+
+static void VerifySoftCardWindowDimensions()
+{
+    Assert(WindowPlacementService.DefaultEffectiveWidth == 560, "柔和卡片默认宽度错误。");
+    Assert(WindowPlacementService.DefaultEffectiveHeight == 780, "柔和卡片默认高度错误。");
+    Assert(WindowPlacementService.MinimumEffectiveWidth == 480, "柔和卡片最小宽度错误。");
+    Assert(WindowPlacementService.MinimumEffectiveHeight == 620, "柔和卡片最小高度错误。");
 }
 
 static void VerifyWindowPlacementSavePolicy()
@@ -594,6 +604,7 @@ static void VerifyCompactAccountRowRefreshAndReplacement()
     Assert(changes.Contains(nameof(AccountItemViewModel.RemainingLabel)), "秒数变化未通知剩余时间文本。");
     Assert(changes.Contains(nameof(AccountItemViewModel.ProgressValue)), "秒数变化未通知进度值。");
     Assert(changes.Contains(nameof(AccountItemViewModel.AccessibleName)), "秒数变化未通知无障碍名称。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.IsExpiring)), "秒数变化未通知验证码临期状态。");
     Assert(changes.Count(name => name == nameof(AccountItemViewModel.SecondsRemaining)) == 1, "秒数变化应只通知一次 SecondsRemaining。");
     Assert(changes.Count(name => name == nameof(AccountItemViewModel.RemainingLabel)) == 1, "秒数变化应只通知一次 RemainingLabel。");
     Assert(changes.Count(name => name == nameof(AccountItemViewModel.ProgressValue)) == 1, "秒数变化应只通知一次 ProgressValue。");
@@ -612,6 +623,27 @@ static void VerifyCompactAccountRowRefreshAndReplacement()
         nameof(AccountItemViewModel.Icon), nameof(AccountItemViewModel.AccessibleName), nameof(AccountItemViewModel.Issuer),
         nameof(AccountItemViewModel.Account), nameof(AccountItemViewModel.GroupLabel),
     ]), "替换模型未通知所有相关展示属性。");
+}
+
+static void VerifyAccountExpiryState()
+{
+    Assert(!AccountItemViewModel.IsExpiringAt(30), "30 秒不应进入临期状态。");
+    Assert(!AccountItemViewModel.IsExpiringAt(6), "6 秒不应进入临期状态。");
+    Assert(AccountItemViewModel.IsExpiringAt(5), "5 秒应进入临期状态。");
+    Assert(AccountItemViewModel.IsExpiringAt(1), "1 秒应进入临期状态。");
+    Assert(!AccountItemViewModel.IsExpiringAt(0), "0 秒不应进入临期状态。");
+
+    var item = new AccountItemViewModel(new MfaAccount
+    {
+        Id = "expiry", Issuer = "Google", Account = "alice", Secret = "JBSWY3DPEHPK3PXP",
+    });
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(24));
+    Assert(item.SecondsRemaining == 6 && !item.IsExpiring, "6 秒时临期状态应关闭。");
+    var changes = new List<string?>();
+    item.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
+    item.Refresh(DateTimeOffset.FromUnixTimeSeconds(25));
+    Assert(item.SecondsRemaining == 5 && item.IsExpiring, "跨越 6 到 5 秒应进入临期状态。");
+    Assert(changes.Contains(nameof(AccountItemViewModel.IsExpiring)), "跨越临界值时必须通知临期状态。");
 }
 
 static void VerifyCompactAccountRowNullModelSafety()

@@ -29,6 +29,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     public ServiceIconDescriptor Icon => ServiceIconResolver.Resolve(Model.Issuer);
     public string FormattedCode => FormatCode(Code);
     public double ProgressValue => CalculateProgress(SecondsRemaining, TotpPeriod);
+    public bool IsExpiring => IsExpiringAt(SecondsRemaining);
     public string AccessibleName => $"{DisplayIssuer} {DisplayAccount}，验证码 {FormattedCode}，剩余 {SecondsRemaining} 秒";
 
     public string Code
@@ -53,6 +54,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
             {
                 OnPropertyChanged(nameof(RemainingLabel));
                 OnPropertyChanged(nameof(ProgressValue));
+                OnPropertyChanged(nameof(IsExpiring));
                 OnPropertyChanged(nameof(AccessibleName));
             }
         }
@@ -130,6 +132,8 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
 
         return Math.Clamp((double)secondsRemaining / period, 0, 1);
     }
+
+    internal static bool IsExpiringAt(int secondsRemaining) => secondsRemaining is > 0 and <= 5;
 
     private string DisplayIssuer => string.IsNullOrWhiteSpace(Issuer) ? "未知服务" : Issuer;
 

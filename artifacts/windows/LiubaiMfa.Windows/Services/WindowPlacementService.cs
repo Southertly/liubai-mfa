@@ -8,10 +8,10 @@ internal readonly record struct PixelRect(int X, int Y, int Width, int Height);
 
 public sealed class WindowPlacementService
 {
-    internal const int DefaultEffectiveWidth = 520;
-    internal const int DefaultEffectiveHeight = 680;
-    internal const int MinimumEffectiveWidth = 460;
-    internal const int MinimumEffectiveHeight = 560;
+    internal const int DefaultEffectiveWidth = 560;
+    internal const int DefaultEffectiveHeight = 780;
+    internal const int MinimumEffectiveWidth = 480;
+    internal const int MinimumEffectiveHeight = 620;
 
     private const uint DefaultDpi = 96;
     private const string XKey = "WindowPlacement.X";
