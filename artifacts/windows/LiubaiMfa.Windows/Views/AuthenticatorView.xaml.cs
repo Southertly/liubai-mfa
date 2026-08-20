@@ -265,7 +265,7 @@ public sealed partial class AuthenticatorView : UserControl
         }
     }
 
-    private void EmptyAddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
+    private void EmptyAddButton_Click(object sender, RoutedEventArgs e) => this.AddRequested?.Invoke(this, EventArgs.Empty);
 
     private void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
     {
@@ -288,7 +288,7 @@ public sealed partial class AuthenticatorView : UserControl
         _viewModel.SelectedGroup = selected.Value;
     }
 
-    private void AddButton_Click(object sender, RoutedEventArgs e) => AddRequested?.Invoke(this, EventArgs.Empty);
+    private void AddButton_Click(object sender, RoutedEventArgs e) => this.AddRequested?.Invoke(this, EventArgs.Empty);
     private void LockButton_Click(object sender, RoutedEventArgs e) => LockRequested?.Invoke(this, EventArgs.Empty);
     private void SettingsButton_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
     private void ImportBackupItem_Click(object sender, RoutedEventArgs e) => ImportBackupRequested?.Invoke(this, EventArgs.Empty);

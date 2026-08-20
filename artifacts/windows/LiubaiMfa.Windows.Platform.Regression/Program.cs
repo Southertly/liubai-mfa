@@ -1646,6 +1646,14 @@ static void AssertHandlerOnlyForwards(ClassDeclarationSyntax targetClass, string
         .ToArray();
     Assert(matches.Length == 1, $"{targetClass.Identifier.ValueText} 必须唯一声明 {methodName}。");
     var method = matches.Single();
+    Assert(method.Modifiers.Count == 1 && method.Modifiers[0].IsKind(SyntaxKind.PrivateKeyword),
+        $"{methodName} 必须且只能使用 private 修饰符。");
+    Assert(method.ReturnType is PredefinedTypeSyntax returnType && returnType.Keyword.IsKind(SyntaxKind.VoidKeyword),
+        $"{methodName} 的返回类型必须精确为 void。");
+    Assert(method.ParameterList.Parameters.Count == 2,
+        $"{methodName} 必须精确声明 object sender 和 RoutedEventArgs e 两个参数。");
+    AssertExactHandlerParameter(method.ParameterList.Parameters[0], "sender", SyntaxKind.ObjectKeyword, null, methodName);
+    AssertExactHandlerParameter(method.ParameterList.Parameters[1], "e", null, "RoutedEventArgs", methodName);
     ExpressionSyntax? expression = method.ExpressionBody?.Expression;
     if (expression is null
         && method.Body is { Statements.Count: 1 }
@@ -1656,7 +1664,11 @@ static void AssertHandlerOnlyForwards(ClassDeclarationSyntax targetClass, string
 
     Assert(expression is ConditionalAccessExpressionSyntax
         {
-            Expression: IdentifierNameSyntax eventIdentifier,
+            Expression: MemberAccessExpressionSyntax
+            {
+                Expression: ThisExpressionSyntax,
+                Name: IdentifierNameSyntax eventIdentifier,
+            },
             WhenNotNull: InvocationExpressionSyntax
             {
                 Expression: MemberBindingExpressionSyntax
@@ -1676,7 +1688,26 @@ static void AssertHandlerOnlyForwards(ClassDeclarationSyntax targetClass, string
                 ],
             },
         } && eventIdentifier.Identifier.ValueText == eventName,
-        $"{methodName} 必须且只能执行 {eventName}?.Invoke(this, EventArgs.Empty)。");
+        $"{methodName} 必须且只能执行 this.{eventName}?.Invoke(this, EventArgs.Empty)。");
+}
+
+static void AssertExactHandlerParameter(
+    ParameterSyntax parameter,
+    string expectedName,
+    SyntaxKind? expectedPredefinedType,
+    string? expectedIdentifierType,
+    string methodName)
+{
+    Assert(parameter.Identifier.ValueText == expectedName,
+        $"{methodName} 的参数名必须精确为 {expectedName}。");
+    Assert(parameter.AttributeLists.Count == 0 && parameter.Modifiers.Count == 0 && parameter.Default is null,
+        $"{methodName} 的 {expectedName} 参数不得使用特性、params/ref/out/in/this/scoped 或默认值。");
+    var hasExpectedType = expectedPredefinedType is SyntaxKind predefinedType
+        ? parameter.Type is PredefinedTypeSyntax type && type.Keyword.IsKind(predefinedType)
+        : parameter.Type is IdentifierNameSyntax identifierType
+            && identifierType.Identifier.ValueText == expectedIdentifierType;
+    Assert(hasExpectedType,
+        $"{methodName} 的 {expectedName} 参数类型必须精确为 {expectedIdentifierType ?? "object"}。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)
