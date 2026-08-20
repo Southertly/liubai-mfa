@@ -146,7 +146,7 @@ static void VerifyStartupProtectionTransitionPolicy()
 {
     var cases = new[]
     {
-        (Current: false, Requested: false, Verified: false, SessionCurrent: false, Allowed: true, Name: "设置未变化"),
+        (Current: false, Requested: false, Verified: true, SessionCurrent: true, Allowed: false, Name: "设置未变化"),
         (Current: false, Requested: true, Verified: false, SessionCurrent: true, Allowed: false, Name: "开启时验证取消"),
         (Current: false, Requested: true, Verified: true, SessionCurrent: false, Allowed: false, Name: "开启时会话过期"),
         (Current: false, Requested: true, Verified: true, SessionCurrent: true, Allowed: true, Name: "有效会话验证成功开启"),

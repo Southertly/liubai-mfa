@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private readonly ClipboardService _clipboard;
     private readonly AccountDialogService _accountDialogs;
     private readonly BackupDialogService _backupDialogs;
+    private readonly ProtectionSettingsDialogService _protectionSettingsDialogs;
     private readonly WindowPlacementService _placementService;
     private readonly UnlockSessionGuard _sessionGuard = new();
     private readonly SessionCancellationGuard _sessionCancellation = new();
@@ -31,6 +32,7 @@ public sealed partial class MainWindow : Window
     private long _activeSession;
     private bool _isUnlocked;
     private bool _unlockInProgress;
+    private bool _settingsInProgress;
     private bool _startupProtectionEnabled;
     private readonly DeferredNoticeGate _cancelledBackupNotice = new();
 
@@ -50,6 +52,7 @@ public sealed partial class MainWindow : Window
         AuthenticatorView.EditRequested += EditAccount_Click;
         AuthenticatorView.ShowSecretRequested += ShowSecret_Click;
         AuthenticatorView.DeleteRequested += DeleteAccount_Click;
+        AuthenticatorView.SettingsRequested += Settings_Click;
         LockView.UnlockRequested += Unlock_Click;
         _windowsHello = new WindowsHelloService(this);
         _startupProtectionSettings = new StartupProtectionSettings();
@@ -57,6 +60,7 @@ public sealed partial class MainWindow : Window
         _clipboard = new ClipboardService();
         _accountDialogs = new AccountDialogService(_windowsHello, ShowDialogAsync, IsSessionCurrent, ShowStatus);
         _backupDialogs = new BackupDialogService(ShowDialogAsync, IsSessionCurrent);
+        _protectionSettingsDialogs = new ProtectionSettingsDialogService(ShowDialogAsync, IsSessionCurrent);
         _placementService = new WindowPlacementService();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => ViewModel.UpdateCodes();
@@ -364,6 +368,70 @@ public sealed partial class MainWindow : Window
         if (_startupProtectionEnabled)
         {
             ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
+        }
+    }
+
+    private async void Settings_Click(object? sender, EventArgs e)
+    {
+        if (!TryCaptureUnlockedSession(out var token) || _settingsInProgress)
+        {
+            return;
+        }
+
+        _settingsInProgress = true;
+        try
+        {
+            var currentValue = _startupProtectionEnabled;
+            var requested = await _protectionSettingsDialogs.ShowAsync(
+                RootGrid.XamlRoot,
+                token,
+                currentValue);
+            if (requested is null ||
+                !IsSessionCurrent(token) ||
+                requested.Value == currentValue)
+            {
+                return;
+            }
+
+            var reason = requested.Value
+                ? "验证身份以开启留白 MFA 启动保护"
+                : "验证身份以关闭留白 MFA 启动保护";
+            var verified = await VerifySensitiveActionAsync(token, reason);
+            if (!StartupProtectionPolicy.CanCommitSettingChange(
+                    currentValue,
+                    requested.Value,
+                    verified,
+                    IsSessionCurrent(token)))
+            {
+                return;
+            }
+
+            try
+            {
+                _startupProtectionSettings.SetEnabled(requested.Value);
+            }
+            catch (Exception)
+            {
+                ShowStatus(token, "设置未保存，请重试。", InfoBarSeverity.Warning);
+                return;
+            }
+
+            _startupProtectionEnabled = requested.Value;
+            AuthenticatorView.ApplyStartupProtection(_startupProtectionEnabled);
+            if (!_startupProtectionEnabled)
+            {
+                CancelBackgroundLock();
+                _autoLockActivationState.Clear();
+            }
+
+            ShowStatus(
+                token,
+                _startupProtectionEnabled ? "启动保护已开启。" : "启动保护已关闭。",
+                InfoBarSeverity.Success);
+        }
+        finally
+        {
+            _settingsInProgress = false;
         }
     }
 
