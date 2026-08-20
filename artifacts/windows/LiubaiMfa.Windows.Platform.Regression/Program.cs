@@ -5,6 +5,12 @@ using LiubaiMfa.Windows.ViewModels;
 
 var checks = new List<(string Name, Func<Task> Run)>
 {
+    ("启动保护设置缺失时默认关闭", () => RunSync(VerifyStartupProtectionDefaultsOff)),
+    ("启动保护设置读取已保存状态", () => RunSync(VerifyStartupProtectionReadsStoredValue)),
+    ("启动保护设置只写入目标布尔值", () => RunSync(VerifyStartupProtectionWritesRequestedValue)),
+    ("启动保护只在开启时阻断启动", () => RunSync(VerifyStartupProtectionOpenPolicy)),
+    ("启动保护切换只在验证和会话有效时提交", () => RunSync(VerifyStartupProtectionTransitionPolicy)),
+    ("启动保护只在开启且已进入主界面时自动锁定", () => RunSync(VerifyStartupProtectionAutoLockPolicy)),
     ("搜索覆盖服务、账户和分组", () => RunSync(VerifySearch)),
     ("分组过滤与搜索叠加", () => RunSync(VerifyGroupAndSearch)),
     ("排序忽略大小写且稳定", () => RunSync(VerifyStableSort)),
@@ -79,6 +85,56 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("剪贴板提示策略区分成功和失败", () => RunSync(VerifyClipboardStatusFeedbackPolicy)),
     ("恢复密钥策略只在成功时允许继续", () => RunSync(VerifyRecoveryKeyClipboardFeedbackPolicy)),
 };
+
+static void VerifyStartupProtectionDefaultsOff()
+{
+    var settings = new StartupProtectionSettings(_ => null, (_, _) => { });
+    Assert(!settings.IsEnabled, "缺失启动保护设置必须默认关闭。");
+}
+
+static void VerifyStartupProtectionReadsStoredValue()
+{
+    Assert(new StartupProtectionSettings(_ => true, (_, _) => { }).IsEnabled, "保存的 true 必须读取为开启。");
+    Assert(!new StartupProtectionSettings(_ => "true", (_, _) => { }).IsEnabled, "字符串 true 不得被当作布尔开启。");
+}
+
+static void VerifyStartupProtectionWritesRequestedValue()
+{
+    var writes = new List<(string Key, object Value)>();
+    var settings = new StartupProtectionSettings(_ => null, (key, value) => writes.Add((key, value)));
+
+    settings.SetEnabled(true);
+
+    Assert(writes.Count == 1, "设置启动保护只能写入一次。");
+    Assert(writes[0].Key == StartupProtectionSettings.SettingKey, "设置启动保护只能写入目标键。");
+    Assert(writes[0].Value is bool value && value, "设置启动保护必须写入布尔 true。");
+}
+
+static void VerifyStartupProtectionOpenPolicy()
+{
+    Assert(!StartupProtectionPolicy.ShouldStartLocked(false), "保护关闭时启动不得阻断。");
+    Assert(StartupProtectionPolicy.ShouldStartLocked(true), "保护开启时启动必须阻断。");
+    Assert(!StartupProtectionPolicy.ShouldShowManualLock(false), "保护关闭时不显示手动锁定入口。");
+    Assert(StartupProtectionPolicy.ShouldShowManualLock(true), "保护开启时显示手动锁定入口。");
+}
+
+static void VerifyStartupProtectionTransitionPolicy()
+{
+    Assert(StartupProtectionPolicy.CanCommitSettingChange(false, false, false, false), "设置未变化时应允许提交。");
+    Assert(!StartupProtectionPolicy.CanCommitSettingChange(false, true, false, true), "验证取消时不得开启保护。");
+    Assert(!StartupProtectionPolicy.CanCommitSettingChange(false, true, true, false), "会话过期时不得开启保护。");
+    Assert(StartupProtectionPolicy.CanCommitSettingChange(false, true, true, true), "有效会话验证成功应允许开启保护。");
+    Assert(StartupProtectionPolicy.CanCommitSettingChange(true, false, true, true), "有效会话验证成功应允许关闭保护。");
+}
+
+static void VerifyStartupProtectionAutoLockPolicy()
+{
+    Assert(!StartupProtectionPolicy.ShouldScheduleAutoLock(false, true), "保护关闭时不得安排自动锁定。");
+    Assert(!StartupProtectionPolicy.ShouldScheduleAutoLock(true, false), "未解锁时不得安排自动锁定。");
+    Assert(StartupProtectionPolicy.ShouldScheduleAutoLock(true, true), "保护开启且已解锁时应安排自动锁定。");
+    Assert(!StartupProtectionPolicy.ShouldLockAfterDelay(true, true, TimeSpan.FromSeconds(59), TimeSpan.FromSeconds(60)), "未到延迟时间不得锁定。");
+    Assert(StartupProtectionPolicy.ShouldLockAfterDelay(true, true, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "达到延迟时间应允许锁定。");
+}
 
 foreach (var check in checks)
 {
