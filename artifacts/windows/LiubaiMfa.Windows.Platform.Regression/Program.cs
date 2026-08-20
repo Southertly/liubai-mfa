@@ -2,6 +2,9 @@ using LiubaiMfa.Core;
 using LiubaiMfa.Core.Models;
 using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 var checks = new List<(string Name, Func<Task> Run)>
 {
@@ -1499,40 +1502,48 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     var presentation = (System.Xml.Linq.XNamespace)"http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     var authenticatorDocument = System.Xml.Linq.XDocument.Parse(authenticatorXaml);
     var addAccountDocument = System.Xml.Linq.XDocument.Parse(addAccountXaml);
+    var authenticatorRoot = ParseCSharpRoot(authenticatorCode, "AuthenticatorView.xaml.cs");
+    var addAccountRoot = ParseCSharpRoot(addAccountCode, "AddAccountView.xaml.cs");
+    var mainWindowRoot = ParseCSharpRoot(mainWindowCode, "MainWindow.xaml.cs");
+    var authenticatorClass = FindUniqueClass(authenticatorRoot, "AuthenticatorView");
+    var addAccountClass = FindUniqueClass(addAccountRoot, "AddAccountView");
 
-    Assert(!authenticatorXaml.Contains("ImportQrButton_Click", StringComparison.Ordinal),
+    Assert(!authenticatorDocument.Descendants(presentation + "Button")
+            .Any(element => GetRuntimeXamlAttribute(element, "Click") == "ImportQrButton_Click"),
         "验证码首页不得保留独立二维码导入按钮。");
-    Assert(!authenticatorCode.Contains("ImportQrRequested", StringComparison.Ordinal),
+    Assert(!authenticatorClass.Members.OfType<MethodDeclarationSyntax>()
+            .Any(method => method.Identifier.ValueText == "ImportQrButton_Click"),
+        "验证码首页不得保留独立二维码导入处理器。");
+    Assert(!GetEventNames(authenticatorClass).Any(eventName => eventName == "ImportQrRequested"),
         "验证码首页不得保留独立二维码导入事件。");
-    Assert(!mainWindowCode.Contains("ImportQrRequested", StringComparison.Ordinal),
+    Assert(!mainWindowRoot.DescendantTokens()
+            .Any(token => token.IsKind(SyntaxKind.IdentifierToken) && token.ValueText == "ImportQrRequested"),
         "主窗口不得继续订阅已移除的二维码导入事件。");
-    Assert(authenticatorCode.Split("public event EventHandler? AddRequested;", StringSplitOptions.None).Length == 2,
-        "验证码首页必须只公开一个添加账户意图事件。");
+    AssertPublicNullableEvent(authenticatorClass, "AddRequested");
 
     var authenticatorAddButtons = authenticatorDocument
         .Descendants(presentation + "Button")
-        .Where(element => GetXamlAttribute(element, "AutomationProperties.Name") == "添加账户")
+        .Where(element => GetRuntimeXamlAttribute(element, "AutomationProperties.Name") == "添加账户")
         .ToArray();
     var topAddButtons = authenticatorAddButtons
-        .Where(element => GetXamlAttribute(element, "ToolTipService.ToolTip") == "添加账户"
+        .Where(element => GetRuntimeXamlAttribute(element, "ToolTipService.ToolTip") == "添加账户"
             && element.Descendants(presentation + "FontIcon").Any())
         .ToArray();
     var emptyAddButtons = authenticatorAddButtons
-        .Where(element => GetXamlAttribute(element, "Content") == "添加账户")
+        .Where(element => GetRuntimeXamlAttribute(element, "Content") == "添加账户")
         .ToArray();
     Assert(topAddButtons.Length == 1, "验证码首页顶部必须有且只有一个添加账户按钮。");
     Assert(emptyAddButtons.Length == 1, "验证码首页空状态必须有且只有一个添加账户按钮。");
-    Assert(GetXamlAttribute(topAddButtons[0], "Click") == "AddButton_Click",
+    Assert(GetRuntimeXamlAttribute(topAddButtons[0], "Click") == "AddButton_Click",
         "验证码首页顶部添加按钮必须绑定 AddButton_Click。");
-    Assert(GetXamlAttribute(emptyAddButtons[0], "Click") == "EmptyAddButton_Click",
+    Assert(GetRuntimeXamlAttribute(emptyAddButtons[0], "Click") == "EmptyAddButton_Click",
         "验证码首页空状态添加按钮必须绑定 EmptyAddButton_Click。");
-    AssertHandlerOnlyForwards(authenticatorCode, "AddButton_Click", "AddRequested");
-    AssertHandlerOnlyForwards(authenticatorCode, "EmptyAddButton_Click", "AddRequested");
+    AssertHandlerOnlyForwards(authenticatorClass, "AddButton_Click", "AddRequested");
+    AssertHandlerOnlyForwards(authenticatorClass, "EmptyAddButton_Click", "AddRequested");
 
     foreach (var intent in new[] { "BackRequested", "ScreenshotScanRequested", "ImportImageRequested", "ManualEntryRequested" })
     {
-        Assert(addAccountCode.Contains($"public event EventHandler? {intent};", StringComparison.Ordinal),
-            $"添加账户页缺少 {intent} 意图事件。");
+        AssertPublicNullableEvent(addAccountClass, intent);
     }
 
     var addAccountButtons = addAccountDocument.Descendants(presentation + "Button").ToArray();
@@ -1540,10 +1551,10 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     AssertButtonClickBinding(addAccountButtons, "截图并扫描二维码", "ScreenshotScanButton_Click");
     AssertButtonClickBinding(addAccountButtons, "从图片导入", "ImportImageButton_Click");
     AssertButtonClickBinding(addAccountButtons, "手动输入", "ManualEntryButton_Click");
-    AssertHandlerOnlyForwards(addAccountCode, "BackButton_Click", "BackRequested");
-    AssertHandlerOnlyForwards(addAccountCode, "ScreenshotScanButton_Click", "ScreenshotScanRequested");
-    AssertHandlerOnlyForwards(addAccountCode, "ImportImageButton_Click", "ImportImageRequested");
-    AssertHandlerOnlyForwards(addAccountCode, "ManualEntryButton_Click", "ManualEntryRequested");
+    AssertHandlerOnlyForwards(addAccountClass, "BackButton_Click", "BackRequested");
+    AssertHandlerOnlyForwards(addAccountClass, "ScreenshotScanButton_Click", "ScreenshotScanRequested");
+    AssertHandlerOnlyForwards(addAccountClass, "ImportImageButton_Click", "ImportImageRequested");
+    AssertHandlerOnlyForwards(addAccountClass, "ManualEntryButton_Click", "ManualEntryRequested");
 
     foreach (var text in new[]
     {
@@ -1555,13 +1566,19 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     {
         Assert(addAccountXaml.Contains(text, StringComparison.Ordinal), $"添加账户页缺少文案：{text}");
     }
-
-    Assert(addAccountXaml.Contains("AutomationProperties.Name=\"返回验证码列表\"", StringComparison.Ordinal),
-        "返回按钮必须提供清晰的自动化名称。");
 }
 
-static string? GetXamlAttribute(System.Xml.Linq.XElement element, string localName) =>
-    element.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName == localName)?.Value;
+static string? GetRuntimeXamlAttribute(System.Xml.Linq.XElement element, string localName)
+{
+    var ambiguousAttributes = element.Attributes()
+        .Where(attribute => attribute.Name.Namespace != System.Xml.Linq.XNamespace.None
+            && attribute.Name.LocalName == localName)
+        .Select(attribute => attribute.Name.ToString())
+        .ToArray();
+    Assert(ambiguousAttributes.Length == 0,
+        $"运行时属性 {localName} 不得被带命名空间的同名属性伪造：{string.Join(", ", ambiguousAttributes)}");
+    return element.Attribute(System.Xml.Linq.XNamespace.None + localName)?.Value;
+}
 
 static void AssertButtonClickBinding(
     IReadOnlyCollection<System.Xml.Linq.XElement> buttons,
@@ -1569,21 +1586,97 @@ static void AssertButtonClickBinding(
     string expectedHandler)
 {
     var matches = buttons
-        .Where(element => GetXamlAttribute(element, "AutomationProperties.Name") == automationName)
+        .Where(element => GetRuntimeXamlAttribute(element, "AutomationProperties.Name") == automationName)
         .ToArray();
     Assert(matches.Length == 1, $"添加账户页必须有且只有一个“{automationName}”按钮。");
-    Assert(GetXamlAttribute(matches[0], "Click") == expectedHandler,
+    Assert(GetRuntimeXamlAttribute(matches[0], "Click") == expectedHandler,
         $"“{automationName}”按钮必须绑定 {expectedHandler}。");
 }
 
-static void AssertHandlerOnlyForwards(string source, string methodName, string eventName)
+static CompilationUnitSyntax ParseCSharpRoot(string source, string fileName)
 {
-    var methodPattern = $@"private\s+void\s+{System.Text.RegularExpressions.Regex.Escape(methodName)}\s*\([^)]*\)\s*=>\s*(?<body>[^;]*);";
-    var matches = System.Text.RegularExpressions.Regex.Matches(source, methodPattern);
-    Assert(matches.Count == 1, $"必须能唯一提取 {methodName} 的表达式方法体。");
-    var body = System.Text.RegularExpressions.Regex.Replace(matches[0].Groups["body"].Value, @"\s+", " ").Trim();
-    Assert(body == $"{eventName}?.Invoke(this, EventArgs.Empty)",
-        $"{methodName} 必须且只能转发 {eventName}。");
+    var tree = CSharpSyntaxTree.ParseText(source, path: fileName);
+    var errors = tree.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
+    Assert(errors.Length == 0, $"{fileName} 必须能被 Roslyn 正确解析：{string.Join(" | ", errors.Select(error => error.ToString()))}");
+    return tree.GetCompilationUnitRoot();
+}
+
+static ClassDeclarationSyntax FindUniqueClass(CompilationUnitSyntax root, string className)
+{
+    var matches = root.DescendantNodes()
+        .OfType<ClassDeclarationSyntax>()
+        .Where(declaration => declaration.Identifier.ValueText == className)
+        .ToArray();
+    Assert(matches.Length == 1, $"必须能唯一定位 {className} 类。");
+    return matches.Single();
+}
+
+static string[] GetEventNames(ClassDeclarationSyntax targetClass) =>
+    targetClass.Members
+        .OfType<EventFieldDeclarationSyntax>()
+        .SelectMany(declaration => declaration.Declaration.Variables)
+        .Select(variable => variable.Identifier.ValueText)
+        .ToArray();
+
+static void AssertPublicNullableEvent(ClassDeclarationSyntax targetClass, string eventName)
+{
+    var matches = targetClass.Members
+        .OfType<EventFieldDeclarationSyntax>()
+        .Where(declaration => declaration.Declaration.Variables
+            .Any(variable => variable.Identifier.ValueText == eventName))
+        .ToArray();
+    Assert(matches.Length == 1, $"{targetClass.Identifier.ValueText} 必须唯一声明 {eventName} 事件。");
+    var declaration = matches.Single();
+    Assert(declaration.Declaration.Variables.Count == 1
+            && declaration.Declaration.Variables[0].Identifier.ValueText == eventName,
+        $"{eventName} 必须是独立事件字段声明。");
+    Assert(declaration.Modifiers.Count == 1 && declaration.Modifiers[0].IsKind(SyntaxKind.PublicKeyword),
+        $"{eventName} 必须且只能使用 public 修饰符。");
+    Assert(declaration.Declaration.Type is NullableTypeSyntax
+        {
+            ElementType: IdentifierNameSyntax { Identifier.ValueText: "EventHandler" },
+        }, $"{eventName} 的类型必须精确为 EventHandler?。");
+}
+
+static void AssertHandlerOnlyForwards(ClassDeclarationSyntax targetClass, string methodName, string eventName)
+{
+    var matches = targetClass.Members
+        .OfType<MethodDeclarationSyntax>()
+        .Where(method => method.Identifier.ValueText == methodName)
+        .ToArray();
+    Assert(matches.Length == 1, $"{targetClass.Identifier.ValueText} 必须唯一声明 {methodName}。");
+    var method = matches.Single();
+    ExpressionSyntax? expression = method.ExpressionBody?.Expression;
+    if (expression is null
+        && method.Body is { Statements.Count: 1 }
+        && method.Body.Statements[0] is ExpressionStatementSyntax expressionStatement)
+    {
+        expression = expressionStatement.Expression;
+    }
+
+    Assert(expression is ConditionalAccessExpressionSyntax
+        {
+            Expression: IdentifierNameSyntax eventIdentifier,
+            WhenNotNull: InvocationExpressionSyntax
+            {
+                Expression: MemberBindingExpressionSyntax
+                {
+                    Name: IdentifierNameSyntax { Identifier.ValueText: "Invoke" },
+                },
+                ArgumentList.Arguments:
+                [
+                    { Expression: ThisExpressionSyntax },
+                    {
+                        Expression: MemberAccessExpressionSyntax
+                        {
+                            Expression: IdentifierNameSyntax { Identifier.ValueText: "EventArgs" },
+                            Name: IdentifierNameSyntax { Identifier.ValueText: "Empty" },
+                        },
+                    },
+                ],
+            },
+        } && eventIdentifier.Identifier.ValueText == eventName,
+        $"{methodName} 必须且只能执行 {eventName}?.Invoke(this, EventArgs.Empty)。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)
