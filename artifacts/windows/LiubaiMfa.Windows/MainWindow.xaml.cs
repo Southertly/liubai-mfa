@@ -16,6 +16,7 @@ public sealed partial class MainWindow : Window
 {
     private static readonly TimeSpan BackgroundLockDelay = TimeSpan.FromMinutes(1);
     private readonly WindowsHelloService _windowsHello;
+    private readonly StartupProtectionSettings _startupProtectionSettings;
     private readonly NativeFileService _files;
     private readonly ClipboardService _clipboard;
     private readonly AccountDialogService _accountDialogs;
@@ -30,6 +31,7 @@ public sealed partial class MainWindow : Window
     private long _activeSession;
     private bool _isUnlocked;
     private bool _unlockInProgress;
+    private bool _startupProtectionEnabled;
     private readonly DeferredNoticeGate _cancelledBackupNotice = new();
 
     public MainWindow()
@@ -50,6 +52,7 @@ public sealed partial class MainWindow : Window
         AuthenticatorView.DeleteRequested += DeleteAccount_Click;
         LockView.UnlockRequested += Unlock_Click;
         _windowsHello = new WindowsHelloService(this);
+        _startupProtectionSettings = new StartupProtectionSettings();
         _files = new NativeFileService(this);
         _clipboard = new ClipboardService();
         _accountDialogs = new AccountDialogService(_windowsHello, ShowDialogAsync, IsSessionCurrent, ShowStatus);
@@ -73,6 +76,22 @@ public sealed partial class MainWindow : Window
     private async void RootGrid_Loaded(object sender, RoutedEventArgs e)
     {
         RootGrid.Loaded -= RootGrid_Loaded;
+        _startupProtectionEnabled = _startupProtectionSettings.IsEnabled;
+        AuthenticatorView.ApplyStartupProtection(_startupProtectionEnabled);
+        if (!StartupProtectionPolicy.ShouldStartLocked(_startupProtectionEnabled))
+        {
+            try
+            {
+                await OpenWithoutVerificationAsync();
+            }
+            catch (Exception)
+            {
+                ForceLock("无法完成打开操作，请稍后重试。");
+            }
+
+            return;
+        }
+
         try
         {
             if (!await _windowsHello.IsAvailableAsync())
@@ -88,6 +107,14 @@ public sealed partial class MainWindow : Window
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
+        if (!StartupProtectionPolicy.ShouldScheduleAutoLock(_startupProtectionEnabled, _isUnlocked))
+        {
+            _backgroundLockCancellation?.Cancel();
+            _backgroundLockCancellation = null;
+            _deactivatedAt = null;
+            return;
+        }
+
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             _deactivatedAt = DateTimeOffset.UtcNow;
@@ -98,7 +125,11 @@ public sealed partial class MainWindow : Window
         }
 
         _backgroundLockCancellation?.Cancel();
-        if (_isUnlocked && _deactivatedAt is not null && DateTimeOffset.UtcNow - _deactivatedAt >= BackgroundLockDelay)
+        if (_deactivatedAt is { } deactivatedAt && StartupProtectionPolicy.ShouldLockAfterDelay(
+                _startupProtectionEnabled,
+                _isUnlocked,
+                DateTimeOffset.UtcNow - deactivatedAt,
+                BackgroundLockDelay))
         {
             Lock();
         }
@@ -111,7 +142,11 @@ public sealed partial class MainWindow : Window
         try
         {
             await Task.Delay(BackgroundLockDelay, cancellationToken);
-            if (_deactivatedAt is not null && _isUnlocked)
+            if (_deactivatedAt is { } deactivatedAt && StartupProtectionPolicy.ShouldLockAfterDelay(
+                    _startupProtectionEnabled,
+                    _isUnlocked,
+                    DateTimeOffset.UtcNow - deactivatedAt,
+                    BackgroundLockDelay))
             {
                 Lock();
             }
@@ -126,12 +161,18 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            await UnlockAsync();
+            if (_startupProtectionEnabled)
+            {
+                await UnlockAsync();
+            }
+            else
+            {
+                await OpenWithoutVerificationAsync();
+            }
         }
         catch (Exception)
         {
-            Lock();
-            LockView.Message = "无法完成解锁，请稍后重试。";
+            ForceLock("无法完成打开操作，请稍后重试。");
         }
     }
 
@@ -181,29 +222,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            if (!ViewModel.IsLoaded)
-            {
-                try
-                {
-                    await ViewModel.LoadAsync();
-                }
-                catch (Exception exception) when (exception is IOException or System.Security.Cryptography.CryptographicException or FormatException)
-                {
-                    LockView.Message = "无法解锁本地账户数据。为避免覆盖，应用保持锁定。";
-                    return;
-                }
-            }
-
-            var sessionToken = _sessionGuard.BeginUnlockedSession();
-            _sessionCancellation.Begin(sessionToken);
-            Volatile.Write(ref _activeSession, sessionToken);
-            _isUnlocked = true;
-            AuthenticatorView.Attach(ViewModel);
-            LockView.ButtonContent = "使用 Windows Hello 解锁";
-            LockView.Visibility = Visibility.Collapsed;
-            AuthenticatorView.Visibility = Visibility.Visible;
-            _timer.Start();
-            TryDeliverCancelledBackupNotice(sessionToken);
+            await EnterMainViewAsync("无法解锁本地账户数据。为避免覆盖，应用保持锁定。");
         }
         finally
         {
@@ -212,9 +231,70 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Lock_Click(object? sender, EventArgs e) => Lock();
+    private async Task OpenWithoutVerificationAsync()
+    {
+        if (_unlockInProgress)
+        {
+            return;
+        }
 
-    private void Lock()
+        _unlockInProgress = true;
+        LockView.IsUnlockEnabled = false;
+        LockView.Message = "正在打开本机验证码…";
+        try
+        {
+            await EnterMainViewAsync("无法打开本地账户数据。为避免覆盖，应用不会写入新数据。");
+        }
+        finally
+        {
+            _unlockInProgress = false;
+            LockView.IsUnlockEnabled = true;
+        }
+    }
+
+    private async Task<bool> EnterMainViewAsync(string loadFailureMessage)
+    {
+        if (!ViewModel.IsLoaded)
+        {
+            try
+            {
+                await ViewModel.LoadAsync();
+            }
+            catch (Exception exception) when (exception is IOException or System.Security.Cryptography.CryptographicException or FormatException)
+            {
+                LockView.Message = loadFailureMessage;
+                LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
+                AuthenticatorView.Visibility = Visibility.Collapsed;
+                LockView.Visibility = Visibility.Visible;
+                return false;
+            }
+        }
+
+        var sessionToken = _sessionGuard.BeginUnlockedSession();
+        _sessionCancellation.Begin(sessionToken);
+        Volatile.Write(ref _activeSession, sessionToken);
+        _isUnlocked = true;
+        AuthenticatorView.ApplyStartupProtection(_startupProtectionEnabled);
+        AuthenticatorView.Attach(ViewModel);
+        LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
+        LockView.Visibility = Visibility.Collapsed;
+        AuthenticatorView.Visibility = Visibility.Visible;
+        _timer.Start();
+        TryDeliverCancelledBackupNotice(sessionToken);
+        return true;
+    }
+
+    private void Lock_Click(object? sender, EventArgs e)
+    {
+        if (_startupProtectionEnabled)
+        {
+            ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
+        }
+    }
+
+    private void Lock() => ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
+
+    private void ForceLock(string message)
     {
         _sessionGuard.Invalidate();
         _sessionCancellation.Invalidate();
@@ -224,8 +304,8 @@ public sealed partial class MainWindow : Window
         _timer.Stop();
         AuthenticatorView.Detach();
         ViewModel.Unload();
-        LockView.Message = "使用 Windows Hello 验证身份后即可查看验证码。";
-        LockView.ButtonContent = "使用 Windows Hello 解锁";
+        LockView.Message = message;
+        LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         AuthenticatorView.Visibility = Visibility.Collapsed;
         LockView.Visibility = Visibility.Visible;
     }
