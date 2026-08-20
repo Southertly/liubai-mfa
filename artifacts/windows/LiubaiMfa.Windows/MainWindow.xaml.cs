@@ -947,7 +947,7 @@ public sealed partial class MainWindow : Window
             case SnippingCaptureDecisionKind.Failed:
                 ShowAddAccountStatus(
                     sessionToken,
-                    "截图账户未导入，请稍后重试。",
+                    "未能打开截图工具，请使用图片导入或手动输入",
                     InfoBarSeverity.Error);
                 return;
             case SnippingCaptureDecisionKind.RedeemNow:

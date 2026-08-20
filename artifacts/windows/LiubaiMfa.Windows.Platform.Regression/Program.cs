@@ -3071,19 +3071,34 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
             && HasInvocation(cancelledVerificationBranches[0].Statement, "_snippingCaptureState", "Abandon"),
         "用户取消 Windows Hello 解锁时必须永久放弃延期截图终态。");
     var processCapture = FindUniqueMethod(mainWindowClass, "ProcessSnippingCaptureDecisionAsync");
-    var processMessages = GetActiveStringLiterals(processCapture);
     var launchMessages = GetActiveStringLiterals(screenshotHandler);
-    var startupFailureMessageOwners = mainWindowClass.Members.OfType<MethodDeclarationSyntax>()
-        .Where(method => GetActiveStringLiterals(method)
-            .Contains("未能打开截图工具，请使用图片导入或手动输入"))
-        .Select(method => method.Identifier.ValueText)
-        .Distinct(StringComparer.Ordinal)
+    var captureDecisionSwitch = processCapture.DescendantNodes().OfType<SwitchStatementSyntax>()
+        .Single(statement => statement.Expression.ToString() == "decision.Kind");
+    var failedDecisionSections = captureDecisionSwitch.Sections
+        .Where(section => section.Labels.OfType<CaseSwitchLabelSyntax>().Any(label =>
+            label.Value.ToString() == "SnippingCaptureDecisionKind.Failed"))
         .ToArray();
-    Assert(processMessages.Contains("截图账户未导入，请稍后重试。")
-            && !processMessages.Contains("未能打开截图工具，请使用图片导入或手动输入")
-            && launchMessages.Contains("未能打开截图工具，请使用图片导入或手动输入")
-            && startupFailureMessageOwners.SequenceEqual(["ScreenshotScan_Click"]),
-        "截图启动失败文案只能位于启动阶段，识别/保存通用异常必须使用阶段中性文案。");
+    Assert(failedDecisionSections.Length == 1,
+        "截图决策必须保留唯一的 Failed 分支。");
+    var failedDecisionMessages = GetActiveStringLiterals(failedDecisionSections[0]);
+    var coordinatorTries = processCapture.DescendantNodes().OfType<TryStatementSyntax>()
+        .Where(statement => HasInvocation(statement.Block, "_qrImportCoordinator", "ImportAsync"))
+        .ToArray();
+    Assert(coordinatorTries.Length == 1,
+        "截图兑换成功后必须通过唯一的二维码导入协调器 try/catch 处理。");
+    var coordinatorGeneralCatches = coordinatorTries[0].Catches
+        .Where(catchClause => catchClause.Filter is null
+            && catchClause.Declaration?.Type.ToString() == "Exception")
+        .ToArray();
+    Assert(coordinatorGeneralCatches.Length == 1,
+        "二维码导入协调器必须保留唯一通用异常边界。");
+    var coordinatorFailureMessages = GetActiveStringLiterals(coordinatorGeneralCatches[0]);
+    Assert(failedDecisionMessages.Contains("未能打开截图工具，请使用图片导入或手动输入")
+            && !failedDecisionMessages.Contains("截图账户未导入，请稍后重试。")
+            && coordinatorFailureMessages.Contains("截图账户未导入，请稍后重试。")
+            && !coordinatorFailureMessages.Contains("未能打开截图工具，请使用图片导入或手动输入")
+            && launchMessages.Contains("未能打开截图工具，请使用图片导入或手动输入"),
+        "协议失败、启动失败与二维码导入异常必须显示各自阶段的活动文案。");
     foreach (var message in new[]
     {
         "截图功能暂时不可用，请使用图片导入或手动输入",
