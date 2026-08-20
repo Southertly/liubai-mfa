@@ -72,7 +72,8 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("紧凑账户行服务图标文字保持可读对比", () => RunSync(VerifyServiceIconForegroundContrast)),
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
     ("验证码最后五秒进入临期状态", () => RunSync(VerifyAccountExpiryState)),
-    ("账户临期状态使用生命周期安全绑定", () => RunSync(VerifyExpiryStateUsesLifecycleSafeBinding)),
+    ("账户临期触发器避免危险 x:Bind", () => RunSync(VerifyExpiryStateAvoidsTriggerXBind)),
+    ("账户临期状态通过可视元素桥接", () => RunSync(VerifyExpiryStateUsesVisualElementBridge)),
     ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
     ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
     ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
@@ -649,7 +650,38 @@ static void VerifyAccountExpiryState()
     Assert(changes.Contains(nameof(AccountItemViewModel.IsExpiring)), "跨越临界值时必须通知临期状态。");
 }
 
-static void VerifyExpiryStateUsesLifecycleSafeBinding()
+static void VerifyExpiryStateUsesVisualElementBridge()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var source = File.ReadAllText(sourcePath);
+    const string groupMarker = "<VisualStateGroup x:Name=\"ExpiryStates\">";
+    var groupStart = source.IndexOf(groupMarker, StringComparison.Ordinal);
+    var groupEnd = source.IndexOf("</VisualStateGroup>", groupStart, StringComparison.Ordinal);
+    Assert(groupStart >= 0 && groupEnd > groupStart, "无法定位账户卡片 ExpiryStates 视觉状态组。");
+
+    var expiryStates = source[groupStart..(groupEnd + "</VisualStateGroup>".Length)];
+    const string progressMarker = "x:Name=\"ExpiryProgress\"";
+    var progressName = source.IndexOf(progressMarker, groupEnd, StringComparison.Ordinal);
+    var progressStart = source.LastIndexOf("<ProgressBar", progressName, StringComparison.Ordinal);
+    var progressEnd = source.IndexOf("/>", progressName, StringComparison.Ordinal);
+    Assert(progressName >= 0 && progressStart >= 0 && progressEnd > progressName,
+        "无法定位账户卡片 ExpiryProgress 进度条。");
+
+    var expiryProgress = source[progressStart..(progressEnd + 2)];
+    Assert(!expiryStates.Contains("{x:Bind IsExpiring", StringComparison.Ordinal),
+        "账户临期 StateTrigger 不得使用会生成生命周期不安全 setter 的 x:Bind。");
+    Assert(!expiryStates.Contains("{Binding IsExpiring", StringComparison.Ordinal),
+        "账户临期 StateTrigger 不得依赖无法继承项 DataContext 的无 Source Binding。");
+    Assert(expiryProgress.Contains("Tag=\"{x:Bind IsExpiring, Mode=OneWay}\"", StringComparison.Ordinal),
+        "ExpiryProgress 必须通过生命周期安全的 x:Bind 暴露临期状态。");
+    Assert(expiryStates.Contains("<StateTrigger IsActive=\"{Binding Tag, ElementName=ExpiryProgress}\" />", StringComparison.Ordinal),
+        "账户临期 StateTrigger 必须通过 ElementName 读取 ExpiryProgress.Tag。");
+    Assert(expiryStates.Contains("Target=\"ExpiryProgress.Foreground\"", StringComparison.Ordinal)
+        && expiryStates.Contains("Value=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
+        "账户临期状态必须保留进度条 CriticalBrush Setter。");
+}
+
+static void VerifyExpiryStateAvoidsTriggerXBind()
 {
     var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
     var source = File.ReadAllText(sourcePath);
@@ -661,8 +693,6 @@ static void VerifyExpiryStateUsesLifecycleSafeBinding()
     var expiryStates = source[groupStart..(groupEnd + "</VisualStateGroup>".Length)];
     Assert(!expiryStates.Contains("{x:Bind IsExpiring", StringComparison.Ordinal),
         "账户临期 StateTrigger 不得使用会生成生命周期不安全 setter 的 x:Bind。");
-    Assert(expiryStates.Contains("<StateTrigger IsActive=\"{Binding IsExpiring, Mode=OneWay}\" />", StringComparison.Ordinal),
-        "账户临期 StateTrigger 必须使用经典单向 Binding 保留最后五秒变红功能。");
     Assert(expiryStates.Contains("Target=\"ExpiryProgress.Foreground\"", StringComparison.Ordinal)
         && expiryStates.Contains("Value=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
         "账户临期状态必须保留进度条 CriticalBrush Setter。");

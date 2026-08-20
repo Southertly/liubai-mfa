@@ -230,7 +230,7 @@
                                             <VisualState x:Name="NormalExpiry" />
                                             <VisualState x:Name="Expiring">
                                                 <VisualState.StateTriggers>
-                                                    <StateTrigger IsActive="{Binding IsExpiring, Mode=OneWay}" />
+                                                    <StateTrigger IsActive="{Binding Tag, ElementName=ExpiryProgress}" />
                                                 </VisualState.StateTriggers>
                                                 <VisualState.Setters>
                                                     <Setter
@@ -347,6 +347,7 @@
                                         Height="3"
                                         Maximum="1"
                                         Value="{x:Bind ProgressValue, Mode=OneWay}"
+                                        Tag="{x:Bind IsExpiring, Mode=OneWay}"
                                         Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                         Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
                                     <Border
