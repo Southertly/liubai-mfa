@@ -1490,10 +1490,15 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     var authenticatorCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs"));
     var mainWindowCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
     var addAccountXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml"));
+    var addAccountCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml.cs"));
     var authenticatorXaml = File.ReadAllText(authenticatorXamlPath);
     var authenticatorCode = File.ReadAllText(authenticatorCodePath);
     var mainWindowCode = File.ReadAllText(mainWindowCodePath);
     var addAccountXaml = File.ReadAllText(addAccountXamlPath);
+    var addAccountCode = File.ReadAllText(addAccountCodePath);
+    var presentation = (System.Xml.Linq.XNamespace)"http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+    var authenticatorDocument = System.Xml.Linq.XDocument.Parse(authenticatorXaml);
+    var addAccountDocument = System.Xml.Linq.XDocument.Parse(addAccountXaml);
 
     Assert(!authenticatorXaml.Contains("ImportQrButton_Click", StringComparison.Ordinal),
         "验证码首页不得保留独立二维码导入按钮。");
@@ -1504,10 +1509,41 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     Assert(authenticatorCode.Split("public event EventHandler? AddRequested;", StringSplitOptions.None).Length == 2,
         "验证码首页必须只公开一个添加账户意图事件。");
 
-    foreach (var intent in new[] { "ScreenshotScanRequested", "ImportImageRequested", "ManualEntryRequested", "BackRequested" })
+    var authenticatorAddButtons = authenticatorDocument
+        .Descendants(presentation + "Button")
+        .Where(element => GetXamlAttribute(element, "AutomationProperties.Name") == "添加账户")
+        .ToArray();
+    var topAddButtons = authenticatorAddButtons
+        .Where(element => GetXamlAttribute(element, "ToolTipService.ToolTip") == "添加账户"
+            && element.Descendants(presentation + "FontIcon").Any())
+        .ToArray();
+    var emptyAddButtons = authenticatorAddButtons
+        .Where(element => GetXamlAttribute(element, "Content") == "添加账户")
+        .ToArray();
+    Assert(topAddButtons.Length == 1, "验证码首页顶部必须有且只有一个添加账户按钮。");
+    Assert(emptyAddButtons.Length == 1, "验证码首页空状态必须有且只有一个添加账户按钮。");
+    Assert(GetXamlAttribute(topAddButtons[0], "Click") == "AddButton_Click",
+        "验证码首页顶部添加按钮必须绑定 AddButton_Click。");
+    Assert(GetXamlAttribute(emptyAddButtons[0], "Click") == "EmptyAddButton_Click",
+        "验证码首页空状态添加按钮必须绑定 EmptyAddButton_Click。");
+    AssertHandlerOnlyForwards(authenticatorCode, "AddButton_Click", "AddRequested");
+    AssertHandlerOnlyForwards(authenticatorCode, "EmptyAddButton_Click", "AddRequested");
+
+    foreach (var intent in new[] { "BackRequested", "ScreenshotScanRequested", "ImportImageRequested", "ManualEntryRequested" })
     {
-        Assert(addAccountXaml.Contains(intent, StringComparison.Ordinal), $"添加账户页缺少 {intent} 意图入口。");
+        Assert(addAccountCode.Contains($"public event EventHandler? {intent};", StringComparison.Ordinal),
+            $"添加账户页缺少 {intent} 意图事件。");
     }
+
+    var addAccountButtons = addAccountDocument.Descendants(presentation + "Button").ToArray();
+    AssertButtonClickBinding(addAccountButtons, "返回验证码列表", "BackButton_Click");
+    AssertButtonClickBinding(addAccountButtons, "截图并扫描二维码", "ScreenshotScanButton_Click");
+    AssertButtonClickBinding(addAccountButtons, "从图片导入", "ImportImageButton_Click");
+    AssertButtonClickBinding(addAccountButtons, "手动输入", "ManualEntryButton_Click");
+    AssertHandlerOnlyForwards(addAccountCode, "BackButton_Click", "BackRequested");
+    AssertHandlerOnlyForwards(addAccountCode, "ScreenshotScanButton_Click", "ScreenshotScanRequested");
+    AssertHandlerOnlyForwards(addAccountCode, "ImportImageButton_Click", "ImportImageRequested");
+    AssertHandlerOnlyForwards(addAccountCode, "ManualEntryButton_Click", "ManualEntryRequested");
 
     foreach (var text in new[]
     {
@@ -1522,6 +1558,32 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
 
     Assert(addAccountXaml.Contains("AutomationProperties.Name=\"返回验证码列表\"", StringComparison.Ordinal),
         "返回按钮必须提供清晰的自动化名称。");
+}
+
+static string? GetXamlAttribute(System.Xml.Linq.XElement element, string localName) =>
+    element.Attributes().FirstOrDefault(attribute => attribute.Name.LocalName == localName)?.Value;
+
+static void AssertButtonClickBinding(
+    IReadOnlyCollection<System.Xml.Linq.XElement> buttons,
+    string automationName,
+    string expectedHandler)
+{
+    var matches = buttons
+        .Where(element => GetXamlAttribute(element, "AutomationProperties.Name") == automationName)
+        .ToArray();
+    Assert(matches.Length == 1, $"添加账户页必须有且只有一个“{automationName}”按钮。");
+    Assert(GetXamlAttribute(matches[0], "Click") == expectedHandler,
+        $"“{automationName}”按钮必须绑定 {expectedHandler}。");
+}
+
+static void AssertHandlerOnlyForwards(string source, string methodName, string eventName)
+{
+    var methodPattern = $@"private\s+void\s+{System.Text.RegularExpressions.Regex.Escape(methodName)}\s*\([^)]*\)\s*=>\s*(?<body>[^;]*);";
+    var matches = System.Text.RegularExpressions.Regex.Matches(source, methodPattern);
+    Assert(matches.Count == 1, $"必须能唯一提取 {methodName} 的表达式方法体。");
+    var body = System.Text.RegularExpressions.Regex.Replace(matches[0].Groups["body"].Value, @"\s+", " ").Trim();
+    Assert(body == $"{eventName}?.Invoke(this, EventArgs.Empty)",
+        $"{methodName} 必须且只能转发 {eventName}。");
 }
 
 static string FindWorkspaceSourceFile(string relativePath)

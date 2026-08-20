@@ -14,14 +14,14 @@ public sealed partial class AddAccountView : UserControl
 
     public void FocusPrimaryAction() => ScreenshotScanButton.Focus(FocusState.Programmatic);
 
-    private void BackRequested_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
+    private void BackButton_Click(object sender, RoutedEventArgs e) => BackRequested?.Invoke(this, EventArgs.Empty);
 
-    private void ScreenshotScanRequested_Click(object sender, RoutedEventArgs e) =>
+    private void ScreenshotScanButton_Click(object sender, RoutedEventArgs e) =>
         ScreenshotScanRequested?.Invoke(this, EventArgs.Empty);
 
-    private void ImportImageRequested_Click(object sender, RoutedEventArgs e) =>
+    private void ImportImageButton_Click(object sender, RoutedEventArgs e) =>
         ImportImageRequested?.Invoke(this, EventArgs.Empty);
 
-    private void ManualEntryRequested_Click(object sender, RoutedEventArgs e) =>
+    private void ManualEntryButton_Click(object sender, RoutedEventArgs e) =>
         ManualEntryRequested?.Invoke(this, EventArgs.Empty);
 }
