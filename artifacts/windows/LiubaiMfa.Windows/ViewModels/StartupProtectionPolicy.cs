@@ -11,7 +11,7 @@ public static class StartupProtectionPolicy
         bool requested,
         bool verificationSucceeded,
         bool sessionCurrent) =>
-        requested != current && verificationSucceeded && sessionCurrent;
+        requested == current || (verificationSucceeded && sessionCurrent);
 
     public static bool ShouldScheduleAutoLock(bool enabled, bool isUnlocked) => enabled && isUnlocked;
 
