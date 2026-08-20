@@ -100,8 +100,249 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("敏感密钥复制必须消费剪贴板失败结果", () => RunSync(VerifySensitiveClipboardResultHandling)),
     ("剪贴板提示策略区分成功和失败", () => RunSync(VerifyClipboardStatusFeedbackPolicy)),
     ("恢复密钥策略只在成功时允许继续", () => RunSync(VerifyRecoveryKeyClipboardFeedbackPolicy)),
+    ("截图响应锁定时延期且解锁后只消费一次", () => RunSync(VerifySnippingCaptureDefersUntilUnlockOnce)),
+    ("截图响应忽略错误关联和重复回调", () => RunSync(VerifySnippingCaptureIgnoresMismatchedAndDuplicateResponses)),
+    ("截图响应状态映射和令牌校验", () => RunSync(VerifySnippingCaptureStatusMappingAndTokenValidation)),
+    ("截图新请求替换旧请求和延期令牌", () => RunSync(VerifySnippingCaptureBeginReplacesPreviousState)),
+    ("截图放弃请求会清除活动状态和延期令牌", () => RunSync(VerifySnippingCaptureAbandonClearsState)),
+    ("截图请求拒绝空关联 ID", () => RunSync(VerifySnippingCaptureRejectsEmptyCorrelationId)),
+    ("截图协议生成精确且安全编码的捕获 URI", () => RunSync(VerifySnippingToolCaptureUri)),
+    ("截图协议解析有效响应和可选令牌", () => RunSync(VerifySnippingToolParsesValidResponses)),
+    ("截图协议拒绝非目标响应端点", () => RunSync(VerifySnippingToolRejectsInvalidResponseEndpoints)),
+    ("截图协议拒绝缺失或无效的必填参数", () => RunSync(VerifySnippingToolRejectsInvalidRequiredParameters)),
+    ("截图协议拒绝重复关键参数", () => RunSync(VerifySnippingToolRejectsDuplicateCriticalParameters)),
     ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
 };
+
+static void VerifySnippingToolCaptureUri()
+{
+    var correlationId = Guid.Parse("55555555-5555-4555-8555-555555555555");
+    var uri = SnippingToolProtocol.CreateCaptureUri(correlationId);
+
+    Assert(uri.Scheme == "ms-screenclip", "截图捕获 URI scheme 必须精确为 ms-screenclip。");
+    Assert(uri.Host == "capture", "截图捕获 URI host 必须精确为 capture。");
+    Assert(uri.AbsolutePath == "/image", "截图捕获 URI path 必须精确为 /image。");
+
+    var queryParts = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
+    Assert(queryParts.Contains("rectangle", StringComparer.Ordinal), "截图捕获 URI 必须包含裸 rectangle 参数。");
+    Assert(!queryParts.Any(part => part.StartsWith("rectangle=", StringComparison.Ordinal)),
+        "rectangle 参数不得带等号和值。");
+    Assert(queryParts.Contains("enabledModes=RectangleSnip", StringComparer.Ordinal),
+        "截图捕获 URI 必须只启用矩形截图模式。");
+    Assert(queryParts.Contains("user-agent=LiubaiMFA", StringComparer.Ordinal),
+        "截图捕获 URI 必须携带固定 user-agent。");
+    Assert(queryParts.Contains("api-version=1.2", StringComparer.Ordinal),
+        "截图捕获 URI 必须使用 1.2 协议版本。");
+    Assert(queryParts.Contains("redirect-uri=liubai-mfa%3A%2F%2Fcapture-response", StringComparer.Ordinal),
+        "截图捕获 URI 必须安全编码固定回调地址。");
+    Assert(queryParts.Contains($"x-request-correlation-id={correlationId:D}", StringComparer.Ordinal),
+        "截图捕获 URI 必须携带 D 格式关联 ID。");
+    Assert(!queryParts.Any(part => part.StartsWith("auto-save", StringComparison.OrdinalIgnoreCase)),
+        "截图捕获 URI 不得启用 auto-save。");
+    AssertThrows<ArgumentException>(() => SnippingToolProtocol.CreateCaptureUri(Guid.Empty),
+        "截图捕获 URI 必须拒绝空关联 ID。");
+}
+
+static void VerifySnippingToolParsesValidResponses()
+{
+    var correlationId = Guid.Parse("66666666-6666-4666-8666-666666666666");
+    var withToken = new Uri(
+        $"LIUBAI-MFA://CAPTURE-RESPONSE?code=200&x-request-correlation-id={correlationId:D}"
+        + "&file-access-token=token%2Bvalue%2Fone&reason=completed&future-field=allowed");
+
+    Assert(SnippingToolProtocol.TryParseResponse(withToken, out var parsed), "合法截图响应必须解析成功。");
+    Assert(parsed.CorrelationId == correlationId, "截图响应关联 ID 解析错误。");
+    Assert(parsed.StatusCode == 200, "截图响应状态码解析错误。");
+    Assert(parsed.FileAccessToken == "token+value/one", "截图响应令牌必须按查询编码解码。");
+
+    var withoutToken = new Uri(
+        $"liubai-mfa://capture-response?code=499&x-request-correlation-id={correlationId:D}&reason=cancelled");
+    Assert(SnippingToolProtocol.TryParseResponse(withoutToken, out var cancelled),
+        "缺少可选令牌的合法截图响应必须解析成功。");
+    Assert(cancelled.StatusCode == 499 && cancelled.FileAccessToken is null,
+        "缺少可选令牌时必须保留空值。");
+
+    var emptyToken = new Uri(
+        $"liubai-mfa://capture-response?code=200&x-request-correlation-id={correlationId:D}&file-access-token=");
+    Assert(SnippingToolProtocol.TryParseResponse(emptyToken, out var empty),
+        "空令牌必须由协议层解析并交给状态机判定失败。");
+    Assert(empty.FileAccessToken == string.Empty, "显式空令牌必须与缺失令牌区分。");
+}
+
+static void VerifySnippingToolRejectsInvalidResponseEndpoints()
+{
+    var correlationId = Guid.Parse("77777777-7777-4777-8777-777777777777");
+    var query = $"?code=200&x-request-correlation-id={correlationId:D}";
+    var invalidUris = new[]
+    {
+        new Uri("other://capture-response" + query),
+        new Uri("liubai-mfa://other" + query),
+        new Uri("liubai-mfa://user@capture-response" + query),
+        new Uri("liubai-mfa://capture-response:123" + query),
+        new Uri("liubai-mfa://capture-response/extra" + query),
+        new Uri("liubai-mfa://capture-response" + query + "#fragment"),
+    };
+
+    foreach (var uri in invalidUris)
+    {
+        Assert(!SnippingToolProtocol.TryParseResponse(uri, out var response),
+            $"非目标截图响应端点必须拒绝：{uri.GetLeftPart(UriPartial.Path)}");
+        Assert(response == default, "拒绝响应时不得返回部分解析结果。");
+    }
+}
+
+static void VerifySnippingToolRejectsInvalidRequiredParameters()
+{
+    var correlationId = Guid.Parse("88888888-8888-4888-8888-888888888888");
+    var invalidUris = new[]
+    {
+        new Uri($"liubai-mfa://capture-response?x-request-correlation-id={correlationId:D}"),
+        new Uri("liubai-mfa://capture-response?code=200"),
+        new Uri($"liubai-mfa://capture-response?code=not-an-integer&x-request-correlation-id={correlationId:D}"),
+        new Uri("liubai-mfa://capture-response?code=200&x-request-correlation-id=not-a-guid"),
+        new Uri("liubai-mfa://capture-response?code=200&x-request-correlation-id=00000000-0000-0000-0000-000000000000"),
+    };
+
+    foreach (var uri in invalidUris)
+    {
+        Assert(!SnippingToolProtocol.TryParseResponse(uri, out var response),
+            "缺失或无效的截图响应必填参数必须拒绝。");
+        Assert(response == default, "必填参数无效时不得返回部分解析结果。");
+    }
+}
+
+static void VerifySnippingToolRejectsDuplicateCriticalParameters()
+{
+    var correlationId = Guid.Parse("99999999-9999-4999-8999-999999999999");
+    var duplicateQueries = new[]
+    {
+        $"code=200&CODE=499&x-request-correlation-id={correlationId:D}",
+        $"code=200&x-request-correlation-id={correlationId:D}&X-REQUEST-CORRELATION-ID={correlationId:D}",
+        $"code=200&x-request-correlation-id={correlationId:D}&file-access-token=one&FILE-ACCESS-TOKEN=two",
+    };
+
+    foreach (var query in duplicateQueries)
+    {
+        var uri = new Uri("liubai-mfa://capture-response?" + query);
+        Assert(!SnippingToolProtocol.TryParseResponse(uri, out var response),
+            "大小写不同的重复关键参数也必须拒绝。");
+        Assert(response == default, "关键参数重复时不得返回部分解析结果。");
+    }
+}
+
+static void VerifySnippingCaptureDefersUntilUnlockOnce()
+{
+    var state = new SnippingCaptureState();
+    var first = state.Begin(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+    var deferred = state.Receive(first, 200, "token-a", sessionCurrent: false);
+    Assert(deferred.Kind == SnippingCaptureDecisionKind.DeferUntilUnlock, "锁定时必须延期处理。");
+    Assert(deferred.FileAccessToken is null, "延期决定不得提前返回文件访问令牌。");
+    Assert(state.ResumeAfterUnlock(sessionCurrent: false).Kind == SnippingCaptureDecisionKind.DeferUntilUnlock,
+        "会话仍无效时必须继续延期且不得消费令牌。");
+
+    var resumed = state.ResumeAfterUnlock(sessionCurrent: true);
+    Assert(resumed.Kind == SnippingCaptureDecisionKind.RedeemNow && resumed.FileAccessToken == "token-a",
+        "解锁后必须只返回一次令牌。");
+    Assert(state.ResumeAfterUnlock(true).Kind == SnippingCaptureDecisionKind.Ignore, "一次性令牌不得重复返回。");
+}
+
+static void VerifySnippingCaptureIgnoresMismatchedAndDuplicateResponses()
+{
+    var state = new SnippingCaptureState();
+    var current = state.Begin(Guid.Parse("22222222-2222-2222-2222-222222222222"));
+    var stale = Guid.Parse("22222222-2222-2222-2222-222222222223");
+
+    Assert(state.Receive(stale, 200, "stale-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "关联 ID 不匹配时必须忽略回调。");
+    var accepted = state.Receive(current, 200, "current-token", sessionCurrent: true);
+    Assert(accepted.Kind == SnippingCaptureDecisionKind.RedeemNow && accepted.FileAccessToken == "current-token",
+        "错误关联回调不得清除当前有效请求。");
+    Assert(state.Receive(current, 200, "duplicate-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "匹配响应只允许处理一次。");
+
+    var noRequest = new SnippingCaptureState();
+    Assert(noRequest.Receive(current, 200, "unused-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "没有当前请求时必须忽略响应。");
+}
+
+static void VerifySnippingCaptureStatusMappingAndTokenValidation()
+{
+    var cases = new[]
+    {
+        (StatusCode: 499, Expected: SnippingCaptureDecisionKind.Cancelled, Name: "用户取消"),
+        (StatusCode: 400, Expected: SnippingCaptureDecisionKind.BadRequest, Name: "错误请求"),
+        (StatusCode: 408, Expected: SnippingCaptureDecisionKind.Timeout, Name: "超时"),
+        (StatusCode: 500, Expected: SnippingCaptureDecisionKind.Failed, Name: "服务失败"),
+        (StatusCode: 418, Expected: SnippingCaptureDecisionKind.Failed, Name: "未知状态"),
+    };
+
+    foreach (var testCase in cases)
+    {
+        var state = new SnippingCaptureState();
+        var correlationId = Guid.NewGuid();
+        state.Begin(correlationId);
+        var decision = state.Receive(correlationId, testCase.StatusCode, "must-not-escape", sessionCurrent: true);
+        Assert(decision.Kind == testCase.Expected, $"{testCase.Name}状态映射错误。");
+        Assert(decision.FileAccessToken is null, $"{testCase.Name}不得返回文件访问令牌。");
+        Assert(state.Receive(correlationId, testCase.StatusCode, null, sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+            $"{testCase.Name}响应处理后不得再次处理。");
+    }
+
+    foreach (var token in new string?[] { null, string.Empty, "   " })
+    {
+        var state = new SnippingCaptureState();
+        var correlationId = Guid.NewGuid();
+        state.Begin(correlationId);
+        Assert(state.Receive(correlationId, 200, token, sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Failed,
+            "200 响应缺失或包含空白令牌时必须失败。");
+    }
+}
+
+static void VerifySnippingCaptureBeginReplacesPreviousState()
+{
+    var state = new SnippingCaptureState();
+    var first = Guid.Parse("33333333-3333-3333-3333-333333333331");
+    var second = Guid.Parse("33333333-3333-3333-3333-333333333332");
+    var third = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+    Assert(state.Begin(first) == first, "Begin 必须返回传入的关联 ID。");
+    Assert(state.Begin(second) == second, "新请求必须返回新的关联 ID。");
+    Assert(state.Receive(first, 200, "old-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "新 Begin 后旧请求响应必须视为陈旧回调。");
+    Assert(state.Receive(second, 200, "pending-token", sessionCurrent: false).Kind == SnippingCaptureDecisionKind.DeferUntilUnlock,
+        "当前请求在锁定时应保存延期令牌。");
+
+    state.Begin(third);
+    Assert(state.ResumeAfterUnlock(true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "新 Begin 必须清除旧延期令牌。");
+    Assert(state.Receive(second, 200, "late-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "新 Begin 后已完成请求的迟到回调必须忽略。");
+    Assert(state.Receive(third, 499, null, sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Cancelled,
+        "新 Begin 必须保留新请求本身。");
+}
+
+static void VerifySnippingCaptureAbandonClearsState()
+{
+    var state = new SnippingCaptureState();
+    var active = Guid.Parse("44444444-4444-4444-4444-444444444441");
+    state.Begin(active);
+    state.Abandon();
+    Assert(state.Receive(active, 200, "abandoned-token", sessionCurrent: true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "Abandon 必须清除当前活动请求。");
+
+    var deferred = Guid.Parse("44444444-4444-4444-4444-444444444442");
+    state.Begin(deferred);
+    state.Receive(deferred, 200, "deferred-token", sessionCurrent: false);
+    state.Abandon();
+    Assert(state.ResumeAfterUnlock(true).Kind == SnippingCaptureDecisionKind.Ignore,
+        "Abandon 必须清除延期令牌。");
+}
+
+static void VerifySnippingCaptureRejectsEmptyCorrelationId()
+{
+    var state = new SnippingCaptureState();
+    AssertThrows<ArgumentException>(() => state.Begin(Guid.Empty), "空关联 ID 必须被拒绝。");
+}
 
 static void VerifyStartupProtectionDefaultsOff()
 {
