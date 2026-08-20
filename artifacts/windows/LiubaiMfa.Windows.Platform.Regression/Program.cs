@@ -55,6 +55,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("备份准备和恢复密钥格式化必须受错误边界保护", () => RunSync(VerifyBackupPreparationErrorBoundary)),
     ("备份文件选择失败不得逸出异步事件", () => RunSync(VerifyBackupPickerErrorBoundary)),
     ("旧代际回调不能操作当前计时器", () => RunSync(VerifyEpochCallbackGuard)),
+    ("旧挂载排队的分组同步不得进入新挂载", () => RunSync(VerifyQueuedGroupSynchronizationIsolatedByAttachEpoch)),
     ("新定位请求必须先替换旧计时器和高亮", () => RunSync(VerifyRevealReplacementOrdering)),
     ("旧定位 ID 不能消费新定位", VerifyPendingRevealRequiresExpectedIdAsync),
     ("派生筛选复用账户行并保持高亮", VerifyDerivedRefreshReusesAccountRowsAsync),
@@ -1291,6 +1292,42 @@ static void VerifyEpochCallbackGuard()
     Assert(!EpochCallbackGuard.IsCurrent(4, 4, 8, 7, "same", "same"), "旧 attach 回调不得操作当前计时器。");
     Assert(!EpochCallbackGuard.IsCurrent(4, 4, 8, 8, "new", "old"), "旧账户回调不得操作当前计时器。");
     Assert(EpochCallbackGuard.IsCurrent(4, 4, 8, 8, "same", "same"), "当前代际回调应被允许执行。");
+}
+
+static void VerifyQueuedGroupSynchronizationIsolatedByAttachEpoch()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs"));
+    var source = File.ReadAllText(sourcePath);
+    var methodStart = source.IndexOf("    private void Groups_CollectionChanged", StringComparison.Ordinal);
+    var methodEnd = source.IndexOf("    private void SynchronizeGroupSelection", methodStart, StringComparison.Ordinal);
+    Assert(methodStart >= 0 && methodEnd > methodStart, "无法定位分组集合变更方法。");
+
+    var method = source[methodStart..methodEnd];
+    var viewModelCapture = System.Text.RegularExpressions.Regex.Match(
+        method,
+        @"var\s+attachedViewModel\s*=\s*_viewModel\s*;");
+    var attachEpochCapture = System.Text.RegularExpressions.Regex.Match(
+        method,
+        @"var\s+attachEpoch\s*=\s*_attachEpoch\s*;");
+    var enqueue = System.Text.RegularExpressions.Regex.Match(
+        method,
+        @"var\s+(?<result>\w+)\s*=\s*DispatcherQueue\.TryEnqueue\s*\(\s*\(\s*\)\s*=>\s*\{(?<callback>[\s\S]*?)\}\s*\)\s*;");
+
+    Assert(viewModelCapture.Success && attachEpochCapture.Success, "分组同步入队前必须同时捕获视图模型和 attach epoch。");
+    Assert(enqueue.Success && viewModelCapture.Index < enqueue.Index && attachEpochCapture.Index < enqueue.Index,
+        "分组同步必须在捕获当前挂载身份后再入队。");
+
+    var callback = enqueue.Groups["callback"].Value;
+    Assert(System.Text.RegularExpressions.Regex.IsMatch(
+            callback,
+            @"if\s*\(\s*ReferenceEquals\s*\(\s*_viewModel\s*,\s*attachedViewModel\s*\)\s*&&\s*_attachEpoch\s*==\s*attachEpoch\s*\)\s*\{\s*SynchronizeGroupSelection\s*\(\s*\)\s*;"),
+        "排队的分组同步必须在执行前同时校验视图模型引用和 attach epoch。");
+
+    var enqueueResult = System.Text.RegularExpressions.Regex.Escape(enqueue.Groups["result"].Value);
+    Assert(System.Text.RegularExpressions.Regex.IsMatch(
+            method[enqueue.Index..],
+            $@"if\s*\(\s*!\s*{enqueueResult}\s*\)\s*\{{\s*_isSynchronizingGroups\s*=\s*false\s*;"),
+        "分组同步入队失败时必须恢复同步标志。");
 }
 
 static void VerifyRevealReplacementOrdering()

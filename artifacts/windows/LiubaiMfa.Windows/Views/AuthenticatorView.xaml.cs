@@ -212,13 +212,19 @@ public sealed partial class AuthenticatorView : UserControl
     {
         _isSynchronizingGroups = true;
         var attachedViewModel = _viewModel;
-        _ = DispatcherQueue.TryEnqueue(() =>
+        var attachEpoch = _attachEpoch;
+        var enqueued = DispatcherQueue.TryEnqueue(() =>
         {
-            if (ReferenceEquals(_viewModel, attachedViewModel))
+            if (ReferenceEquals(_viewModel, attachedViewModel) && _attachEpoch == attachEpoch)
             {
                 SynchronizeGroupSelection();
             }
         });
+
+        if (!enqueued)
+        {
+            _isSynchronizingGroups = false;
+        }
     }
 
     private void SynchronizeGroupSelection()
