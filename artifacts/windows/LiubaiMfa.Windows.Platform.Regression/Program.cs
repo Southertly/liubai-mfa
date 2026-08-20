@@ -121,7 +121,10 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("二维码导入拒绝空白解码结果且不继续处理", VerifyQrAccountImportRejectsBlankDecodeAsync),
     ("二维码导入拒绝无效 URI 且不继续处理", VerifyQrAccountImportRejectsInvalidUriAsync),
     ("二维码导入确认取消时不保存", VerifyQrAccountImportConfirmationCancellationAsync),
-    ("二维码导入在两个会话检查点失效时取消", VerifyQrAccountImportSessionInvalidationAsync),
+    ("二维码导入在四个会话检查点失效时取消", VerifyQrAccountImportSessionInvalidationAsync),
+    ("二维码导入在四个取消检查点停止敏感步骤", VerifyQrAccountImportCancellationBoundariesAsync),
+    ("旧会话锁定取消后不得串入新解锁会话", VerifyQrAccountImportLockThenReunlockAsync),
+    ("并发二维码导入保持各自会话身份和取消域", VerifyQrAccountImportConcurrentContextsAsync),
     ("二维码导入保存确认后的编辑草稿", VerifyQrAccountImportPassesConfirmedDraftAsync),
     ("二维码导入将保存冲突映射为冲突结果", VerifyQrAccountImportConflictAsync),
     ("二维码导入传播所有非冲突异常", VerifyQrAccountImportExceptionPropagationAsync),
@@ -130,6 +133,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("截图服务按原样令牌兑换一次并返回同一文件", VerifySnippingToolCaptureRedeemAsync),
     ("截图服务拒绝空关联和空白令牌", VerifySnippingToolCaptureRejectsInvalidArgumentsAsync),
     ("截图服务拒绝空委托并传播委托异常", VerifySnippingToolCaptureDependencyBoundariesAsync),
+    ("截图服务拒绝空任务和空兑换文件且不泄露输入", VerifySnippingToolCaptureNullResultsAsync),
     ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
     ("激活调度队列保持首次参数优先的 FIFO", () => RunSync(VerifyActivationDispatchQueueInitialFirstFifo)),
     ("激活调度队列并发入队不丢失且只保留一个排空预约", () => RunSync(VerifyActivationDispatchQueueConcurrentEnqueue)),
@@ -466,6 +470,8 @@ static void VerifySnippingToolCaptureUri()
 static async Task VerifyQrAccountImportValidAsync()
 {
     var file = await GetRegressionAssemblyStorageFileAsync();
+    const long sessionToken = 101;
+    using var cancellation = new CancellationTokenSource();
     var calls = new List<string>();
     AccountDraft? savedDraft = null;
     var coordinator = new QrAccountImportCoordinator(
@@ -474,31 +480,35 @@ static async Task VerifyQrAccountImportValidAsync()
             calls.Add("decode");
             return Task.FromResult<string?>(CreateValidOtpAuthUri());
         },
-        draft =>
+        (actualToken, draft, actualCancellationToken) =>
         {
             calls.Add("confirm");
+            Assert(actualToken == sessionToken && actualCancellationToken == cancellation.Token,
+                "确认委托必须收到本次导入的会话身份和取消域。");
             Assert(draft == new AccountDraft("示例服务", "示例账户", "JBSWY3DPEHPK3PXP", null),
                 "有效二维码必须按解析结果创建无分组账户草稿。");
             return Task.FromResult<AccountDraft?>(draft);
         },
-        draft =>
+        (actualToken, draft, actualCancellationToken) =>
         {
             calls.Add("save");
+            Assert(actualToken == sessionToken && actualCancellationToken == cancellation.Token,
+                "保存委托必须收到本次导入的会话身份和取消域。");
             savedDraft = draft;
-            return Task.CompletedTask;
+            return Task.FromResult(QrAccountSaveOutcome.Imported);
         },
-        () =>
+        actualToken =>
         {
             calls.Add("session");
-            return true;
+            return actualToken == sessionToken;
         });
 
-    var outcome = await coordinator.ImportAsync(file);
+    var outcome = await coordinator.ImportAsync(file, sessionToken, cancellation.Token);
 
     Assert(outcome == QrAccountImportOutcome.Imported, "成功保存后必须返回 Imported。");
     Assert(savedDraft is not null, "有效二维码必须且只能进入一次保存委托。");
-    Assert(calls.SequenceEqual(["decode", "session", "confirm", "session", "save"]),
-        "二维码导入必须按 decode、parse、会话检查、确认、会话检查、保存的顺序执行。");
+    Assert(calls.SequenceEqual(["session", "decode", "session", "confirm", "session", "save", "session"]),
+        "二维码导入必须在 decode 前后、confirm 后和 save 后检查会话上下文。");
 }
 
 static async Task VerifyQrAccountImportRejectsBlankDecodeAsync()
@@ -510,19 +520,19 @@ static async Task VerifyQrAccountImportRejectsBlankDecodeAsync()
         var saveCount = 0;
         var coordinator = new QrAccountImportCoordinator(
             _ => Task.FromResult(decoded),
-            draft =>
+            (_, draft, _) =>
             {
                 confirmCount++;
                 return Task.FromResult<AccountDraft?>(draft);
             },
-            _ =>
+            (_, _, _) =>
             {
                 saveCount++;
-                return Task.CompletedTask;
+                return Task.FromResult(QrAccountSaveOutcome.Imported);
             },
-            () => true);
+            _ => true);
 
-        Assert(await coordinator.ImportAsync(file) == QrAccountImportOutcome.InvalidQr,
+        Assert(await coordinator.ImportAsync(file, 102, CancellationToken.None) == QrAccountImportOutcome.InvalidQr,
             "空或空白解码结果必须返回 InvalidQr。");
         Assert(confirmCount == 0 && saveCount == 0, "空或空白解码结果不得确认或保存。");
     }
@@ -535,19 +545,19 @@ static async Task VerifyQrAccountImportRejectsInvalidUriAsync()
     var saveCount = 0;
     var coordinator = new QrAccountImportCoordinator(
         _ => Task.FromResult<string?>("https://example.invalid/not-otp"),
-        draft =>
+        (_, draft, _) =>
         {
             confirmCount++;
             return Task.FromResult<AccountDraft?>(draft);
         },
-        _ =>
+        (_, _, _) =>
         {
             saveCount++;
-            return Task.CompletedTask;
+            return Task.FromResult(QrAccountSaveOutcome.Imported);
         },
-        () => true);
+        _ => true);
 
-    Assert(await coordinator.ImportAsync(file) == QrAccountImportOutcome.InvalidQr,
+    Assert(await coordinator.ImportAsync(file, 103, CancellationToken.None) == QrAccountImportOutcome.InvalidQr,
         "无法解析的 URI 必须返回 InvalidQr。");
     Assert(confirmCount == 0 && saveCount == 0, "无效 URI 不得确认或保存。");
 }
@@ -559,51 +569,218 @@ static async Task VerifyQrAccountImportConfirmationCancellationAsync()
     var saveCount = 0;
     var coordinator = new QrAccountImportCoordinator(
         _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
-        _ => Task.FromResult<AccountDraft?>(null),
-        _ =>
+        (_, _, _) => Task.FromResult<AccountDraft?>(null),
+        (_, _, _) =>
         {
             saveCount++;
-            return Task.CompletedTask;
+            return Task.FromResult(QrAccountSaveOutcome.Imported);
         },
-        () =>
+        _ =>
         {
             sessionCheckCount++;
             return true;
         });
 
-    Assert(await coordinator.ImportAsync(file) == QrAccountImportOutcome.Cancelled,
+    Assert(await coordinator.ImportAsync(file, 104, CancellationToken.None) == QrAccountImportOutcome.Cancelled,
         "确认返回空草稿时必须返回 Cancelled。");
-    Assert(sessionCheckCount == 2, "确认结束后必须执行第二次会话检查。");
+    Assert(sessionCheckCount == 3, "确认结束后必须执行第三个会话检查点。");
     Assert(saveCount == 0, "确认取消后不得保存。");
 }
 
 static async Task VerifyQrAccountImportSessionInvalidationAsync()
 {
     var file = await GetRegressionAssemblyStorageFileAsync();
-    foreach (var invalidCheck in new[] { 1, 2 })
+    foreach (var invalidCheck in new[] { 1, 2, 3, 4 })
     {
         var sessionCheckCount = 0;
+        var decodeCount = 0;
         var confirmCount = 0;
         var saveCount = 0;
         var coordinator = new QrAccountImportCoordinator(
-            _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
-            draft =>
+            _ =>
+            {
+                decodeCount++;
+                return Task.FromResult<string?>(CreateValidOtpAuthUri());
+            },
+            (_, draft, _) =>
             {
                 confirmCount++;
                 return Task.FromResult<AccountDraft?>(draft);
             },
-            _ =>
+            (_, _, _) =>
             {
                 saveCount++;
-                return Task.CompletedTask;
+                return Task.FromResult(QrAccountSaveOutcome.Imported);
             },
-            () => ++sessionCheckCount != invalidCheck);
+            _ => ++sessionCheckCount != invalidCheck);
 
-        Assert(await coordinator.ImportAsync(file) == QrAccountImportOutcome.Cancelled,
+        Assert(await coordinator.ImportAsync(file, 105, CancellationToken.None) == QrAccountImportOutcome.Cancelled,
             "任一会话检查点失效都必须返回 Cancelled。");
-        Assert(saveCount == 0, "会话失效后不得保存。");
-        Assert(confirmCount == (invalidCheck == 1 ? 0 : 1), "会话失效后不得越过对应检查点继续确认。");
+        Assert(decodeCount == (invalidCheck == 1 ? 0 : 1), "首个会话检查失败时不得开始解码。");
+        Assert(confirmCount == (invalidCheck <= 2 ? 0 : 1), "会话失效后不得越过对应检查点继续确认。");
+        Assert(saveCount == (invalidCheck <= 3 ? 0 : 1), "会话失效后不得越过对应检查点继续保存。");
     }
+}
+
+static async Task VerifyQrAccountImportCancellationBoundariesAsync()
+{
+    var file = await GetRegressionAssemblyStorageFileAsync();
+    foreach (var cancelledAt in new[] { 1, 2, 3, 4 })
+    {
+        using var cancellation = new CancellationTokenSource();
+        var decodeCount = 0;
+        var confirmCount = 0;
+        var saveCount = 0;
+        if (cancelledAt == 1)
+        {
+            cancellation.Cancel();
+        }
+
+        var coordinator = new QrAccountImportCoordinator(
+            _ =>
+            {
+                decodeCount++;
+                if (cancelledAt == 2)
+                {
+                    cancellation.Cancel();
+                }
+
+                return Task.FromResult<string?>(CreateValidOtpAuthUri());
+            },
+            (_, draft, actualCancellationToken) =>
+            {
+                confirmCount++;
+                Assert(actualCancellationToken == cancellation.Token, "确认委托不得收到其他调用的取消域。");
+                if (cancelledAt == 3)
+                {
+                    cancellation.Cancel();
+                }
+
+                return Task.FromResult<AccountDraft?>(draft);
+            },
+            (_, _, actualCancellationToken) =>
+            {
+                saveCount++;
+                Assert(actualCancellationToken == cancellation.Token, "保存委托不得收到其他调用的取消域。");
+                if (cancelledAt == 4)
+                {
+                    cancellation.Cancel();
+                }
+
+                return Task.FromResult(QrAccountSaveOutcome.Imported);
+            },
+            _ => true);
+
+        Assert(await coordinator.ImportAsync(file, 106, cancellation.Token) == QrAccountImportOutcome.Cancelled,
+            "绑定取消域在任一检查点取消后必须返回 Cancelled。");
+        Assert(decodeCount == (cancelledAt == 1 ? 0 : 1), "调用前已取消时不得开始解码。");
+        Assert(confirmCount == (cancelledAt <= 2 ? 0 : 1), "取消后不得继续确认。");
+        Assert(saveCount == (cancelledAt <= 3 ? 0 : 1), "取消后不得继续保存。");
+    }
+}
+
+static async Task VerifyQrAccountImportLockThenReunlockAsync()
+{
+    var file = await GetRegressionAssemblyStorageFileAsync();
+    const long oldToken = 201;
+    const long newToken = 202;
+    var currentToken = oldToken;
+    var decodeCount = 0;
+    var confirmedTokens = new List<long>();
+    var savedTokens = new List<long>();
+    var firstDecodeStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseFirstDecode = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var coordinator = new QrAccountImportCoordinator(
+        async _ =>
+        {
+            if (Interlocked.Increment(ref decodeCount) == 1)
+            {
+                firstDecodeStarted.TrySetResult(true);
+                await releaseFirstDecode.Task;
+            }
+
+            return CreateValidOtpAuthUri();
+        },
+        (token, draft, _) =>
+        {
+            confirmedTokens.Add(token);
+            return Task.FromResult<AccountDraft?>(draft);
+        },
+        (token, _, _) =>
+        {
+            savedTokens.Add(token);
+            return Task.FromResult(QrAccountSaveOutcome.Imported);
+        },
+        token => token == Interlocked.Read(ref currentToken));
+    using var oldCancellation = new CancellationTokenSource();
+
+    var oldImport = coordinator.ImportAsync(file, oldToken, oldCancellation.Token);
+    await firstDecodeStarted.Task;
+    oldCancellation.Cancel();
+    Interlocked.Exchange(ref currentToken, newToken);
+
+    var newImport = await coordinator.ImportAsync(file, newToken, CancellationToken.None);
+    releaseFirstDecode.TrySetResult(true);
+    var oldOutcome = await oldImport;
+
+    Assert(newImport == QrAccountImportOutcome.Imported, "新解锁会话必须能独立完成导入。");
+    Assert(oldOutcome == QrAccountImportOutcome.Cancelled, "锁定并取消的旧会话必须返回 Cancelled。");
+    Assert(confirmedTokens.SequenceEqual([newToken]) && savedTokens.SequenceEqual([newToken]),
+        "旧会话不得在新 token 解锁后进入确认或保存。");
+}
+
+static async Task VerifyQrAccountImportConcurrentContextsAsync()
+{
+    var file = await GetRegressionAssemblyStorageFileAsync();
+    const long firstToken = 301;
+    const long secondToken = 302;
+    using var firstCancellation = new CancellationTokenSource();
+    using var secondCancellation = new CancellationTokenSource();
+    var confirmStartedCount = 0;
+    var bothConfirmStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var confirmedContexts = new Dictionary<long, CancellationToken>();
+    var savedContexts = new Dictionary<long, CancellationToken>();
+    var sync = new object();
+    var coordinator = new QrAccountImportCoordinator(
+        _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
+        async (token, draft, cancellationToken) =>
+        {
+            lock (sync)
+            {
+                confirmedContexts.Add(token, cancellationToken);
+            }
+
+            if (Interlocked.Increment(ref confirmStartedCount) == 2)
+            {
+                bothConfirmStarted.TrySetResult(true);
+            }
+
+            await bothConfirmStarted.Task;
+            return draft with { Account = $"会话-{token}" };
+        },
+        (token, draft, cancellationToken) =>
+        {
+            Assert(draft.Account == $"会话-{token}", "并发保存不得收到其他会话确认后的草稿。");
+            lock (sync)
+            {
+                savedContexts.Add(token, cancellationToken);
+            }
+
+            return Task.FromResult(QrAccountSaveOutcome.Imported);
+        },
+        token => token is firstToken or secondToken);
+
+    var outcomes = await Task.WhenAll(
+        coordinator.ImportAsync(file, firstToken, firstCancellation.Token),
+        coordinator.ImportAsync(file, secondToken, secondCancellation.Token));
+
+    Assert(outcomes.All(outcome => outcome == QrAccountImportOutcome.Imported),
+        "两个独立有效上下文必须都能完成导入。");
+    Assert(confirmedContexts[firstToken] == firstCancellation.Token
+            && confirmedContexts[secondToken] == secondCancellation.Token
+            && savedContexts[firstToken] == firstCancellation.Token
+            && savedContexts[secondToken] == secondCancellation.Token,
+        "并发导入的 token 和取消域不得串用。");
 }
 
 static async Task VerifyQrAccountImportPassesConfirmedDraftAsync()
@@ -613,15 +790,15 @@ static async Task VerifyQrAccountImportPassesConfirmedDraftAsync()
     AccountDraft? savedDraft = null;
     var coordinator = new QrAccountImportCoordinator(
         _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
-        _ => Task.FromResult<AccountDraft?>(confirmedDraft),
-        draft =>
+        (_, _, _) => Task.FromResult<AccountDraft?>(confirmedDraft),
+        (_, draft, _) =>
         {
             savedDraft = draft;
-            return Task.CompletedTask;
+            return Task.FromResult(QrAccountSaveOutcome.Imported);
         },
-        () => true);
+        _ => true);
 
-    Assert(await coordinator.ImportAsync(file) == QrAccountImportOutcome.Imported,
+    Assert(await coordinator.ImportAsync(file, 401, CancellationToken.None) == QrAccountImportOutcome.Imported,
         "确认后编辑的草稿保存成功必须返回 Imported。");
     Assert(ReferenceEquals(savedDraft, confirmedDraft), "保存委托必须收到确认委托返回的同一草稿。");
 }
@@ -631,12 +808,12 @@ static async Task VerifyQrAccountImportConflictAsync()
     var file = await GetRegressionAssemblyStorageFileAsync();
     var coordinator = new QrAccountImportCoordinator(
         _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
-        draft => Task.FromResult<AccountDraft?>(draft),
-        _ => throw new InvalidOperationException("模拟账户冲突"),
-        () => true);
+        (_, draft, _) => Task.FromResult<AccountDraft?>(draft),
+        (_, _, _) => Task.FromResult(QrAccountSaveOutcome.Conflict),
+        _ => true);
 
-    Assert(await coordinator.ImportAsync(file) == QrAccountImportOutcome.Conflict,
-        "保存抛出 InvalidOperationException 时必须返回 Conflict。");
+    Assert(await coordinator.ImportAsync(file, 402, CancellationToken.None) == QrAccountImportOutcome.Conflict,
+        "保存委托返回结构化冲突时必须映射为 Conflict。");
 }
 
 static async Task VerifyQrAccountImportExceptionPropagationAsync()
@@ -654,10 +831,11 @@ static async Task VerifyQrAccountImportExceptionPropagationAsync()
     {
         var coordinator = new QrAccountImportCoordinator(
             _ => throw exceptionFactory(),
-            draft => Task.FromResult<AccountDraft?>(draft),
-            _ => Task.CompletedTask,
-            () => true);
-        await AssertThrowsAsyncExact(exceptionFactory().GetType(), () => coordinator.ImportAsync(file));
+            (_, draft, _) => Task.FromResult<AccountDraft?>(draft),
+            (_, _, _) => Task.FromResult(QrAccountSaveOutcome.Imported),
+            _ => true);
+        await AssertThrowsAsyncExact(exceptionFactory().GetType(),
+            () => coordinator.ImportAsync(file, 403, CancellationToken.None));
     }
 
     foreach (var exceptionFactory in propagatedFactories.Append<Func<Exception>>(
@@ -665,30 +843,36 @@ static async Task VerifyQrAccountImportExceptionPropagationAsync()
     {
         var coordinator = new QrAccountImportCoordinator(
             _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
-            _ => throw exceptionFactory(),
-            _ => Task.CompletedTask,
-            () => true);
-        await AssertThrowsAsyncExact(exceptionFactory().GetType(), () => coordinator.ImportAsync(file));
+            (_, _, _) => throw exceptionFactory(),
+            (_, _, _) => Task.FromResult(QrAccountSaveOutcome.Imported),
+            _ => true);
+        await AssertThrowsAsyncExact(exceptionFactory().GetType(),
+            () => coordinator.ImportAsync(file, 404, CancellationToken.None));
     }
 
-    foreach (var exceptionFactory in propagatedFactories.Append<Func<Exception>>(
-        () => new ApplicationException("模拟其他保存异常")))
+    foreach (var exceptionFactory in propagatedFactories
+        .Append<Func<Exception>>(() => new InvalidOperationException("模拟非冲突保存异常"))
+        .Append<Func<Exception>>(() => new ApplicationException("模拟其他保存异常")))
     {
         var coordinator = new QrAccountImportCoordinator(
             _ => Task.FromResult<string?>(CreateValidOtpAuthUri()),
-            draft => Task.FromResult<AccountDraft?>(draft),
-            _ => throw exceptionFactory(),
-            () => true);
-        await AssertThrowsAsyncExact(exceptionFactory().GetType(), () => coordinator.ImportAsync(file));
+            (_, draft, _) => Task.FromResult<AccountDraft?>(draft),
+            (_, _, _) => Task.FromException<QrAccountSaveOutcome>(exceptionFactory()),
+            _ => true);
+        await AssertThrowsAsyncExact(exceptionFactory().GetType(),
+            () => coordinator.ImportAsync(file, 405, CancellationToken.None));
     }
 }
 
 static async Task VerifyQrAccountImportNullArgumentsAsync()
 {
+    var file = await GetRegressionAssemblyStorageFileAsync();
     Func<StorageFile, Task<string?>> decode = _ => Task.FromResult<string?>(null);
-    Func<AccountDraft, Task<AccountDraft?>> confirm = draft => Task.FromResult<AccountDraft?>(draft);
-    Func<AccountDraft, Task> save = _ => Task.CompletedTask;
-    Func<bool> isSessionCurrent = () => true;
+    Func<long, AccountDraft, CancellationToken, Task<AccountDraft?>> confirm =
+        (_, draft, _) => Task.FromResult<AccountDraft?>(draft);
+    Func<long, AccountDraft, CancellationToken, Task<QrAccountSaveOutcome>> save =
+        (_, _, _) => Task.FromResult(QrAccountSaveOutcome.Imported);
+    Func<long, bool> isSessionCurrent = _ => true;
 
     AssertThrows<ArgumentNullException>(
         () => new QrAccountImportCoordinator(null!, confirm, save, isSessionCurrent),
@@ -704,7 +888,10 @@ static async Task VerifyQrAccountImportNullArgumentsAsync()
         "二维码导入协调器必须拒绝空会话检查委托。");
 
     var coordinator = new QrAccountImportCoordinator(decode, confirm, save, isSessionCurrent);
-    await AssertThrowsAsync<ArgumentNullException>(() => coordinator.ImportAsync(null!));
+    await AssertThrowsAsync<ArgumentNullException>(
+        () => coordinator.ImportAsync(null!, 406, CancellationToken.None));
+    await AssertThrowsAsync<ArgumentException>(
+        () => coordinator.ImportAsync(file, 0, CancellationToken.None));
 }
 
 static async Task VerifySnippingToolCaptureLaunchAsync()
@@ -741,7 +928,7 @@ static async Task VerifySnippingToolCaptureRedeemAsync()
         {
             redeemCount++;
             receivedToken = actualToken;
-            return Task.FromResult(expectedFile);
+            return Task.FromResult<StorageFile?>(expectedFile);
         });
 
     var actualFile = await service.RedeemAsync(token);
@@ -761,10 +948,10 @@ static async Task VerifySnippingToolCaptureRejectsInvalidArgumentsAsync()
             launchCount++;
             return Task.FromResult(true);
         },
-        _ =>
+        async _ =>
         {
             redeemCount++;
-            return GetRegressionAssemblyStorageFileAsync();
+            return await GetRegressionAssemblyStorageFileAsync();
         });
 
     await AssertThrowsAsync<ArgumentException>(() => service.LaunchAsync(Guid.Empty));
@@ -781,7 +968,7 @@ static async Task VerifySnippingToolCaptureRejectsInvalidArgumentsAsync()
 static async Task VerifySnippingToolCaptureDependencyBoundariesAsync()
 {
     Func<Uri, Task<bool>> launch = _ => Task.FromResult(true);
-    Func<string, Task<StorageFile>> redeem = _ => GetRegressionAssemblyStorageFileAsync();
+    Func<string, Task<StorageFile?>> redeem = async _ => await GetRegressionAssemblyStorageFileAsync();
     AssertThrows<ArgumentNullException>(
         () => new SnippingToolCaptureService(null!, redeem),
         "截图服务必须拒绝空启动委托。");
@@ -798,8 +985,33 @@ static async Task VerifySnippingToolCaptureDependencyBoundariesAsync()
     var redeemFailure = new OperationCanceledException("模拟兑换取消", new CancellationToken(canceled: true));
     var redeemService = new SnippingToolCaptureService(
         launch,
-        _ => Task.FromException<StorageFile>(redeemFailure));
+        _ => Task.FromException<StorageFile?>(redeemFailure));
     await AssertThrowsSameAsync(redeemFailure, () => redeemService.RedeemAsync("test-token"));
+}
+
+static async Task VerifySnippingToolCaptureNullResultsAsync()
+{
+    var launchService = new SnippingToolCaptureService(
+        _ => null!,
+        _ => Task.FromResult<StorageFile?>(null));
+    var launchException = await CaptureThrowsAsync<InvalidOperationException>(
+        () => launchService.LaunchAsync(Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")));
+    Assert(!launchException.Message.Contains("ms-screenclip", StringComparison.OrdinalIgnoreCase),
+        "空启动任务错误不得泄露 URI 内容。");
+
+    const string token = "private-test-token";
+    foreach (var redeem in new Func<string, Task<StorageFile?>>[]
+    {
+        _ => null!,
+        _ => Task.FromResult<StorageFile?>(null),
+    })
+    {
+        var redeemService = new SnippingToolCaptureService(_ => Task.FromResult(true), redeem);
+        var redeemException = await CaptureThrowsAsync<InvalidOperationException>(
+            () => redeemService.RedeemAsync(token));
+        Assert(!redeemException.Message.Contains(token, StringComparison.Ordinal),
+            "空兑换结果错误不得泄露文件访问令牌。");
+    }
 }
 
 static string CreateValidOtpAuthUri() =>
@@ -835,6 +1047,21 @@ static async Task AssertThrowsSameAsync(Exception expected, Func<Task> action)
     }
 
     throw new InvalidOperationException($"预期传播同一 {expected.GetType().Name} 实例。");
+}
+
+static async Task<TException> CaptureThrowsAsync<TException>(Func<Task> action)
+    where TException : Exception
+{
+    try
+    {
+        await action();
+    }
+    catch (TException ex)
+    {
+        return ex;
+    }
+
+    throw new InvalidOperationException($"预期抛出 {typeof(TException).Name}。");
 }
 
 static void VerifySnippingToolParsesValidResponses()

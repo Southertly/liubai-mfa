@@ -11,18 +11,24 @@ internal enum QrAccountImportOutcome
     Conflict,
 }
 
+internal enum QrAccountSaveOutcome
+{
+    Imported,
+    Conflict,
+}
+
 internal sealed class QrAccountImportCoordinator
 {
     private readonly Func<StorageFile, Task<string?>> _decodeAsync;
-    private readonly Func<AccountDraft, Task<AccountDraft?>> _confirmAsync;
-    private readonly Func<AccountDraft, Task> _saveAsync;
-    private readonly Func<bool> _isSessionCurrent;
+    private readonly Func<long, AccountDraft, CancellationToken, Task<AccountDraft?>> _confirmAsync;
+    private readonly Func<long, AccountDraft, CancellationToken, Task<QrAccountSaveOutcome>> _saveAsync;
+    private readonly Func<long, bool> _isSessionCurrent;
 
-    public QrAccountImportCoordinator(
+    internal QrAccountImportCoordinator(
         Func<StorageFile, Task<string?>> decodeAsync,
-        Func<AccountDraft, Task<AccountDraft?>> confirmAsync,
-        Func<AccountDraft, Task> saveAsync,
-        Func<bool> isSessionCurrent)
+        Func<long, AccountDraft, CancellationToken, Task<AccountDraft?>> confirmAsync,
+        Func<long, AccountDraft, CancellationToken, Task<QrAccountSaveOutcome>> saveAsync,
+        Func<long, bool> isSessionCurrent)
     {
         ArgumentNullException.ThrowIfNull(decodeAsync);
         ArgumentNullException.ThrowIfNull(confirmAsync);
@@ -35,11 +41,37 @@ internal sealed class QrAccountImportCoordinator
         _isSessionCurrent = isSessionCurrent;
     }
 
-    public async Task<QrAccountImportOutcome> ImportAsync(StorageFile file)
+    public async Task<QrAccountImportOutcome> ImportAsync(
+        StorageFile file,
+        long sessionToken,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(file);
+        if (sessionToken == 0)
+        {
+            throw new ArgumentException("解锁会话标识不能为空。", nameof(sessionToken));
+        }
 
-        var decoded = await _decodeAsync(file);
+        if (!IsContextCurrent(sessionToken, cancellationToken))
+        {
+            return QrAccountImportOutcome.Cancelled;
+        }
+
+        string? decoded;
+        try
+        {
+            decoded = await _decodeAsync(file);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return QrAccountImportOutcome.Cancelled;
+        }
+
+        if (!IsContextCurrent(sessionToken, cancellationToken))
+        {
+            return QrAccountImportOutcome.Cancelled;
+        }
+
         if (string.IsNullOrWhiteSpace(decoded)
             || !OtpAuthUriParser.TryParse(decoded, out var parsed)
             || parsed is null)
@@ -47,26 +79,45 @@ internal sealed class QrAccountImportCoordinator
             return QrAccountImportOutcome.InvalidQr;
         }
 
-        if (!_isSessionCurrent())
-        {
-            return QrAccountImportOutcome.Cancelled;
-        }
-
         var draft = new AccountDraft(parsed.Issuer, parsed.Account, parsed.Secret, null);
-        var confirmed = await _confirmAsync(draft);
-        if (!_isSessionCurrent() || confirmed is null)
-        {
-            return QrAccountImportOutcome.Cancelled;
-        }
-
+        AccountDraft? confirmed;
         try
         {
-            await _saveAsync(confirmed);
-            return QrAccountImportOutcome.Imported;
+            confirmed = await _confirmAsync(sessionToken, draft, cancellationToken);
         }
-        catch (InvalidOperationException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return QrAccountImportOutcome.Conflict;
+            return QrAccountImportOutcome.Cancelled;
         }
+
+        if (!IsContextCurrent(sessionToken, cancellationToken) || confirmed is null)
+        {
+            return QrAccountImportOutcome.Cancelled;
+        }
+
+        QrAccountSaveOutcome saveOutcome;
+        try
+        {
+            saveOutcome = await _saveAsync(sessionToken, confirmed, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return QrAccountImportOutcome.Cancelled;
+        }
+
+        if (!IsContextCurrent(sessionToken, cancellationToken))
+        {
+            return QrAccountImportOutcome.Cancelled;
+        }
+
+        return saveOutcome switch
+        {
+            QrAccountSaveOutcome.Imported => QrAccountImportOutcome.Imported,
+            QrAccountSaveOutcome.Conflict => QrAccountImportOutcome.Conflict,
+            _ => throw new InvalidOperationException("二维码账户保存返回了未知结果。"),
+        };
     }
+
+    private bool IsContextCurrent(long sessionToken, CancellationToken cancellationToken) =>
+        !cancellationToken.IsCancellationRequested && _isSessionCurrent(sessionToken);
 }
