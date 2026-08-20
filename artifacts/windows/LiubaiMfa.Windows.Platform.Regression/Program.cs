@@ -94,8 +94,23 @@ static void VerifyStartupProtectionDefaultsOff()
 
 static void VerifyStartupProtectionReadsStoredValue()
 {
-    Assert(new StartupProtectionSettings(_ => true, (_, _) => { }).IsEnabled, "保存的 true 必须读取为开启。");
-    Assert(!new StartupProtectionSettings(_ => "true", (_, _) => { }).IsEnabled, "字符串 true 不得被当作布尔开启。");
+    string? trueReadKey = null;
+    var enabledSettings = new StartupProtectionSettings(key =>
+    {
+        trueReadKey = key;
+        return true;
+    }, (_, _) => { });
+    Assert(enabledSettings.IsEnabled, "保存的 true 必须读取为开启。");
+    Assert(trueReadKey == "Security.UseWindowsHelloOnOpen", "读取必须使用固定启动保护设置键。");
+
+    string? nonBooleanReadKey = null;
+    var nonBooleanSettings = new StartupProtectionSettings(key =>
+    {
+        nonBooleanReadKey = key;
+        return "true";
+    }, (_, _) => { });
+    Assert(!nonBooleanSettings.IsEnabled, "字符串 true 不得被当作布尔开启。");
+    Assert(nonBooleanReadKey == "Security.UseWindowsHelloOnOpen", "读取非布尔值也必须使用固定启动保护设置键。");
 }
 
 static void VerifyStartupProtectionWritesRequestedValue()
@@ -104,10 +119,12 @@ static void VerifyStartupProtectionWritesRequestedValue()
     var settings = new StartupProtectionSettings(_ => null, (key, value) => writes.Add((key, value)));
 
     settings.SetEnabled(true);
+    settings.SetEnabled(false);
 
-    Assert(writes.Count == 1, "设置启动保护只能写入一次。");
-    Assert(writes[0].Key == StartupProtectionSettings.SettingKey, "设置启动保护只能写入目标键。");
-    Assert(writes[0].Value is bool value && value, "设置启动保护必须写入布尔 true。");
+    Assert(writes.Count == 2, "每次设置启动保护都必须只写入一次。");
+    Assert(writes.All(write => write.Key == "Security.UseWindowsHelloOnOpen"), "设置启动保护只能写入固定目标键。");
+    Assert(writes[0].Value is bool firstValue && firstValue, "开启启动保护必须写入布尔 true。");
+    Assert(writes[1].Value is bool secondValue && !secondValue, "关闭启动保护必须写入布尔 false。");
 }
 
 static void VerifyStartupProtectionOpenPolicy()
@@ -120,11 +137,26 @@ static void VerifyStartupProtectionOpenPolicy()
 
 static void VerifyStartupProtectionTransitionPolicy()
 {
-    Assert(StartupProtectionPolicy.CanCommitSettingChange(false, false, false, false), "设置未变化时应允许提交。");
-    Assert(!StartupProtectionPolicy.CanCommitSettingChange(false, true, false, true), "验证取消时不得开启保护。");
-    Assert(!StartupProtectionPolicy.CanCommitSettingChange(false, true, true, false), "会话过期时不得开启保护。");
-    Assert(StartupProtectionPolicy.CanCommitSettingChange(false, true, true, true), "有效会话验证成功应允许开启保护。");
-    Assert(StartupProtectionPolicy.CanCommitSettingChange(true, false, true, true), "有效会话验证成功应允许关闭保护。");
+    var cases = new[]
+    {
+        (Current: false, Requested: false, Verified: false, SessionCurrent: false, Allowed: true, Name: "设置未变化"),
+        (Current: false, Requested: true, Verified: false, SessionCurrent: true, Allowed: false, Name: "开启时验证取消"),
+        (Current: false, Requested: true, Verified: true, SessionCurrent: false, Allowed: false, Name: "开启时会话过期"),
+        (Current: false, Requested: true, Verified: true, SessionCurrent: true, Allowed: true, Name: "有效会话验证成功开启"),
+        (Current: true, Requested: false, Verified: false, SessionCurrent: true, Allowed: false, Name: "关闭时验证取消"),
+        (Current: true, Requested: false, Verified: true, SessionCurrent: false, Allowed: false, Name: "关闭时会话过期"),
+        (Current: true, Requested: false, Verified: true, SessionCurrent: true, Allowed: true, Name: "有效会话验证成功关闭"),
+    };
+
+    foreach (var testCase in cases)
+    {
+        var actual = StartupProtectionPolicy.CanCommitSettingChange(
+            testCase.Current,
+            testCase.Requested,
+            testCase.Verified,
+            testCase.SessionCurrent);
+        Assert(actual == testCase.Allowed, $"{testCase.Name}策略结果错误。");
+    }
 }
 
 static void VerifyStartupProtectionAutoLockPolicy()
@@ -134,6 +166,8 @@ static void VerifyStartupProtectionAutoLockPolicy()
     Assert(StartupProtectionPolicy.ShouldScheduleAutoLock(true, true), "保护开启且已解锁时应安排自动锁定。");
     Assert(!StartupProtectionPolicy.ShouldLockAfterDelay(true, true, TimeSpan.FromSeconds(59), TimeSpan.FromSeconds(60)), "未到延迟时间不得锁定。");
     Assert(StartupProtectionPolicy.ShouldLockAfterDelay(true, true, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "达到延迟时间应允许锁定。");
+    Assert(!StartupProtectionPolicy.ShouldLockAfterDelay(false, true, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "保护关闭时不得自动锁定。");
+    Assert(!StartupProtectionPolicy.ShouldLockAfterDelay(true, false, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60)), "未解锁时不得自动锁定。");
 }
 
 foreach (var check in checks)
