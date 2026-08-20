@@ -72,6 +72,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("紧凑账户行服务图标文字保持可读对比", () => RunSync(VerifyServiceIconForegroundContrast)),
     ("紧凑账户行刷新和替换通知", () => RunSync(VerifyCompactAccountRowRefreshAndReplacement)),
     ("验证码最后五秒进入临期状态", () => RunSync(VerifyAccountExpiryState)),
+    ("账户临期状态使用生命周期安全绑定", () => RunSync(VerifyExpiryStateUsesLifecycleSafeBinding)),
     ("紧凑账户行拒绝空模型", () => RunSync(VerifyCompactAccountRowNullModelSafety)),
     ("紧凑账户行安全处理损坏密钥", () => RunSync(VerifyCompactAccountRowInvalidSecrets)),
     ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
@@ -646,6 +647,25 @@ static void VerifyAccountExpiryState()
     item.Refresh(DateTimeOffset.FromUnixTimeSeconds(25));
     Assert(item.SecondsRemaining == 5 && item.IsExpiring, "跨越 6 到 5 秒应进入临期状态。");
     Assert(changes.Contains(nameof(AccountItemViewModel.IsExpiring)), "跨越临界值时必须通知临期状态。");
+}
+
+static void VerifyExpiryStateUsesLifecycleSafeBinding()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var source = File.ReadAllText(sourcePath);
+    const string groupMarker = "<VisualStateGroup x:Name=\"ExpiryStates\">";
+    var groupStart = source.IndexOf(groupMarker, StringComparison.Ordinal);
+    var groupEnd = source.IndexOf("</VisualStateGroup>", groupStart, StringComparison.Ordinal);
+    Assert(groupStart >= 0 && groupEnd > groupStart, "无法定位账户卡片 ExpiryStates 视觉状态组。");
+
+    var expiryStates = source[groupStart..(groupEnd + "</VisualStateGroup>".Length)];
+    Assert(!expiryStates.Contains("{x:Bind IsExpiring", StringComparison.Ordinal),
+        "账户临期 StateTrigger 不得使用会生成生命周期不安全 setter 的 x:Bind。");
+    Assert(expiryStates.Contains("<StateTrigger IsActive=\"{Binding IsExpiring, Mode=OneWay}\" />", StringComparison.Ordinal),
+        "账户临期 StateTrigger 必须使用经典单向 Binding 保留最后五秒变红功能。");
+    Assert(expiryStates.Contains("Target=\"ExpiryProgress.Foreground\"", StringComparison.Ordinal)
+        && expiryStates.Contains("Value=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
+        "账户临期状态必须保留进度条 CriticalBrush Setter。");
 }
 
 static void VerifyCompactAccountRowNullModelSafety()

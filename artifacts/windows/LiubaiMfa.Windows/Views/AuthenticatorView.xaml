@@ -230,7 +230,7 @@
                                             <VisualState x:Name="NormalExpiry" />
                                             <VisualState x:Name="Expiring">
                                                 <VisualState.StateTriggers>
-                                                    <StateTrigger IsActive="{x:Bind IsExpiring, Mode=OneWay}" />
+                                                    <StateTrigger IsActive="{Binding IsExpiring, Mode=OneWay}" />
                                                 </VisualState.StateTriggers>
                                                 <VisualState.Setters>
                                                     <Setter
