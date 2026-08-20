@@ -224,7 +224,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
                 if (_accounts.Any(item => item.Secret == account.Secret))
                 {
-                    throw new InvalidOperationException("该 MFA 密钥已经存在。");
+                    throw new DuplicateMfaSecretException();
                 }
 
                 var actual = account with { Id = CreateUniqueId(account.Id, _accounts.Select(item => item.Id)) };

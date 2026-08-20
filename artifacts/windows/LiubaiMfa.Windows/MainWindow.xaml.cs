@@ -11,11 +11,18 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System.Runtime.InteropServices;
 using WinRT.Interop;
+using Windows.Storage;
 
 namespace LiubaiMfa.Windows;
 
 public sealed partial class MainWindow : Window
 {
+    private enum QrImportSource
+    {
+        Screenshot,
+        Image,
+    }
+
     private static readonly TimeSpan BackgroundLockDelay = TimeSpan.FromMinutes(1);
     private readonly WindowsHelloService _windowsHello;
     private readonly StartupProtectionSettings _startupProtectionSettings;
@@ -28,6 +35,9 @@ public sealed partial class MainWindow : Window
     private readonly UnlockSessionGuard _sessionGuard = new();
     private readonly SessionCancellationGuard _sessionCancellation = new();
     private readonly AutoLockActivationState _autoLockActivationState = new();
+    private readonly SnippingCaptureState _snippingCaptureState = new();
+    private readonly SnippingToolCaptureService _snippingToolCaptureService = new();
+    private readonly QrAccountImportCoordinator _qrImportCoordinator;
     private readonly DispatcherTimer _timer;
     private CancellationTokenSource? _backgroundLockCancellation;
     private ContentDialog? _activeDialog;
@@ -46,7 +56,7 @@ public sealed partial class MainWindow : Window
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Liubai MFA");
         ViewModel = new MainViewModel(new EncryptedAccountRepository(dataDirectory));
-        AuthenticatorView.AddRequested += AddAccount_Click;
+        AuthenticatorView.AddRequested += ShowAddAccountView;
         AuthenticatorView.LockRequested += Lock_Click;
         AuthenticatorView.ImportBackupRequested += ImportBackup_Click;
         AuthenticatorView.ExportBackupRequested += ExportBackup_Click;
@@ -55,34 +65,59 @@ public sealed partial class MainWindow : Window
         AuthenticatorView.ShowSecretRequested += ShowSecret_Click;
         AuthenticatorView.DeleteRequested += DeleteAccount_Click;
         AuthenticatorView.SettingsRequested += Settings_Click;
+        AddAccountView.BackRequested += ShowAuthenticatorView;
+        AddAccountView.ScreenshotScanRequested += ScreenshotScan_Click;
+        AddAccountView.ImportImageRequested += ImportImage_Click;
+        AddAccountView.ManualEntryRequested += ManualEntry_Click;
         LockView.UnlockRequested += Unlock_Click;
         _windowsHello = new WindowsHelloService(this);
         _startupProtectionSettings = new StartupProtectionSettings();
         _files = new NativeFileService(this);
         _clipboard = new ClipboardService();
         _accountDialogs = new AccountDialogService(_windowsHello, ShowDialogAsync, IsSessionCurrent, ShowStatus);
+        _qrImportCoordinator = new QrAccountImportCoordinator(
+            QrCodeImportService.DecodeAsync,
+            ConfirmQrAccountAsync,
+            SaveQrAccountAsync,
+            IsSessionCurrent);
         _backupDialogs = new BackupDialogService(ShowDialogAsync, IsSessionCurrent);
         _protectionSettingsDialogs = new ProtectionSettingsDialogService(ShowDialogAsync, IsSessionCurrent);
         _placementService = new WindowPlacementService();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += (_, _) => ViewModel.UpdateCodes();
         Activated += Window_Activated;
-        Closed += (_, _) => _sessionCancellation.Dispose();
+        Closed += (_, _) =>
+        {
+            _snippingCaptureState.Abandon();
+            _sessionCancellation.Dispose();
+        };
         RootGrid.Loaded += RootGrid_Loaded;
         _placementService.Configure(AppWindow, GetWindowDpi());
         _placementService.RestoreOrApplyDefault(AppWindow, GetWindowDpi);
         AppWindow.Changed += (_, args) => _placementService.SaveNormalPlacement(AppWindow, args, GetWindowDpi());
-        AppWindow.TitleBar.ExtendsContentIntoTitleBar = false;
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(TitleBarDragRegion);
         AppWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
         AppWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
     }
 
     public MainViewModel ViewModel { get; }
 
-    internal Task HandleProtocolActivationAsync(Uri uri)
+    internal async Task HandleProtocolActivationAsync(Uri uri)
     {
         ArgumentNullException.ThrowIfNull(uri);
-        return Task.CompletedTask;
+        if (!SnippingToolProtocol.TryParseResponse(uri, out var response))
+        {
+            return;
+        }
+
+        var sessionCurrent = TryCaptureUnlockedSession(out var sessionToken);
+        var decision = _snippingCaptureState.Receive(
+            response.CorrelationId,
+            response.StatusCode,
+            response.FileAccessToken,
+            sessionCurrent);
+        await ProcessSnippingCaptureDecisionAsync(decision, sessionCurrent ? sessionToken : 0);
     }
 
     private async void RootGrid_Loaded(object sender, RoutedEventArgs e)
@@ -364,10 +399,13 @@ public sealed partial class MainWindow : Window
         AuthenticatorView.Attach(ViewModel);
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         LockView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Collapsed;
         AuthenticatorView.Visibility = Visibility.Visible;
         _timer.Start();
         TryDeliverCancelledBackupNotice(sessionToken);
         ApplyBackgroundLockDecision(backgroundLockDecision);
+        var pendingCapture = _snippingCaptureState.ResumeAfterUnlock(sessionCurrent: true);
+        await ProcessSnippingCaptureDecisionAsync(pendingCapture, sessionToken);
         return true;
     }
 
@@ -458,46 +496,43 @@ public sealed partial class MainWindow : Window
         LockView.Message = message;
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         AuthenticatorView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Collapsed;
         LockView.Visibility = Visibility.Visible;
         CancelBackgroundLock();
         _autoLockActivationState.Clear();
     }
 
-    private async void AddAccount_Click(object? sender, EventArgs e)
+    private void ShowAddAccountView(object? sender, EventArgs e)
     {
-        if (!TryCaptureUnlockedSession(out var token))
+        if (!TryCaptureUnlockedSession(out _))
         {
             return;
         }
 
-        var draft = await _accountDialogs.ShowAddAsync(RootGrid.XamlRoot, token);
-        if (draft is null || !IsSessionCurrent(token))
-        {
-            return;
-        }
-
-        try
-        {
-            await ViewModel.AddAsync(CreateAccount(draft));
-            if (!IsSessionCurrent(token))
-            {
-                return;
-            }
-
-            AuthenticatorView.RefreshState();
-            ShowStatus(token, "账户已添加。", InfoBarSeverity.Success);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (InvalidOperationException)
-        {
-            ShowStatus(token, "账户未保存。请确认密钥未重复并重试。", InfoBarSeverity.Warning);
-        }
+        AuthenticatorView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Visible;
+        AddAccountView.ClearStatus();
+        AddAccountView.FocusPrimaryAction();
     }
 
-    private async void ImportQr_Click(object? sender, EventArgs e)
+    private void ShowAuthenticatorView(object? sender, EventArgs e)
+    {
+        if (!TryCaptureUnlockedSession(out _))
+        {
+            return;
+        }
+
+        ShowAuthenticatorView();
+    }
+
+    private void ShowAuthenticatorView()
+    {
+        AddAccountView.Visibility = Visibility.Collapsed;
+        AuthenticatorView.Visibility = Visibility.Visible;
+        AuthenticatorView.FocusAddAction();
+    }
+
+    private async void ManualEntry_Click(object? sender, EventArgs e)
     {
         if (!TryCaptureUnlockedSession(out var token))
         {
@@ -506,28 +541,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var file = await _files.OpenQrImageAsync();
-            if (file is null || !IsSessionCurrent(token))
-            {
-                return;
-            }
-
-            var value = await QrCodeImportService.DecodeAsync(file);
-            if (!IsSessionCurrent(token))
-            {
-                return;
-            }
-
-            if (value is null || !OtpAuthUriParser.TryParse(value, out var parsed) || parsed is null)
-            {
-                ShowStatus(token, "图片中没有可识别的 TOTP 二维码。", InfoBarSeverity.Warning);
-                return;
-            }
-
-            var draft = await _accountDialogs.ShowImportConfirmationAsync(
-                RootGrid.XamlRoot,
-                token,
-                new AccountDraft(parsed.Issuer, parsed.Account, parsed.Secret, null));
+            var draft = await _accountDialogs.ShowAddAsync(RootGrid.XamlRoot, token);
             if (draft is null || !IsSessionCurrent(token))
             {
                 return;
@@ -540,15 +554,238 @@ public sealed partial class MainWindow : Window
             }
 
             AuthenticatorView.RefreshState();
-            ShowStatus(token, "二维码账户已导入。", InfoBarSeverity.Success);
+            ShowAuthenticatorView();
+            ShowStatus(token, "账户已添加。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException)
         {
+            // 锁定或用户取消后保持当前安全状态。
+        }
+        catch (DuplicateMfaSecretException)
+        {
+            ShowAddAccountStatus(token, "该 MFA 密钥已存在。", InfoBarSeverity.Warning);
+        }
+        catch (Exception)
+        {
+            ShowAddAccountStatus(token, "账户未保存，请稍后重试。", InfoBarSeverity.Error);
+        }
+    }
+
+    private async void ImportImage_Click(object? sender, EventArgs e)
+    {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
             return;
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or FormatException)
+
+        AddAccountView.ClearStatus();
+        try
         {
-            ShowStatus(token, "二维码账户未导入。请确认图片和账户信息后重试。", InfoBarSeverity.Error);
+            var file = await _files.OpenQrImageAsync();
+            if (file is null || !IsSessionCurrent(token))
+            {
+                return;
+            }
+
+            await ImportQrFileAsync(file, token, QrImportSource.Image);
+        }
+        catch (OperationCanceledException)
+        {
+            // 锁定或用户取消后保持当前安全状态。
+        }
+        catch (Exception)
+        {
+            ShowAddAccountStatus(token, "图片账户未导入，请稍后重试。", InfoBarSeverity.Error);
+        }
+    }
+
+    private async void ScreenshotScan_Click(object? sender, EventArgs e)
+    {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
+        AddAccountView.ClearStatus();
+        var correlationId = _snippingCaptureState.Begin(Guid.NewGuid());
+        try
+        {
+            var launched = await _snippingToolCaptureService.LaunchAsync(correlationId);
+            if (!launched)
+            {
+                _snippingCaptureState.Abandon();
+                ShowAddAccountStatus(token, "无法打开截图工具，请稍后重试。", InfoBarSeverity.Error);
+            }
+        }
+        catch (Exception)
+        {
+            _snippingCaptureState.Abandon();
+            ShowAddAccountStatus(token, "无法打开截图工具，请稍后重试。", InfoBarSeverity.Error);
+        }
+    }
+
+    private async Task<AccountDraft?> ConfirmQrAccountAsync(
+        long sessionToken,
+        AccountDraft draft,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsSessionCurrent(sessionToken))
+        {
+            return null;
+        }
+
+        var confirmed = await _accountDialogs.ShowImportConfirmationAsync(
+            RootGrid.XamlRoot,
+            sessionToken,
+            draft);
+        cancellationToken.ThrowIfCancellationRequested();
+        return IsSessionCurrent(sessionToken) ? confirmed : null;
+    }
+
+    private async Task<QrAccountSaveOutcome> SaveQrAccountAsync(
+        long sessionToken,
+        AccountDraft draft,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsSessionCurrent(sessionToken))
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
+        try
+        {
+            await ViewModel.AddAsync(CreateAccount(draft), cancellationToken);
+            return QrAccountSaveOutcome.Imported;
+        }
+        catch (DuplicateMfaSecretException)
+        {
+            return QrAccountSaveOutcome.Conflict;
+        }
+    }
+
+    private async Task ImportQrFileAsync(StorageFile file, long sessionToken, QrImportSource source)
+    {
+        if (!_sessionCancellation.TryAcquire(sessionToken, out var lease))
+        {
+            return;
+        }
+
+        using (lease)
+        {
+            var outcome = await _qrImportCoordinator.ImportAsync(file, sessionToken, lease.Token);
+            if (!IsSessionCurrent(sessionToken) || lease.Token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            HandleQrImportOutcome(outcome, sessionToken, source);
+        }
+    }
+
+    private void HandleQrImportOutcome(
+        QrAccountImportOutcome outcome,
+        long sessionToken,
+        QrImportSource source)
+    {
+        switch (outcome)
+        {
+            case QrAccountImportOutcome.Imported:
+                AuthenticatorView.RefreshState();
+                ShowAuthenticatorView();
+                ShowStatus(sessionToken, "二维码账户已导入。", InfoBarSeverity.Success);
+                break;
+            case QrAccountImportOutcome.Cancelled:
+                break;
+            case QrAccountImportOutcome.InvalidQr:
+                ShowAddAccountStatus(
+                    sessionToken,
+                    source == QrImportSource.Screenshot
+                        ? "截图中没有可识别的 TOTP 二维码。"
+                        : "图片中没有可识别的 TOTP 二维码。",
+                    InfoBarSeverity.Warning);
+                break;
+            case QrAccountImportOutcome.Conflict:
+                ShowAddAccountStatus(sessionToken, "该 MFA 密钥已存在。", InfoBarSeverity.Warning);
+                break;
+            default:
+                throw new InvalidOperationException("二维码导入返回了未知结果。");
+        }
+    }
+
+    private async Task ProcessSnippingCaptureDecisionAsync(
+        SnippingCaptureDecision decision,
+        long sessionToken)
+    {
+        switch (decision.Kind)
+        {
+            case SnippingCaptureDecisionKind.Ignore:
+            case SnippingCaptureDecisionKind.Cancelled:
+                return;
+            case SnippingCaptureDecisionKind.DeferUntilUnlock:
+                if (_isUnlocked && !IsSessionCurrent(sessionToken))
+                {
+                    ForceLock("使用 Windows Hello 验证身份后即可继续导入截图。");
+                }
+
+                return;
+            case SnippingCaptureDecisionKind.BadRequest:
+                ShowAddAccountStatus(sessionToken, "截图请求无效，请重新截图。", InfoBarSeverity.Warning);
+                return;
+            case SnippingCaptureDecisionKind.Timeout:
+                ShowAddAccountStatus(sessionToken, "截图已超时，请重新截图。", InfoBarSeverity.Warning);
+                return;
+            case SnippingCaptureDecisionKind.Failed:
+                ShowAddAccountStatus(sessionToken, "截图未完成，请重新尝试。", InfoBarSeverity.Error);
+                return;
+            case SnippingCaptureDecisionKind.RedeemNow:
+                break;
+            default:
+                return;
+        }
+
+        if (string.IsNullOrWhiteSpace(decision.FileAccessToken)
+            || !IsSessionCurrent(sessionToken)
+            || !_sessionCancellation.TryAcquire(sessionToken, out var lease))
+        {
+            return;
+        }
+
+        using (lease)
+        {
+            StorageFile file;
+            try
+            {
+                file = await _snippingToolCaptureService.RedeemAsync(decision.FileAccessToken);
+            }
+            catch (Exception)
+            {
+                ShowAddAccountStatus(sessionToken, "无法读取截图，请重新截图。", InfoBarSeverity.Error);
+                return;
+            }
+
+            if (!IsSessionCurrent(sessionToken) || lease.Token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                var outcome = await _qrImportCoordinator.ImportAsync(file, sessionToken, lease.Token);
+                if (IsSessionCurrent(sessionToken) && !lease.Token.IsCancellationRequested)
+                {
+                    HandleQrImportOutcome(outcome, sessionToken, QrImportSource.Screenshot);
+                }
+            }
+            catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
+            {
+                // 锁定已使旧会话失效，不显示旧会话提示。
+            }
+            catch (Exception)
+            {
+                ShowAddAccountStatus(sessionToken, "截图未完成，请重新尝试。", InfoBarSeverity.Error);
+            }
         }
     }
 
@@ -998,6 +1235,18 @@ public sealed partial class MainWindow : Window
         {
             AuthenticatorView.ShowStatus(message, severity);
         }
+    }
+
+    private void ShowAddAccountStatus(long token, string message, InfoBarSeverity severity)
+    {
+        if (!IsSessionCurrent(token))
+        {
+            return;
+        }
+
+        AuthenticatorView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Visible;
+        AddAccountView.ShowStatus(message, severity);
     }
 
     private void SetHelloUnavailableMessage()

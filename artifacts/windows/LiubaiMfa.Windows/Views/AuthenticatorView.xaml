@@ -55,6 +55,7 @@
                         <FontIcon Glyph="&#xE72E;" FontSize="16" />
                     </Button>
                     <Button
+                        x:Name="AddButton"
                         Width="44"
                         Height="44"
                         Padding="0"

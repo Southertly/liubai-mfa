@@ -39,6 +39,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("无可导入账户时不保存", VerifyImportWithoutNewAccountsDoesNotSaveAsync),
     ("并发添加不会丢失已保存账户", VerifyConcurrentAddsAreSerializedAsync),
     ("并发添加重复账户只允许一个成功", VerifyConcurrentDuplicateAddsAllowOnlyOneAsync),
+    ("重复密钥使用专用异常且写保护异常保持通用", VerifyDuplicateMfaSecretExceptionClassificationAsync),
     ("卸载后保存完成不得回填账户状态", VerifyUnloadPreventsInFlightWritePublicationAsync),
     ("卸载后排队写不得保存或发布账户状态", VerifyUnloadCancelsQueuedWriteAsync),
     ("等待写门的外部取消必须传播且保持可用", VerifyExternalCancellationWhileWaitingForWriteGateAsync),
@@ -135,6 +136,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("截图服务拒绝空委托并传播委托异常", VerifySnippingToolCaptureDependencyBoundariesAsync),
     ("截图服务拒绝空任务和空兑换文件且不泄露输入", VerifySnippingToolCaptureNullResultsAsync),
     ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
+    ("主窗口添加账户、标题栏与截图生命周期源契约", () => RunSync(VerifyMainWindowAddAccountFlowSourceContract)),
     ("激活调度队列保持首次参数优先的 FIFO", () => RunSync(VerifyActivationDispatchQueueInitialFirstFifo)),
     ("激活调度队列并发入队不丢失且只保留一个排空预约", () => RunSync(VerifyActivationDispatchQueueConcurrentEnqueue)),
     ("激活调度队列在线性化判空后不会丢失唤醒", () => RunSync(VerifyActivationDispatchQueueDrainRace)),
@@ -403,14 +405,16 @@ static void VerifySingleInstanceActivationSourceContract()
     var protocolHandler = mainWindowClass.Members.OfType<MethodDeclarationSyntax>()
         .SingleOrDefault(method => method.Identifier.ValueText == "HandleProtocolActivationAsync")
         ?? throw new InvalidOperationException(
-            "MainWindow 必须提供 internal Task HandleProtocolActivationAsync(Uri uri) 临时接缝。");
+            "MainWindow 必须提供 internal async Task HandleProtocolActivationAsync(Uri uri) 协议接缝。");
     Assert(protocolHandler.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.InternalKeyword))
+            && protocolHandler.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.AsyncKeyword))
             && protocolHandler.ReturnType.ToString() == "Task",
-        "MainWindow 必须提供 internal Task HandleProtocolActivationAsync(Uri uri) 临时接缝。");
+        "MainWindow 必须提供 internal async Task HandleProtocolActivationAsync(Uri uri) 协议接缝。");
     var protocolHandlerBody = protocolHandler.Body?.ToString() ?? string.Empty;
     Assert(protocolHandlerBody.Contains("ArgumentNullException.ThrowIfNull(uri);", StringComparison.Ordinal)
-            && protocolHandlerBody.Contains("return Task.CompletedTask;", StringComparison.Ordinal),
-        "协议激活临时接缝必须只校验 URI 并返回已完成任务。");
+            && protocolHandlerBody.Contains("SnippingToolProtocol.TryParseResponse", StringComparison.Ordinal)
+            && protocolHandlerBody.Contains("_snippingCaptureState.Receive", StringComparison.Ordinal),
+        "协议激活接缝必须校验 URI 并只将严格解析后的响应交给截图状态机。");
 }
 
 static void AssertOrderedSource(string source, params string[] fragments)
@@ -2222,6 +2226,23 @@ static async Task VerifyConcurrentDuplicateAddsAllowOnlyOneAsync()
     Assert(repository.SaveCallCount == 1, "并发重复添加不应进行第二次保存。");
 }
 
+static async Task VerifyDuplicateMfaSecretExceptionClassificationAsync()
+{
+    var duplicateViewModel = new MainViewModel(new FakeAccountRepository(CreateViewModelFixture()));
+    await duplicateViewModel.LoadAsync();
+    var duplicate = await CaptureThrowsAsync<DuplicateMfaSecretException>(
+        () => duplicateViewModel.AddAsync(CreateNewAccount() with { Secret = "A" }));
+    Assert(duplicate.Message == "该 MFA 密钥已经存在。", "专用重复异常必须保留克制的用户可见原因。");
+
+    var loadFailureViewModel = new MainViewModel(
+        new FakeAccountRepository(loadException: new IOException("模拟读取失败")));
+    await AssertThrowsAsync<IOException>(() => loadFailureViewModel.LoadAsync());
+    var writeProtection = await CaptureThrowsAsync<InvalidOperationException>(
+        () => loadFailureViewModel.AddAsync(CreateNewAccount()));
+    Assert(writeProtection is not DuplicateMfaSecretException,
+        "加载失败写保护不得伪装成重复密钥冲突。");
+}
+
 static async Task VerifyUnloadPreventsInFlightWritePublicationAsync()
 {
     var repository = new FakeAccountRepository(CreateViewModelFixture()) { BlockFirstSave = true };
@@ -2848,6 +2869,125 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     {
         Assert(addAccountXaml.Contains(text, StringComparison.Ordinal), $"添加账户页缺少文案：{text}");
     }
+}
+
+static void VerifyMainWindowAddAccountFlowSourceContract()
+{
+    var mainWindowXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml"));
+    var mainWindowCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var authenticatorXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var authenticatorCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs"));
+    var addAccountXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml"));
+    var addAccountCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml.cs"));
+    var mainWindowDocument = XDocument.Parse(File.ReadAllText(mainWindowXamlPath));
+    var authenticatorDocument = XDocument.Parse(File.ReadAllText(authenticatorXamlPath));
+    var addAccountDocument = XDocument.Parse(File.ReadAllText(addAccountXamlPath));
+    var mainWindowSource = File.ReadAllText(mainWindowCodePath);
+    var authenticatorSource = File.ReadAllText(authenticatorCodePath);
+    var addAccountSource = File.ReadAllText(addAccountCodePath);
+    var mainWindowRoot = ParseCSharpRoot(mainWindowSource, "MainWindow.xaml.cs");
+    var authenticatorRoot = ParseCSharpRoot(authenticatorSource, "AuthenticatorView.xaml.cs");
+    var mainWindowClass = FindUniqueClass(mainWindowRoot, "MainWindow");
+    var authenticatorClass = FindUniqueClass(authenticatorRoot, "AuthenticatorView");
+    var presentation = (XNamespace)"http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+    var xaml = (XNamespace)"http://schemas.microsoft.com/winfx/2006/xaml";
+
+    var titleBarRegions = mainWindowDocument
+        .Descendants(presentation + "Grid")
+        .Where(element => element.Attribute(xaml + "Name")?.Value == "TitleBarDragRegion")
+        .ToArray();
+    Assert(titleBarRegions.Length == 1, "主窗口必须有且只有一个 TitleBarDragRegion 拖动区。");
+    Assert(GetRuntimeXamlAttribute(titleBarRegions.Single(), "Height") == "32",
+        "标题栏拖动区必须保持 32px 高度。");
+    Assert(!mainWindowDocument.Descendants()
+            .Any(element => GetRuntimeXamlAttribute(element, "Text") == "留白 MFA"),
+        "主窗口不得在自定义标题栏或页面中渲染应用名称。");
+    Assert(mainWindowDocument.Descendants()
+            .Count(element => element.Name.LocalName == "AddAccountView"
+                && element.Attribute(xaml + "Name")?.Value == "AddAccountView") == 1,
+        "主窗口必须叠放唯一 AddAccountView。");
+    Assert(authenticatorDocument.Descendants(presentation + "Button")
+            .Count(element => element.Attribute(xaml + "Name")?.Value == "AddButton") == 1,
+        "验证码列表顶部添加按钮必须可被返回导航恢复焦点。");
+
+    var addStatusBars = addAccountDocument.Descendants(presentation + "InfoBar")
+        .Where(element => element.Attribute(xaml + "Name")?.Value == "StatusBar")
+        .ToArray();
+    Assert(addStatusBars.Length == 1, "添加账户页必须提供可访问的 InfoBar 状态区。");
+    Assert(addAccountSource.Contains("public void ShowStatus(", StringComparison.Ordinal),
+        "添加账户页必须公开最小 ShowStatus 边界，且不得自行访问服务。");
+
+    var constructor = mainWindowClass.Members.OfType<ConstructorDeclarationSyntax>().Single();
+    var constructorSource = constructor.ToFullString();
+    Assert(constructorSource.Contains("ExtendsContentIntoTitleBar = true", StringComparison.Ordinal),
+        "主窗口必须启用扩展自定义标题栏。");
+    Assert(constructorSource.Contains("SetTitleBar(TitleBarDragRegion)", StringComparison.Ordinal),
+        "主窗口必须将空白拖动区注册为标题栏。");
+    Assert(constructorSource.Contains("ButtonBackgroundColor = Colors.Transparent", StringComparison.Ordinal)
+            && constructorSource.Contains("ButtonInactiveBackgroundColor = Colors.Transparent", StringComparison.Ordinal),
+        "系统标题按钮必须使用透明且主题感知的背景。");
+    foreach (var subscription in new[]
+    {
+        "AuthenticatorView.AddRequested += ShowAddAccountView",
+        "AddAccountView.BackRequested += ShowAuthenticatorView",
+        "AddAccountView.ScreenshotScanRequested += ScreenshotScan_Click",
+        "AddAccountView.ImportImageRequested += ImportImage_Click",
+        "AddAccountView.ManualEntryRequested += ManualEntry_Click",
+    })
+    {
+        Assert(constructorSource.Contains(subscription, StringComparison.Ordinal), $"主窗口缺少关键导航接线：{subscription}");
+    }
+
+    var protocolHandler = FindUniqueMethod(mainWindowClass, "HandleProtocolActivationAsync").ToFullString();
+    Assert(protocolHandler.Contains("SnippingToolProtocol.TryParseResponse", StringComparison.Ordinal)
+            && protocolHandler.Contains("_snippingCaptureState.Receive", StringComparison.Ordinal)
+            && protocolHandler.Contains("ProcessSnippingCaptureDecisionAsync", StringComparison.Ordinal),
+        "协议回调必须严格解析、进入截图状态机并统一处理决策。");
+    var enterMainView = FindUniqueMethod(mainWindowClass, "EnterMainViewAsync").ToFullString();
+    Assert(enterMainView.Contains("_snippingCaptureState.ResumeAfterUnlock", StringComparison.Ordinal)
+            && enterMainView.Contains("ProcessSnippingCaptureDecisionAsync", StringComparison.Ordinal),
+        "新解锁会话建立后必须恢复并只消费一次延期截图。");
+    var forceLock = FindUniqueMethod(mainWindowClass, "ForceLock").ToFullString();
+    Assert(!forceLock.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
+        "自动锁定不得丢弃已验证的延期截图令牌。");
+    Assert(constructorSource.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
+        "窗口关闭时必须放弃内存中的截图请求与延期令牌。");
+    Assert(mainWindowSource.Contains("_sessionCancellation.TryAcquire", StringComparison.Ordinal)
+            && mainWindowSource.Contains("_qrImportCoordinator.ImportAsync", StringComparison.Ordinal),
+        "截图和图片导入必须使用会话租约进入统一二维码协调器。");
+    var saveQrAccount = FindUniqueMethod(mainWindowClass, "SaveQrAccountAsync");
+    var caughtTypes = saveQrAccount.DescendantNodes()
+        .OfType<CatchDeclarationSyntax>()
+        .Select(declaration => declaration.Type?.ToString())
+        .Where(type => type is not null)
+        .ToArray();
+    Assert(caughtTypes.SequenceEqual(["DuplicateMfaSecretException"]),
+        "二维码保存适配器只能将专用 DuplicateMfaSecretException 分类为冲突。");
+    var screenshotHandler = FindUniqueMethod(mainWindowClass, "ScreenshotScan_Click").ToFullString();
+    Assert(screenshotHandler.Contains("if (!launched)", StringComparison.Ordinal)
+            && screenshotHandler.Contains("_snippingCaptureState.Abandon", StringComparison.Ordinal),
+        "截图工具返回 false 时必须无条件放弃活动请求，再按当前会话显示提示。");
+    var focusAddAction = FindUniqueMethod(authenticatorClass, "FocusAddAction");
+    Assert(focusAddAction.Modifiers.Any(modifier => modifier.IsKind(SyntaxKind.PublicKeyword))
+            && focusAddAction.ToFullString().Contains("AddButton.Focus(FocusState.Programmatic)", StringComparison.Ordinal),
+        "验证码列表必须公开最小焦点恢复边界。");
+    var parameterlessShowAuthenticator = mainWindowClass.Members
+        .OfType<MethodDeclarationSyntax>()
+        .Single(method => method.Identifier.ValueText == "ShowAuthenticatorView"
+            && method.ParameterList.Parameters.Count == 0)
+        .ToFullString();
+    Assert(parameterlessShowAuthenticator.Contains("AuthenticatorView.FocusAddAction", StringComparison.Ordinal),
+        "从添加账户页返回列表后必须恢复到唯一添加入口。");
+}
+
+static MethodDeclarationSyntax FindUniqueMethod(ClassDeclarationSyntax targetClass, string methodName)
+{
+    var methods = targetClass.Members
+        .OfType<MethodDeclarationSyntax>()
+        .Where(method => method.Identifier.ValueText == methodName)
+        .ToArray();
+    Assert(methods.Length == 1, $"{targetClass.Identifier.ValueText} 必须唯一声明 {methodName}。");
+    return methods.Single();
 }
 
 static string? GetRuntimeXamlAttribute(System.Xml.Linq.XElement element, string localName)

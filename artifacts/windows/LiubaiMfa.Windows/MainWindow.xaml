@@ -11,9 +11,25 @@
     <Grid
         x:Name="RootGrid"
         Background="Transparent">
-        <views:AuthenticatorView
-            x:Name="AuthenticatorView"
-            Visibility="Collapsed" />
-        <views:LockView x:Name="LockView" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid
+            x:Name="TitleBarDragRegion"
+            Height="32"
+            Background="Transparent"
+            AutomationProperties.Name="窗口标题栏" />
+
+        <Grid Grid.Row="1">
+            <views:AuthenticatorView
+                x:Name="AuthenticatorView"
+                Visibility="Collapsed" />
+            <views:AddAccountView
+                x:Name="AddAccountView"
+                Visibility="Collapsed" />
+            <views:LockView x:Name="LockView" />
+        </Grid>
     </Grid>
 </Window>

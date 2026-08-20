@@ -45,6 +45,8 @@ public sealed partial class AuthenticatorView : UserControl
 
     public void Initialize(MainViewModel viewModel) => Attach(viewModel);
 
+    public void FocusAddAction() => AddButton.Focus(FocusState.Programmatic);
+
     public void Attach(MainViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
