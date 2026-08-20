@@ -1507,6 +1507,8 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
     var mainWindowRoot = ParseCSharpRoot(mainWindowCode, "MainWindow.xaml.cs");
     var authenticatorClass = FindUniqueClass(authenticatorRoot, "AuthenticatorView");
     var addAccountClass = FindUniqueClass(addAccountRoot, "AddAccountView");
+    AssertNoConditionalCompilation(authenticatorClass);
+    AssertNoConditionalCompilation(addAccountClass);
 
     Assert(!authenticatorDocument.Descendants(presentation + "Button")
             .Any(element => GetRuntimeXamlAttribute(element, "Click") == "ImportQrButton_Click"),
@@ -1609,6 +1611,23 @@ static ClassDeclarationSyntax FindUniqueClass(CompilationUnitSyntax root, string
         .ToArray();
     Assert(matches.Length == 1, $"必须能唯一定位 {className} 类。");
     return matches.Single();
+}
+
+static void AssertNoConditionalCompilation(ClassDeclarationSyntax targetClass)
+{
+    var conditionalDirectives = targetClass
+        .DescendantTrivia(descendIntoTrivia: true)
+        .Where(trivia => trivia.HasStructure)
+        .Select(trivia => trivia.GetStructure())
+        .OfType<DirectiveTriviaSyntax>()
+        .Where(directive => directive.IsKind(SyntaxKind.IfDirectiveTrivia)
+            || directive.IsKind(SyntaxKind.ElifDirectiveTrivia)
+            || directive.IsKind(SyntaxKind.ElseDirectiveTrivia)
+            || directive.IsKind(SyntaxKind.EndIfDirectiveTrivia))
+        .ToArray();
+    Assert(conditionalDirectives.Length == 0,
+        $"统一添加入口类 {targetClass.Identifier.ValueText} 不得用条件编译定义受保护事件或 handler："
+        + string.Join(", ", conditionalDirectives.Select(directive => directive.ToString().Trim())));
 }
 
 static string[] GetEventNames(ClassDeclarationSyntax targetClass) =>
