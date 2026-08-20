@@ -65,7 +65,7 @@ dotnet build .\LiubaiMfa.sln -c Release -p:Platform=x64
 - DPAPI：重启、切换 Windows 用户及本地数据损坏后的行为。
 - 真实二维码图片选择与解码。
 - Android 与 Windows 真实备份文件双向导入。
-- 新生成的 MSIX 实际安装、升级和启动；当前受同版本内容冲突（`0x80073CFB`）阻塞，未完成。
+- 新生成的 MSIX 实际签名、安装、启动、升级和卸载；当前受同版本内容冲突（`0x80073CFB`）阻塞，未完成。
 
 ## 当前不在首个 Spike 内
 
