@@ -7,40 +7,55 @@
     mc:Ignorable="d">
 
     <Grid Padding="32">
-        <StackPanel
-            Width="360"
-            Spacing="14"
+        <Border
+            Width="380"
+            Padding="28"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="16"
             HorizontalAlignment="Center"
             VerticalAlignment="Center">
-            <FontIcon
-                Glyph="&#xE72E;"
-                FontSize="34"
-                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                AutomationProperties.Name="锁定" />
-            <TextBlock
-                Text="验证码已锁定"
-                FontSize="24"
-                FontWeight="SemiBold"
-                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                HorizontalAlignment="Center" />
-            <TextBlock
-                x:Name="LockMessage"
-                Text="使用 Windows Hello 验证身份后即可查看验证码。"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                TextAlignment="Center"
-                TextWrapping="Wrap" />
-            <Button
-                x:Name="UnlockButton"
-                Content="使用 Windows Hello 解锁"
-                Style="{StaticResource AccentButtonStyle}"
-                HorizontalAlignment="Stretch"
-                AutomationProperties.Name="使用 Windows Hello 解锁"
-                Click="UnlockButton_Click" />
-            <TextBlock
-                Text="离开 1 分钟后自动重新锁定"
-                FontSize="12"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                HorizontalAlignment="Center" />
-        </StackPanel>
+            <StackPanel Spacing="16">
+                <Border
+                    Width="56"
+                    Height="56"
+                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
+                    CornerRadius="16"
+                    HorizontalAlignment="Center">
+                    <FontIcon
+                        Glyph="&#xE72E;"
+                        FontSize="24"
+                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="锁定" />
+                </Border>
+                <TextBlock
+                    Text="验证码已锁定"
+                    FontSize="26"
+                    FontWeight="SemiBold"
+                    TextAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                <TextBlock
+                    x:Name="LockMessage"
+                    Text="使用 Windows Hello 验证身份后即可查看验证码。"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap" />
+                <Button
+                    x:Name="UnlockButton"
+                    Content="使用 Windows Hello 解锁"
+                    Style="{StaticResource AccentButtonStyle}"
+                    HorizontalAlignment="Stretch"
+                    AutomationProperties.Name="使用 Windows Hello 解锁"
+                    Click="UnlockButton_Click" />
+                <TextBlock
+                    Text="离开 1 分钟后自动重新锁定"
+                    FontSize="12"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    HorizontalAlignment="Center" />
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

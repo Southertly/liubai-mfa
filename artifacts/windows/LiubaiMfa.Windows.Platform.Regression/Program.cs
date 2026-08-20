@@ -76,6 +76,7 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("账户编辑不要求 Hello 或确认", () => RunSync(VerifyEditActionPolicy)),
     ("查看密钥只要求 Hello", () => RunSync(VerifyViewSecretActionPolicy)),
     ("删除账户只要求确认", () => RunSync(VerifyDeleteActionPolicy)),
+    ("账户草稿密钥输入必须默认遮挡且结束清空", () => RunSync(VerifyAccountDraftSecretInputIsMaskedAndCleared)),
     ("账户行 Ctrl+C 只接受精确 Ctrl 修饰键", () => RunSync(VerifyExactCopyShortcutPolicy)),
     ("窗口位置限制在主屏工作区", () => RunSync(VerifyWindowPlacementClampsToPrimaryWorkArea)),
     ("窗口位置修复损坏尺寸", () => RunSync(VerifyWindowPlacementRepairsDamagedSize)),
@@ -1339,6 +1340,32 @@ static void VerifySensitiveClipboardResultHandling()
     var backupDialog = File.ReadAllText(backupDialogPath);
     Assert(backupDialog.Contains("ClipboardResultPolicy.CreateRecoveryKey(copyText(recoveryKey))", StringComparison.Ordinal),
         "恢复密钥复制入口必须调用剪贴板提示策略。");
+}
+
+static void VerifyAccountDraftSecretInputIsMaskedAndCleared()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Services", "AccountDialogService.cs"));
+    var source = File.ReadAllText(sourcePath);
+    var methodStart = source.IndexOf("    private async Task<AccountDraft?> ShowDraftAsync", StringComparison.Ordinal);
+    var methodEnd = source.IndexOf("    private static AccountDraft? CreateDraft", methodStart, StringComparison.Ordinal);
+    Assert(methodStart >= 0 && methodEnd > methodStart, "无法定位账户草稿对话框方法。");
+
+    var method = source[methodStart..methodEnd];
+    Assert(System.Text.RegularExpressions.Regex.IsMatch(method, @"var\s+secretBox\s*=\s*new\s+PasswordBox\s*\{"),
+        "账户草稿密钥必须使用 PasswordBox，默认由系统遮挡。");
+    Assert(!System.Text.RegularExpressions.Regex.IsMatch(method, @"var\s+secretBox\s*=\s*new\s+TextBox\s*\{"),
+        "账户草稿密钥不得继续使用明文 TextBox。");
+    Assert(System.Text.RegularExpressions.Regex.IsMatch(method, @"PasswordRevealMode\s*=\s*PasswordRevealMode\.Peek"),
+        "密钥输入只允许通过 Peek 临时查看。");
+    Assert(System.Text.RegularExpressions.Regex.IsMatch(method, @"CreateDraft\s*\(\s*issuerBox\.Text\s*,\s*accountBox\.Text\s*,\s*secretBox\.Password\s*,"),
+        "账户草稿必须从 Password 属性读取密钥。");
+
+    var tryIndex = method.IndexOf("try", StringComparison.Ordinal);
+    var showIndex = method.IndexOf("await _showDialog(dialog, token)", StringComparison.Ordinal);
+    var finallyIndex = method.IndexOf("finally", showIndex, StringComparison.Ordinal);
+    var clearIndex = method.IndexOf("secretBox.Password = string.Empty;", finallyIndex, StringComparison.Ordinal);
+    Assert(tryIndex >= 0 && showIndex > tryIndex && finallyIndex > showIndex && clearIndex > finallyIndex,
+        "对话框结束或异常时必须在 finally 中无条件清空密钥输入。");
 }
 
 static void VerifyClipboardStatusFeedbackPolicy()

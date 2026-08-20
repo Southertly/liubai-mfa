@@ -177,17 +177,23 @@ public sealed class AccountDialogService
 
         var issuerBox = new TextBox { Header = "服务名称", Text = initial?.Issuer ?? string.Empty, PlaceholderText = "例如 GitHub" };
         var accountBox = new TextBox { Header = "账户", Text = initial?.Account ?? string.Empty, PlaceholderText = "例如 alice@example.com" };
-        var secretBox = new TextBox { Header = "Base32 密钥或 otpauth:// 地址", Text = initial?.Secret ?? string.Empty, PlaceholderText = "JBSW Y3DP EHPK 3PXP" };
+        var secretBox = new PasswordBox
+        {
+            Header = "Base32 密钥或 otpauth:// 地址",
+            Password = initial?.Secret ?? string.Empty,
+            PlaceholderText = "粘贴密钥或 otpauth:// 地址",
+            PasswordRevealMode = PasswordRevealMode.Peek,
+        };
         var groupBox = new TextBox { Header = "分组（可选）", Text = initial?.Group ?? string.Empty };
         var error = CreateValidationMessage();
-        var dialog = CreateDialog(root, title, new StackPanel { Spacing = 10, Children = { issuerBox, accountBox, secretBox, groupBox, error } }, "保存", "取消");
+        var dialog = CreateDialog(root, title, new StackPanel { Spacing = 12, Children = { issuerBox, accountBox, secretBox, groupBox, error } }, "保存", "取消");
         AccountDraft? submitted = null;
         dialog.PrimaryButtonClick += (_, args) =>
         {
             var deferral = args.GetDeferral();
             try
             {
-                submitted = CreateDraft(issuerBox.Text, accountBox.Text, secretBox.Text, groupBox.Text, out var message);
+                submitted = CreateDraft(issuerBox.Text, accountBox.Text, secretBox.Password, groupBox.Text, out var message);
                 error.Text = message;
                 args.Cancel = submitted is null;
             }
@@ -196,12 +202,19 @@ public sealed class AccountDialogService
                 deferral.Complete();
             }
         };
-        if (await _showDialog(dialog, token) != ContentDialogResult.Primary || !_isSessionCurrent(token))
+        try
         {
-            return null;
-        }
+            if (await _showDialog(dialog, token) != ContentDialogResult.Primary || !_isSessionCurrent(token))
+            {
+                return null;
+            }
 
-        return submitted;
+            return submitted;
+        }
+        finally
+        {
+            secretBox.Password = string.Empty;
+        }
     }
 
     private static AccountDraft? CreateDraft(string issuerText, string accountText, string secretText, string groupText, out string message)
