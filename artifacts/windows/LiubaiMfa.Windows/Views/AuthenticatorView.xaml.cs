@@ -4,6 +4,7 @@ using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -34,7 +35,33 @@ public sealed partial class AuthenticatorView : UserControl
     public AuthenticatorView()
     {
         InitializeComponent();
+        SettingsButton.Flyout = CreateSettingsFlyout();
         AccountsList.LayoutUpdated += AccountsList_LayoutUpdated;
+    }
+
+    private MenuFlyout CreateSettingsFlyout()
+    {
+        var flyout = new MenuFlyout();
+        flyout.Items.Add(CreateMenuItem("立即锁定", "立即锁定", LockMenuItem_Click));
+        flyout.Items.Add(CreateMenuItem("启动保护…", "启动保护设置", SettingsMenuItem_Click));
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        flyout.Items.Add(CreateMenuItem("导入备份…", "导入备份", ImportBackupItem_Click));
+        flyout.Items.Add(CreateMenuItem("导出加密备份…", "导出加密备份", ExportBackupItem_Click));
+        return flyout;
+    }
+
+    private static MenuFlyoutItem CreateMenuItem(
+        string text,
+        string automationName,
+        RoutedEventHandler clickHandler)
+    {
+        var item = new MenuFlyoutItem
+        {
+            Text = text,
+        };
+        AutomationProperties.SetName(item, automationName);
+        item.Click += clickHandler;
+        return item;
     }
 
     public event EventHandler? AddRequested;
@@ -105,7 +132,6 @@ public sealed partial class AuthenticatorView : UserControl
 
             StatusBar.IsOpen = false;
             StatusBar.Message = string.Empty;
-            ExportBackupMenuItem.IsEnabled = false;
             EmptyState.Visibility = Visibility.Collapsed;
             NoResultsState.Visibility = Visibility.Collapsed;
             AccountsList.Visibility = Visibility.Collapsed;
@@ -161,11 +187,9 @@ public sealed partial class AuthenticatorView : UserControl
             EmptyState.Visibility = Visibility.Collapsed;
             NoResultsState.Visibility = Visibility.Collapsed;
             AccountsList.Visibility = Visibility.Collapsed;
-            ExportBackupMenuItem.IsEnabled = false;
             return;
         }
 
-        ExportBackupMenuItem.IsEnabled = _viewModel.HasAccounts;
         EmptyState.Visibility = _viewModel.HasAccounts ? Visibility.Collapsed : Visibility.Visible;
         NoResultsState.Visibility = _viewModel.HasAccounts && !_viewModel.HasVisibleAccounts
             ? Visibility.Visible

@@ -40,8 +40,8 @@ namespace LiubaiMfa.Windows.Views
     public sealed partial class AuthenticatorView
     {
         private readonly InfoBar StatusBar = new();
+        private readonly Button SettingsButton = new();
         private readonly Button AddButton = new();
-        private readonly MenuFlyoutItem ExportBackupMenuItem = new();
         private readonly TextBlock ProtectionStatusText = new();
         private readonly AutoSuggestBox SearchBox = new();
         private readonly ListView GroupsList = new();
