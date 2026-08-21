@@ -18,14 +18,18 @@ public sealed partial class AuthenticatorView : UserControl
     private bool _isSynchronizingGroups;
     private bool _isSynchronizingSearch;
     private readonly DispatcherTimer _revealTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _copyTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private EventHandler<object>? _revealTimerTickHandler;
+    private EventHandler<object>? _copyTimerTickHandler;
     private EventHandler<object>? _statusTimerTickHandler;
     private long _statusEpoch;
     private long _attachEpoch;
     private long _revealEpoch;
+    private long _copyEpoch;
     private string? _requestedRevealAccountId;
     private AccountItemViewModel? _highlightedAccount;
+    private AccountItemViewModel? _copiedAccount;
 
     public AuthenticatorView()
     {
@@ -71,6 +75,7 @@ public sealed partial class AuthenticatorView : UserControl
         _attachEpoch++;
         StopRevealTimer();
         _revealEpoch++;
+        ClearCopyFeedback();
         _statusTimer.Stop();
         _statusEpoch++;
         if (_statusTimerTickHandler is not null)
@@ -100,6 +105,7 @@ public sealed partial class AuthenticatorView : UserControl
 
             StatusBar.IsOpen = false;
             StatusBar.Message = string.Empty;
+            ExportBackupMenuItem.IsEnabled = false;
             EmptyState.Visibility = Visibility.Collapsed;
             NoResultsState.Visibility = Visibility.Collapsed;
             AccountsList.Visibility = Visibility.Collapsed;
@@ -155,9 +161,11 @@ public sealed partial class AuthenticatorView : UserControl
             EmptyState.Visibility = Visibility.Collapsed;
             NoResultsState.Visibility = Visibility.Collapsed;
             AccountsList.Visibility = Visibility.Collapsed;
+            ExportBackupMenuItem.IsEnabled = false;
             return;
         }
 
+        ExportBackupMenuItem.IsEnabled = _viewModel.HasAccounts;
         EmptyState.Visibility = _viewModel.HasAccounts ? Visibility.Collapsed : Visibility.Visible;
         NoResultsState.Visibility = _viewModel.HasAccounts && !_viewModel.HasVisibleAccounts
             ? Visibility.Visible
@@ -167,10 +175,45 @@ public sealed partial class AuthenticatorView : UserControl
 
     public void ApplyStartupProtection(bool enabled)
     {
-        LockButton.Visibility = StartupProtectionPolicy.ShouldShowManualLock(enabled)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        ProtectionStatusText.Text = enabled ? "本机加密 · Windows Hello 保护" : "本机加密存储";
+        ProtectionStatusText.Text = enabled
+            ? "本机加密保护 · 优先 Windows Hello，不可用时使用电脑密码"
+            : "本机加密存储";
+    }
+
+    public void ShowCopyFeedback(string accountId, bool succeeded)
+    {
+        if (_viewModel is null)
+        {
+            return;
+        }
+
+        ClearCopyFeedback();
+        if (!succeeded)
+        {
+            return;
+        }
+
+        var account = FindAccount(accountId);
+        if (account is null)
+        {
+            return;
+        }
+
+        account.SetCopied(true);
+        _copiedAccount = account;
+        var attachEpoch = _attachEpoch;
+        var copyEpoch = ++_copyEpoch;
+        _copyTimerTickHandler = (_, _) =>
+        {
+            if (!EpochCallbackGuard.IsCurrent(_copyEpoch, copyEpoch, _attachEpoch, attachEpoch, _copiedAccount?.Id, accountId))
+            {
+                return;
+            }
+
+            ClearCopyFeedback();
+        };
+        _copyTimer.Tick += _copyTimerTickHandler;
+        _copyTimer.Start();
     }
 
     public AccountItemViewModel? FindAccount(string id) =>
@@ -291,16 +334,16 @@ public sealed partial class AuthenticatorView : UserControl
     }
 
     private void AddButton_Click(object sender, RoutedEventArgs e) => this.AddRequested?.Invoke(this, EventArgs.Empty);
-    private void LockButton_Click(object sender, RoutedEventArgs e) => LockRequested?.Invoke(this, EventArgs.Empty);
-    private void SettingsButton_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
+    private void LockMenuItem_Click(object sender, RoutedEventArgs e) => LockRequested?.Invoke(this, EventArgs.Empty);
+    private void SettingsMenuItem_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
     private void ImportBackupItem_Click(object sender, RoutedEventArgs e) => ImportBackupRequested?.Invoke(this, EventArgs.Empty);
     private void ExportBackupItem_Click(object sender, RoutedEventArgs e) => ExportBackupRequested?.Invoke(this, EventArgs.Empty);
 
-    private void CopyCodeButton_Click(object sender, RoutedEventArgs e)
+    private void AccountRow_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if (TryGetAccountId(sender, out var id))
         {
-            CopyRequested?.Invoke(this, new AccountRequestedEventArgs(id));
+            RequestCopy(id);
         }
     }
 
@@ -328,12 +371,6 @@ public sealed partial class AuthenticatorView : UserControl
         }
     }
 
-    private void EditMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.Edit);
-
-    private void ShowSecretMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.ViewSecret);
-
-    private void DeleteMenuItem_Click(object sender, RoutedEventArgs e) => RaiseMenuAccountAction(sender, AccountAction.Delete);
-
     private void AccountRow_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (!TryGetAccountId(sender, out var id))
@@ -346,19 +383,31 @@ public sealed partial class AuthenticatorView : UserControl
         var altDown = IsKeyDown(VirtualKey.Menu) || IsKeyDown(VirtualKey.LeftMenu) || IsKeyDown(VirtualKey.RightMenu);
         var windowsDown = IsKeyDown(VirtualKey.LeftWindows) || IsKeyDown(VirtualKey.RightWindows);
 
-        if (e.Key == VirtualKey.C && AccountActionPolicy.IsCopyShortcut(controlDown, shiftDown, altDown, windowsDown, e.KeyStatus.WasKeyDown))
+        if (e.Key is VirtualKey.Enter or VirtualKey.Space ||
+            e.Key == VirtualKey.C && AccountActionPolicy.IsCopyShortcut(controlDown, shiftDown, altDown, windowsDown, e.KeyStatus.WasKeyDown))
         {
-            CopyRequested?.Invoke(this, new AccountRequestedEventArgs(id));
+            RequestCopy(id);
             e.Handled = true;
         }
     }
 
-    private void RaiseMenuAccountAction(object sender, AccountAction action)
+    private void RequestCopy(string accountId)
     {
-        if (TryGetAccountId(sender, out var id))
+        CopyRequested?.Invoke(this, new AccountRequestedEventArgs(accountId));
+    }
+
+    private void ClearCopyFeedback()
+    {
+        _copyTimer.Stop();
+        _copyEpoch++;
+        if (_copyTimerTickHandler is not null)
         {
-            RaiseAccountAction(id, action);
+            _copyTimer.Tick -= _copyTimerTickHandler;
+            _copyTimerTickHandler = null;
         }
+
+        _copiedAccount?.SetCopied(false);
+        _copiedAccount = null;
     }
 
     private void RaiseAccountAction(string accountId, AccountAction action)

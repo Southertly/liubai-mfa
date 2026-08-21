@@ -39,7 +39,7 @@
                     Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 <TextBlock
                     x:Name="LockMessage"
-                    Text="使用 Windows Hello 验证身份后即可查看验证码。"
+                    Text="验证身份后即可查看验证码。"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     TextAlignment="Center"
                     TextWrapping="Wrap" />
@@ -50,6 +50,12 @@
                     HorizontalAlignment="Stretch"
                     AutomationProperties.Name="使用 Windows Hello 解锁"
                     Click="UnlockButton_Click" />
+                <Button
+                    x:Name="PasswordUnlockButton"
+                    Content="使用电脑密码解锁"
+                    HorizontalAlignment="Center"
+                    AutomationProperties.Name="使用电脑密码解锁"
+                    Click="PasswordUnlockButton_Click" />
                 <TextBlock
                     Text="离开 1 分钟后自动重新锁定"
                     FontSize="12"

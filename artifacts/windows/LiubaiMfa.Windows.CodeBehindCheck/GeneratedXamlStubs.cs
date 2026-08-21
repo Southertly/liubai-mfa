@@ -41,7 +41,7 @@ namespace LiubaiMfa.Windows.Views
     {
         private readonly InfoBar StatusBar = new();
         private readonly Button AddButton = new();
-        private readonly Button LockButton = new();
+        private readonly MenuFlyoutItem ExportBackupMenuItem = new();
         private readonly TextBlock ProtectionStatusText = new();
         private readonly AutoSuggestBox SearchBox = new();
         private readonly ListView GroupsList = new();
@@ -58,6 +58,7 @@ namespace LiubaiMfa.Windows.Views
     {
         private readonly TextBlock LockMessage = new();
         private readonly Button UnlockButton = new();
+        private readonly Button PasswordUnlockButton = new();
 
         private void InitializeComponent()
         {

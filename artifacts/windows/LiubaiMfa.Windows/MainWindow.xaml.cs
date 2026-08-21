@@ -33,6 +33,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan PageTransitionDuration = TimeSpan.FromMilliseconds(180);
     private const float PageTransitionOffset = 20f;
     private readonly WindowsHelloService _windowsHello;
+    private readonly WindowsCredentialService _windowsCredential;
     private readonly StartupProtectionSettings _startupProtectionSettings;
     private readonly NativeFileService _files;
     private readonly ClipboardService _clipboard;
@@ -81,7 +82,9 @@ public sealed partial class MainWindow : Window
         AddAccountView.ImportImageRequested += ImportImage_Click;
         AddAccountView.ManualEntryRequested += ManualEntry_Click;
         LockView.UnlockRequested += Unlock_Click;
+        LockView.PasswordUnlockRequested += PasswordUnlock_Click;
         _windowsHello = new WindowsHelloService(this);
+        _windowsCredential = new WindowsCredentialService();
         _startupProtectionSettings = new StartupProtectionSettings();
         _files = new NativeFileService(this);
         _clipboard = new ClipboardService();
@@ -311,6 +314,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void PasswordUnlock_Click(object? sender, EventArgs e)
+    {
+        try
+        {
+            await UnlockWithPasswordAsync();
+        }
+        catch (Exception)
+        {
+            ForceLock("无法完成打开操作，请稍后重试。");
+        }
+    }
+
     private async Task UnlockAsync()
     {
         if (_unlockInProgress)
@@ -355,6 +370,35 @@ public sealed partial class MainWindow : Window
             {
                 _snippingCaptureState.Abandon();
                 LockView.Message = "身份验证未完成，应用仍保持锁定。";
+                return;
+            }
+
+            await EnterMainViewAsync("无法解锁本地账户数据。为避免覆盖，应用保持锁定。");
+        }
+        finally
+        {
+            _unlockInProgress = false;
+            LockView.IsUnlockEnabled = true;
+        }
+    }
+
+    private async Task UnlockWithPasswordAsync()
+    {
+        if (_unlockInProgress)
+        {
+            return;
+        }
+
+        _unlockInProgress = true;
+        LockView.IsUnlockEnabled = false;
+        LockView.Message = "正在等待电脑密码验证…";
+        try
+        {
+            var isVerified = await _windowsCredential.VerifyAsync("验证电脑密码以解锁留白 MFA");
+            if (!isVerified)
+            {
+                _snippingCaptureState.Abandon();
+                LockView.Message = "电脑密码验证未完成，应用仍保持锁定。";
                 return;
             }
 
@@ -413,7 +457,7 @@ public sealed partial class MainWindow : Window
             BackgroundLockDelay);
         if (backgroundLockDecision.Kind == AutoLockDecisionKind.LockNow)
         {
-            ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
+                ForceLock("验证身份后即可查看验证码。");
             return false;
         }
 
@@ -442,10 +486,7 @@ public sealed partial class MainWindow : Window
 
     private void Lock_Click(object? sender, EventArgs e)
     {
-        if (_startupProtectionEnabled)
-        {
-            ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
-        }
+        ForceLock("验证身份后即可查看验证码。");
     }
 
     private async void Settings_Click(object? sender, EventArgs e)
@@ -512,7 +553,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Lock() => ForceLock("使用 Windows Hello 验证身份后即可查看验证码。");
+    private void Lock() => ForceLock("验证身份后即可查看验证码。");
 
     private void ForceLock(string message)
     {
@@ -528,6 +569,7 @@ public sealed partial class MainWindow : Window
         ResetPageVisual(AuthenticatorView);
         ResetPageVisual(AddAccountView);
         LockView.Message = message;
+        LockView.ShowHelloPrimary();
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         AuthenticatorView.Visibility = Visibility.Collapsed;
         AddAccountView.Visibility = Visibility.Collapsed;
@@ -931,7 +973,7 @@ public sealed partial class MainWindow : Window
             case SnippingCaptureDecisionKind.DeferUntilUnlock:
                 if (_isUnlocked && !IsSessionCurrent(sessionToken))
                 {
-                    ForceLock("使用 Windows Hello 验证身份后即可继续导入截图。");
+                ForceLock("验证身份后即可继续导入截图。");
                 }
 
                 return;
@@ -1016,8 +1058,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var copyFeedback = ClipboardResultPolicy.CreateStatus(_clipboard.TryCopyText(account.Code), "验证码已复制。");
-        ShowStatus(token, copyFeedback.Message, copyFeedback.Severity);
+        var copySucceeded = _clipboard.TryCopyText(account.Code);
+        AuthenticatorView.ShowCopyFeedback(e.AccountId, copySucceeded);
+        if (!copySucceeded)
+        {
+            var copyFeedback = ClipboardResultPolicy.CreateStatus(false, "验证码已复制。");
+            ShowStatus(token, "复制失败", copyFeedback.Severity);
+        }
     }
 
     private async void EditAccount_Click(object? sender, AccountRequestedEventArgs e)
@@ -1324,7 +1371,10 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var isVerified = await _windowsHello.VerifyAsync(reason);
+            var helloAvailable = await _windowsHello.IsAvailableAsync();
+            var isVerified = helloAvailable
+                ? await _windowsHello.VerifyAsync(reason)
+                : await _windowsCredential.VerifyAsync(reason);
             if (!IsSessionCurrent(token))
             {
                 return false;
@@ -1339,7 +1389,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception)
         {
-            ShowStatus(token, "Windows Hello 暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
+            ShowStatus(token, "身份验证暂时不可用，请稍后重试。", InfoBarSeverity.Warning);
         }
 
         return false;
@@ -1464,13 +1514,14 @@ public sealed partial class MainWindow : Window
 
     private void SetHelloUnavailableMessage()
     {
-        LockView.Message = "此电脑尚未配置 Windows Hello。请先在 Windows 设置中配置系统 PIN、指纹或面容。";
-        LockView.ButtonContent = "重新检测 Windows Hello";
+        LockView.Message = "此电脑暂不支持 Windows Hello，可以使用电脑密码解锁。";
+        LockView.ShowPasswordPrimary();
     }
 
     private void SetHelloTemporarilyUnavailableMessage()
     {
-        LockView.Message = "Windows Hello 暂时不可用，请稍后重试。";
+        LockView.Message = "Windows Hello 暂时不可用，可以改用电脑密码解锁。";
+        LockView.ShowHelloPrimary();
         LockView.ButtonContent = "重新检测 Windows Hello";
     }
 

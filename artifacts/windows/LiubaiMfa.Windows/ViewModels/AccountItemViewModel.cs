@@ -11,6 +11,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     private string _code = "------";
     private int _secondsRemaining;
     private bool _isRevealHighlighted;
+    private bool _isCopied;
 
     public AccountItemViewModel(MfaAccount model)
     {
@@ -28,10 +29,24 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     public string GroupLabel => string.IsNullOrWhiteSpace(Model.Group) ? "未分组" : Model.Group;
     public ServiceIconDescriptor Icon => ServiceIconResolver.Resolve(Model.Issuer);
     public string FormattedCode => FormatCode(Code);
+    public string CodeDisplay => IsCopied ? "已复制" : FormattedCode;
     public double ProgressValue => CalculateProgress(SecondsRemaining, TotpPeriod);
     public bool IsExpiring => IsExpiringAt(SecondsRemaining);
     public double ExpiryAlertOpacity => IsExpiring ? 1 : 0;
-    public string AccessibleName => $"{DisplayIssuer} {DisplayAccount}，验证码 {FormattedCode}，剩余 {SecondsRemaining} 秒";
+    public string AccessibleName => $"{DisplayIssuer} {DisplayAccount}，验证码 {CodeDisplay}，剩余 {SecondsRemaining} 秒";
+
+    public bool IsCopied
+    {
+        get => _isCopied;
+        private set
+        {
+            if (SetField(ref _isCopied, value))
+            {
+                OnPropertyChanged(nameof(CodeDisplay));
+                OnPropertyChanged(nameof(AccessibleName));
+            }
+        }
+    }
 
     public string Code
     {
@@ -41,6 +56,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
             if (SetField(ref _code, value))
             {
                 OnPropertyChanged(nameof(FormattedCode));
+                OnPropertyChanged(nameof(CodeDisplay));
                 OnPropertyChanged(nameof(AccessibleName));
             }
         }
@@ -115,6 +131,8 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
     }
 
     public void UpdateCode() => Refresh();
+
+    public void SetCopied(bool value) => IsCopied = value;
 
     public void SetRevealHighlight(bool value) => IsRevealHighlighted = value;
 
