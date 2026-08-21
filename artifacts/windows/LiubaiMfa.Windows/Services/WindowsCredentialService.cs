@@ -63,18 +63,20 @@ public sealed class WindowsCredentialService
 
     private static bool VerifyWindowsCredential(string userName, string? domain, string password)
     {
-        if (!LogonUser(
+        var verified = LogonUser(
                 userName,
                 domain,
                 password,
                 LogonType.Interactive,
                 LogonProvider.Default,
-                out var token))
+                out var token);
+
+        if (token != IntPtr.Zero)
         {
-            return false;
+            CloseHandle(token);
         }
 
-        return CloseHandle(token);
+        return verified;
     }
 
     private enum LogonType : uint

@@ -25,7 +25,7 @@ public sealed class ProtectionSettingsDialogService
 
         var toggle = new ToggleSwitch
         {
-            Header = "打开应用时使用 Windows Hello",
+            Header = "打开应用时启用安全锁定",
             OffContent = "关闭",
             OnContent = "开启",
             IsOn = currentValue,
@@ -45,7 +45,7 @@ public sealed class ProtectionSettingsDialogService
                     toggle,
                     new TextBlock
                     {
-                        Text = "开启后，启动应用、手动锁定和离开 1 分钟后需要验证身份。查看密钥和导出备份始终单独验证。",
+                        Text = "开启后，启动应用、手动锁定和离开 1 分钟后需要验证身份。优先使用 Windows Hello，不可用时使用电脑密码；查看密钥和导出备份始终单独验证。",
                         TextWrapping = TextWrapping.Wrap,
                     },
                 },
