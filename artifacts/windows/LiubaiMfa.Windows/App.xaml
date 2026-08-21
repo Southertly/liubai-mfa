@@ -9,9 +9,22 @@
             </ResourceDictionary.MergedDictionaries>
 
             <Thickness x:Key="MfaPagePadding">24,20,24,16</Thickness>
-            <Thickness x:Key="MfaCardPadding">16,14</Thickness>
-            <CornerRadius x:Key="MfaCardCornerRadius">16</CornerRadius>
-            <x:Double x:Key="MfaCardSpacing">10</x:Double>
+            <Thickness x:Key="MfaCardPadding">0</Thickness>
+            <CornerRadius x:Key="MfaCardCornerRadius">20</CornerRadius>
+            <x:Double x:Key="MfaCardSpacing">12</x:Double>
+            <SolidColorBrush x:Key="MfaPageBackgroundBrush" Color="#F0F9FF" />
+            <SolidColorBrush x:Key="MfaSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MfaMutedSurfaceBrush" Color="#E7EFF5" />
+            <SolidColorBrush x:Key="MfaBorderBrush" Color="#BAE6FD" />
+            <SolidColorBrush x:Key="MfaPrimaryTextBrush" Color="#0C4A6E" />
+            <SolidColorBrush x:Key="MfaSecondaryTextBrush" Color="#475569" />
+            <SolidColorBrush x:Key="MfaTertiaryTextBrush" Color="#64748B" />
+            <SolidColorBrush x:Key="MfaSecurityBrush" Color="#0369A1" />
+            <SolidColorBrush x:Key="MfaSecuritySoftBrush" Color="#D8F3E3" />
+            <SolidColorBrush x:Key="MfaSecurityTextBrush" Color="#15803D" />
+            <SolidColorBrush x:Key="MfaProgressBrush" Color="#0EA5E9" />
+            <SolidColorBrush x:Key="MfaWarningBrush" Color="#F59E0B" />
+            <SolidColorBrush x:Key="MfaCopiedBrush" Color="#DCFCE7" />
 
             <Style x:Key="CompactIconButtonStyle" TargetType="Button">
                 <Setter Property="Width" Value="44" />
@@ -20,18 +33,34 @@
                 <Setter Property="HorizontalContentAlignment" Value="Center" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="CornerRadius" Value="12" />
+                <Setter Property="Background" Value="{ThemeResource MfaMutedSurfaceBrush}" />
+                <Setter Property="Foreground" Value="{ThemeResource MfaPrimaryTextBrush}" />
+            </Style>
+
+            <Style x:Key="MfaCardBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource MfaSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource MfaBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource MfaCardCornerRadius}" />
+            </Style>
+
+            <Style x:Key="MfaSearchBoxStyle" TargetType="AutoSuggestBox">
+                <Setter Property="Height" Value="48" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Background" Value="{ThemeResource MfaSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource MfaBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
             </Style>
 
             <Style x:Key="MfaAccountItemStyle" TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="IsTabStop" Value="False" />
-                <Setter Property="MinHeight" Value="94" />
+                <Setter Property="MinHeight" Value="148" />
                 <Setter Property="Padding" Value="{StaticResource MfaCardPadding}" />
-                <Setter Property="Margin" Value="0,0,0,8" />
+                <Setter Property="Margin" Value="0,0,0,12" />
                 <Setter Property="CornerRadius" Value="{StaticResource MfaCardCornerRadius}" />
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

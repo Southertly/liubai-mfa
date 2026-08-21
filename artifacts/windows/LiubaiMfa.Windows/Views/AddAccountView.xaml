@@ -7,7 +7,7 @@
     mc:Ignorable="d"
     KeyDown="AddAccountView_KeyDown">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <ScrollViewer Background="{ThemeResource MfaPageBackgroundBrush}" VerticalScrollBarVisibility="Auto">
         <StackPanel Padding="{StaticResource MfaPagePadding}" Spacing="24">
             <InfoBar
                 x:Name="StatusBar"
@@ -33,10 +33,10 @@
                         Text="添加账户"
                         FontSize="28"
                         FontWeight="SemiBold"
-                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                        Foreground="{ThemeResource MfaPrimaryTextBrush}" />
                     <TextBlock
                         Text="选择一种添加方式"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        Foreground="{ThemeResource MfaSecondaryTextBrush}" />
                 </StackPanel>
             </Grid>
 
@@ -87,6 +87,8 @@
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"
                     VerticalContentAlignment="Center"
+                    BorderBrush="{ThemeResource MfaBorderBrush}"
+                    BorderThickness="1"
                     ToolTipService.ToolTip="从图片导入"
                     AutomationProperties.Name="从图片导入"
                     AutomationProperties.HelpText="选择 PNG、JPG 或 BMP 图片"
@@ -118,6 +120,8 @@
                     HorizontalAlignment="Stretch"
                     HorizontalContentAlignment="Stretch"
                     VerticalContentAlignment="Center"
+                    BorderBrush="{ThemeResource MfaBorderBrush}"
+                    BorderThickness="1"
                     ToolTipService.ToolTip="手动输入"
                     AutomationProperties.Name="手动输入"
                     AutomationProperties.HelpText="输入服务、账户和密钥"

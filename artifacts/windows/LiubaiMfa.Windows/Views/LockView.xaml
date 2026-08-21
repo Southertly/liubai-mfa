@@ -6,46 +6,38 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Padding="32">
-        <Border
-            Width="380"
-            Padding="28"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="16"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center">
-            <StackPanel Spacing="16">
+    <Grid Background="{ThemeResource MfaPageBackgroundBrush}" Padding="32">
+        <StackPanel Width="380" Spacing="16" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Border
-                    Width="56"
-                    Height="56"
-                    Background="{ThemeResource AccentFillColorSecondaryBrush}"
-                    CornerRadius="16"
+                    Width="72"
+                    Height="72"
+                    Background="{ThemeResource MfaSecuritySoftBrush}"
+                    CornerRadius="24"
                     HorizontalAlignment="Center">
                     <FontIcon
-                        Glyph="&#xE72E;"
-                        FontSize="24"
-                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                        Glyph="&#xE73E;"
+                        FontSize="34"
+                        Foreground="{ThemeResource MfaSecurityTextBrush}"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        AutomationProperties.Name="锁定" />
+                        AutomationProperties.Name="已安全锁定" />
                 </Border>
                 <TextBlock
-                    Text="验证码已锁定"
+                    Text="应用已锁定"
                     FontSize="26"
                     FontWeight="SemiBold"
                     TextAlignment="Center"
-                    Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    Foreground="{ThemeResource MfaPrimaryTextBrush}" />
                 <TextBlock
                     x:Name="LockMessage"
-                    Text="验证身份后即可查看验证码。"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="账户数据仍保存在本机，验证身份后继续。"
+                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
                     TextAlignment="Center"
                     TextWrapping="Wrap" />
                 <Button
                     x:Name="UnlockButton"
                     Content="使用 Windows Hello 解锁"
+                    MinHeight="52"
                     Style="{StaticResource AccentButtonStyle}"
                     HorizontalAlignment="Stretch"
                     AutomationProperties.Name="使用 Windows Hello 解锁"
@@ -53,15 +45,23 @@
                 <Button
                     x:Name="PasswordUnlockButton"
                     Content="使用电脑密码解锁"
-                    HorizontalAlignment="Center"
+                    MinHeight="52"
+                    HorizontalAlignment="Stretch"
+                    BorderBrush="{ThemeResource MfaBorderBrush}"
+                    BorderThickness="1"
                     AutomationProperties.Name="使用电脑密码解锁"
                     Click="PasswordUnlockButton_Click" />
                 <TextBlock
                     Text="离开 1 分钟后自动重新锁定"
                     FontSize="12"
-                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
                     HorizontalAlignment="Center" />
-            </StackPanel>
-        </Border>
+                <TextBlock
+                    Text="留白 MFA  ·  本地优先"
+                    FontSize="12"
+                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
+                    HorizontalAlignment="Center"
+                    Margin="0,24,0,0" />
+        </StackPanel>
     </Grid>
 </UserControl>

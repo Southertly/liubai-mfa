@@ -7,7 +7,7 @@
     xmlns:viewModels="using:LiubaiMfa.Windows.ViewModels"
     mc:Ignorable="d">
 
-    <Grid Padding="{StaticResource MfaPagePadding}" RowSpacing="12">
+    <Grid Background="{ThemeResource MfaPageBackgroundBrush}" Padding="{StaticResource MfaPagePadding}" RowSpacing="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -16,58 +16,65 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Spacing="10">
+        <StackPanel Grid.Row="0" Spacing="12">
             <InfoBar
                 x:Name="StatusBar"
                 IsOpen="False"
                 IsClosable="True" />
-            <Grid ColumnSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Spacing="2" VerticalAlignment="Center">
-                    <TextBlock
-                        Text="验证码"
-                        FontSize="28"
-                        FontWeight="SemiBold"
-                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                    <TextBlock
-                        x:Name="ProtectionStatusText"
-                        Text="本机加密存储"
-                        FontSize="12"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button
-                        x:Name="SettingsButton"
-                        Width="44"
-                        Height="44"
-                        Padding="0"
-                        Style="{StaticResource CompactIconButtonStyle}"
-                        ToolTipService.ToolTip="设置"
-                        AutomationProperties.Name="设置">
-                        <FontIcon Glyph="&#xE713;" FontSize="16" />
-                    </Button>
-                    <Button
-                        x:Name="AddButton"
-                        Width="44"
-                        Height="44"
-                        Padding="0"
-                        Style="{StaticResource AccentButtonStyle}"
-                        ToolTipService.ToolTip="添加账户"
-                        AutomationProperties.Name="添加账户"
-                        Click="AddButton_Click">
-                        <FontIcon Glyph="&#xE710;" FontSize="16" />
-                    </Button>
-                </StackPanel>
-            </Grid>
+            <Border
+                Padding="24,16"
+                Background="{ThemeResource MfaSurfaceBrush}"
+                BorderBrush="{ThemeResource MfaBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="20">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="3" VerticalAlignment="Center">
+                        <TextBlock
+                            Text="验证码"
+                            FontSize="28"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                        <TextBlock
+                            x:Name="ProtectionStatusText"
+                            Text="本机加密存储"
+                            FontSize="13"
+                            Foreground="{ThemeResource MfaSecondaryTextBrush}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <Button
+                            x:Name="SettingsButton"
+                            Width="82"
+                            Height="40"
+                            Padding="0"
+                            Content="设置"
+                            FontSize="13"
+                            Style="{StaticResource CompactIconButtonStyle}"
+                            ToolTipService.ToolTip="设置"
+                            AutomationProperties.Name="设置" />
+                        <Button
+                            x:Name="AddButton"
+                            Width="40"
+                            Height="40"
+                            Padding="0"
+                            Style="{StaticResource AccentButtonStyle}"
+                            ToolTipService.ToolTip="添加账户"
+                            AutomationProperties.Name="添加账户"
+                            Click="AddButton_Click">
+                            <TextBlock Text="＋" FontSize="22" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </StackPanel>
 
         <AutoSuggestBox
             x:Name="SearchBox"
             Grid.Row="1"
-            Height="40"
+            Style="{StaticResource MfaSearchBoxStyle}"
             PlaceholderText="搜索服务、账户或分组"
             QueryIcon="Find"
             AutomationProperties.Name="搜索账户"
@@ -77,6 +84,8 @@
             x:Name="GroupsList"
             Grid.Row="2"
             Height="38"
+            Background="Transparent"
+            BorderThickness="0"
             SelectionMode="Single"
             ScrollViewer.HorizontalScrollBarVisibility="Auto"
             ScrollViewer.VerticalScrollBarVisibility="Disabled"
@@ -94,6 +103,8 @@
                     <Setter Property="Padding" Value="12,4" />
                     <Setter Property="Margin" Value="0,0,6,0" />
                     <Setter Property="CornerRadius" Value="16" />
+                    <Setter Property="Background" Value="{ThemeResource MfaMutedSurfaceBrush}" />
+                    <Setter Property="Foreground" Value="{ThemeResource MfaSecondaryTextBrush}" />
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
@@ -108,28 +119,38 @@
                 x:Name="EmptyState"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                Spacing="10">
-                <FontIcon
-                    Glyph="&#xE77B;"
-                    FontSize="32"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    HorizontalAlignment="Center" />
+                Spacing="14">
+                <Border
+                    Width="88"
+                    Height="88"
+                    Background="{ThemeResource MfaSecuritySoftBrush}"
+                    CornerRadius="28"
+                    HorizontalAlignment="Center">
+                    <FontIcon
+                        Glyph="&#xE72E;"
+                        FontSize="36"
+                        Foreground="{ThemeResource MfaSecurityTextBrush}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="本机安全存储" />
+                </Border>
                 <TextBlock
-                    Text="尚未添加账户"
-                    FontSize="18"
+                    Text="还没有账户"
+                    FontSize="22"
                     FontWeight="SemiBold"
-                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                    Foreground="{ThemeResource MfaPrimaryTextBrush}"
                     TextAlignment="Center" />
                 <TextBlock
-                    Text="添加账户后，验证码会安全地保存在这台设备上。"
-                    FontSize="12"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="添加第一个账户，验证码会安全地保存在这台设备上。"
+                    FontSize="13"
+                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
                     TextAlignment="Center"
                     TextWrapping="Wrap"
                     MaxWidth="320" />
                 <Button
-                    MinHeight="44"
+                    MinHeight="48"
                     Content="添加账户"
+                    Padding="24,0"
                     HorizontalAlignment="Center"
                     Style="{StaticResource AccentButtonStyle}"
                     AutomationProperties.Name="添加账户"
@@ -143,14 +164,14 @@
                 Spacing="10">
                 <TextBlock
                     Text="没有匹配的账户"
-                    FontSize="18"
+                    FontSize="20"
                     FontWeight="SemiBold"
-                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                    Foreground="{ThemeResource MfaPrimaryTextBrush}"
                     TextAlignment="Center" />
                 <TextBlock
                     Text="请更换关键词或选择其他分组。"
-                    FontSize="12"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    FontSize="13"
+                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
                     TextAlignment="Center" />
                 <Button
                     Content="清除搜索和筛选"
@@ -185,13 +206,14 @@
                             </SwipeControl.RightItems>
                             <Border
                                 Tag="{x:Bind Id}"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                Style="{StaticResource MfaCardBorderStyle}"
+                                Padding="24,20"
                                 IsTabStop="True"
                                 UseSystemFocusVisuals="True"
                                 AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
                                 Tapped="AccountRow_Tapped"
                                 KeyDown="AccountRow_KeyDown">
-                                <Grid RowSpacing="9">
+                                <Grid RowSpacing="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
@@ -224,9 +246,9 @@
                                             VerticalAlignment="Center">
                                             <TextBlock
                                                 Text="{x:Bind Issuer}"
-                                                FontSize="15"
+                                                FontSize="16"
                                                 FontWeight="SemiBold"
-                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                Foreground="{ThemeResource MfaPrimaryTextBrush}"
                                                 MaxLines="1"
                                                 TextWrapping="NoWrap"
                                                 TextTrimming="CharacterEllipsis" />
@@ -237,7 +259,8 @@
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock
                                                     Text="{x:Bind Account}"
-                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                    FontSize="13"
+                                                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
                                                     MaxLines="1"
                                                     TextWrapping="NoWrap"
                                                     TextTrimming="CharacterEllipsis" />
@@ -246,7 +269,7 @@
                                                     Text="{x:Bind GroupLabel}"
                                                     FontSize="11"
                                                     MaxWidth="72"
-                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                    Foreground="{ThemeResource MfaSecurityBrush}"
                                                     MaxLines="1"
                                                     TextWrapping="NoWrap"
                                                     TextTrimming="CharacterEllipsis" />
@@ -260,14 +283,14 @@
                                             <TextBlock
                                                 Text="{x:Bind CodeDisplay, Mode=OneWay}"
                                                 FontFamily="Consolas"
-                                                FontSize="24"
+                                                FontSize="30"
                                                 FontWeight="SemiBold"
-                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                Foreground="{ThemeResource MfaPrimaryTextBrush}"
                                                 HorizontalAlignment="Right" />
                                             <TextBlock
                                                 Text="{x:Bind RemainingLabel, Mode=OneWay}"
-                                                FontSize="11"
-                                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource MfaTertiaryTextBrush}"
                                                 HorizontalAlignment="Right" />
                                         </StackPanel>
                                     </Grid>
@@ -277,8 +300,8 @@
                                             Height="3"
                                             Maximum="1"
                                             Value="{x:Bind ProgressValue, Mode=OneWay}"
-                                            Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}" />
+                                            Foreground="{ThemeResource MfaProgressBrush}"
+                                            Background="{ThemeResource MfaMutedSurfaceBrush}" />
                                         <ProgressBar
                                             x:Name="ExpiryAlertProgress"
                                             Height="3"
@@ -286,13 +309,13 @@
                                             Value="{x:Bind ProgressValue, Mode=OneWay}"
                                             Opacity="{x:Bind ExpiryAlertOpacity, Mode=OneWay}"
                                             Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                            Background="{ThemeResource ControlStrongFillColorDefaultBrush}"
+                                            Background="{ThemeResource MfaMutedSurfaceBrush}"
                                             IsHitTestVisible="False"
                                             AutomationProperties.AccessibilityView="Raw" />
                                     </Grid>
                                     <Border
                                         Grid.RowSpan="2"
-                                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource MfaSecurityBrush}"
                                         BorderThickness="2"
                                         CornerRadius="10"
                                         IsHitTestVisible="False"
@@ -316,9 +339,9 @@
 
         <Grid Grid.Row="4">
             <TextBlock
-                Text="验证码每 30 秒自动更新"
+                Text="验证码每 30 秒自动更新  ·  数据仅保存在本机"
                 FontSize="12"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Foreground="{ThemeResource MfaTertiaryTextBrush}"
                 VerticalAlignment="Center" />
         </Grid>
     </Grid>
