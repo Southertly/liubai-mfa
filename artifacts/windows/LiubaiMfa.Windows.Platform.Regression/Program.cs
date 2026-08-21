@@ -2960,12 +2960,16 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
     var authenticatorCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml.cs"));
     var addAccountXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml"));
     var addAccountCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AddAccountView.xaml.cs"));
+    var settingsXamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "SettingsView.xaml"));
+    var settingsCodePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "SettingsView.xaml.cs"));
     var mainWindowDocument = XDocument.Parse(File.ReadAllText(mainWindowXamlPath));
     var authenticatorDocument = XDocument.Parse(File.ReadAllText(authenticatorXamlPath));
     var addAccountDocument = XDocument.Parse(File.ReadAllText(addAccountXamlPath));
+    var settingsDocument = XDocument.Parse(File.ReadAllText(settingsXamlPath));
     var mainWindowSource = File.ReadAllText(mainWindowCodePath);
     var authenticatorSource = File.ReadAllText(authenticatorCodePath);
     var addAccountSource = File.ReadAllText(addAccountCodePath);
+    var settingsSource = File.ReadAllText(settingsCodePath);
     var mainWindowRoot = ParseCSharpRoot(mainWindowSource, "MainWindow.xaml.cs");
     var authenticatorRoot = ParseCSharpRoot(authenticatorSource, "AuthenticatorView.xaml.cs");
     var mainWindowClass = FindUniqueClass(mainWindowRoot, "MainWindow");
@@ -2990,6 +2994,39 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
     Assert(authenticatorDocument.Descendants(presentation + "Button")
             .Count(element => element.Attribute(xaml + "Name")?.Value == "AddButton") == 1,
         "验证码列表顶部添加按钮必须可被返回导航恢复焦点。");
+    Assert(authenticatorDocument.Descendants(presentation + "TextBlock")
+            .Count(element => GetRuntimeXamlAttribute(element, "Text") == "留白 MFA") == 1,
+        "主页面标题必须使用“留白 MFA”。");
+    var settingsButtons = authenticatorDocument.Descendants(presentation + "Button")
+        .Where(element => element.Attribute(xaml + "Name")?.Value == "SettingsButton")
+        .ToArray();
+    Assert(settingsButtons.Length == 1
+            && GetRuntimeXamlAttribute(settingsButtons[0], "Click") == "SettingsButton_Click"
+            && GetRuntimeXamlAttribute(settingsButtons[0], "Width") is null
+            && GetRuntimeXamlAttribute(settingsButtons[0], "Height") is null
+            && settingsButtons[0].Descendants(presentation + "FontIcon")
+                .Any(icon => GetRuntimeXamlAttribute(icon, "Glyph") == ""),
+        "顶部设置入口必须是 44px 规范齿轮图标按钮并进入独立设置页。");
+    Assert(!authenticatorDocument.Descendants().Any(element => element.Name.LocalName is "MenuFlyout" or "MenuFlyoutItem")
+            && !authenticatorSource.Contains("CreateSettingsFlyout", StringComparison.Ordinal),
+        "主页面不得继续承载设置菜单浮层。");
+    Assert(mainWindowDocument.Descendants()
+            .Count(element => element.Name.LocalName == "SettingsView"
+                && element.Attribute(xaml + "Name")?.Value == "SettingsView") == 1,
+        "主窗口必须叠放唯一 SettingsView。");
+    Assert(settingsDocument.Descendants(presentation + "Button")
+            .Any(element => GetRuntimeXamlAttribute(element, "Click") == "BackButton_Click")
+            && settingsDocument.Descendants(presentation + "Button")
+                .Any(element => GetRuntimeXamlAttribute(element, "Click") == "LockButton_Click")
+            && settingsDocument.Descendants(presentation + "Button")
+                .Any(element => GetRuntimeXamlAttribute(element, "Click") == "StartupProtectionButton_Click")
+            && settingsDocument.Descendants(presentation + "Button")
+                .Any(element => GetRuntimeXamlAttribute(element, "Click") == "ImportBackupButton_Click")
+            && settingsDocument.Descendants(presentation + "Button")
+                .Any(element => GetRuntimeXamlAttribute(element, "Click") == "ExportBackupButton_Click")
+            && settingsSource.Contains("BackRequested", StringComparison.Ordinal)
+            && settingsSource.Contains("StartupProtectionRequested", StringComparison.Ordinal),
+        "设置页必须提供返回、安全、启动保护和备份操作边界。");
 
     var addStatusBars = addAccountDocument.Descendants(presentation + "InfoBar")
         .Where(element => element.Attribute(xaml + "Name")?.Value == "StatusBar")
@@ -3009,10 +3046,16 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
     foreach (var subscription in new[]
     {
         (Event: "AuthenticatorView.AddRequested", Handler: "ShowAddAccountView"),
+        (Event: "AuthenticatorView.SettingsRequested", Handler: "ShowSettingsView"),
         (Event: "AddAccountView.BackRequested", Handler: "ShowAuthenticatorView"),
         (Event: "AddAccountView.ScreenshotScanRequested", Handler: "ScreenshotScan_Click"),
         (Event: "AddAccountView.ImportImageRequested", Handler: "ImportImage_Click"),
         (Event: "AddAccountView.ManualEntryRequested", Handler: "ManualEntry_Click"),
+        (Event: "SettingsView.BackRequested", Handler: "ShowAuthenticatorView"),
+        (Event: "SettingsView.LockRequested", Handler: "Lock_Click"),
+        (Event: "SettingsView.StartupProtectionRequested", Handler: "Settings_Click"),
+        (Event: "SettingsView.ImportBackupRequested", Handler: "ImportBackup_Click"),
+        (Event: "SettingsView.ExportBackupRequested", Handler: "ExportBackup_Click"),
         (Event: "Closed", Handler: "MainWindow_Closed"),
     })
     {

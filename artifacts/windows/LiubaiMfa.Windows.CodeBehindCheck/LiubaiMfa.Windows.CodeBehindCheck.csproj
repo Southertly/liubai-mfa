@@ -20,6 +20,7 @@
     <Compile Include="../LiubaiMfa.Windows/Views/AddAccountView.xaml.cs" Link="Views/AddAccountView.xaml.cs" />
     <Compile Include="../LiubaiMfa.Windows/Views/AuthenticatorView.xaml.cs" Link="Views/AuthenticatorView.xaml.cs" />
     <Compile Include="../LiubaiMfa.Windows/Views/LockView.xaml.cs" Link="Views/LockView.xaml.cs" />
+    <Compile Include="../LiubaiMfa.Windows/Views/SettingsView.xaml.cs" Link="Views/SettingsView.xaml.cs" />
     <Compile Include="GeneratedXamlStubs.cs" />
   </ItemGroup>
 

@@ -12,6 +12,8 @@
                     Width="72"
                     Height="72"
                     Background="{ThemeResource MfaSecuritySoftBrush}"
+                    BorderBrush="{ThemeResource MfaBorderBrush}"
+                    BorderThickness="1"
                     CornerRadius="24"
                     HorizontalAlignment="Center">
                     <FontIcon
@@ -38,7 +40,7 @@
                     x:Name="UnlockButton"
                     Content="使用 Windows Hello 解锁"
                     MinHeight="52"
-                    Style="{StaticResource AccentButtonStyle}"
+                    Style="{StaticResource MfaAccentButtonStyle}"
                     HorizontalAlignment="Stretch"
                     AutomationProperties.Name="使用 Windows Hello 解锁"
                     Click="UnlockButton_Click" />
@@ -47,8 +49,7 @@
                     Content="使用电脑密码解锁"
                     MinHeight="52"
                     HorizontalAlignment="Stretch"
-                    BorderBrush="{ThemeResource MfaBorderBrush}"
-                    BorderThickness="1"
+                    Style="{StaticResource MfaSoftActionButtonStyle}"
                     AutomationProperties.Name="使用电脑密码解锁"
                     Click="PasswordUnlockButton_Click" />
                 <TextBlock

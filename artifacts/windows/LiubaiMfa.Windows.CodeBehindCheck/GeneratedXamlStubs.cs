@@ -17,6 +17,7 @@ namespace LiubaiMfa.Windows
         private readonly Grid TitleBarDragRegion = new();
         private readonly AuthenticatorView AuthenticatorView = new();
         private readonly AddAccountView AddAccountView = new();
+        private readonly SettingsView SettingsView = new();
         private readonly LockView LockView = new();
 
         private void InitializeComponent()
@@ -59,6 +60,17 @@ namespace LiubaiMfa.Windows.Views
         private readonly TextBlock LockMessage = new();
         private readonly Button UnlockButton = new();
         private readonly Button PasswordUnlockButton = new();
+
+        private void InitializeComponent()
+        {
+        }
+    }
+
+    public sealed partial class SettingsView
+    {
+        private readonly InfoBar StatusBar = new();
+        private readonly Button BackButton = new();
+        private readonly TextBlock StartupProtectionStatusText = new();
 
         private void InitializeComponent()
         {

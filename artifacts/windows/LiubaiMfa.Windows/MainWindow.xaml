@@ -29,6 +29,9 @@
             <views:AddAccountView
                 x:Name="AddAccountView"
                 Visibility="Collapsed" />
+            <views:SettingsView
+                x:Name="SettingsView"
+                Visibility="Collapsed" />
             <views:LockView x:Name="LockView" />
         </Grid>
     </Grid>

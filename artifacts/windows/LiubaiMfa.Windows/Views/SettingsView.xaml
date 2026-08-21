@@ -1,0 +1,199 @@
+<UserControl
+    x:Class="LiubaiMfa.Windows.Views.SettingsView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Background="{ThemeResource MfaPageBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Padding="{StaticResource MfaPagePadding}" Spacing="16">
+                <InfoBar
+                    x:Name="StatusBar"
+                    IsOpen="False"
+                    IsClosable="True" />
+
+                <Border Style="{StaticResource MfaSectionBorderStyle}">
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            x:Name="BackButton"
+                            Style="{StaticResource CompactIconButtonStyle}"
+                            ToolTipService.ToolTip="返回验证码"
+                            AutomationProperties.Name="返回验证码"
+                            Click="BackButton_Click">
+                            <FontIcon Glyph="&#xE72B;" FontSize="18" />
+                        </Button>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock
+                                Text="设置"
+                                FontSize="24"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                            <TextBlock
+                                Text="安全与数据"
+                                FontSize="13"
+                                Foreground="{ThemeResource MfaSecondaryTextBrush}" />
+                        </StackPanel>
+                        <Border
+                            Grid.Column="2"
+                            Padding="12,6"
+                            Background="{ThemeResource MfaSecuritySoftBrush}"
+                            CornerRadius="14"
+                            VerticalAlignment="Center">
+                            <TextBlock
+                                Text="仅保存在本机"
+                                FontSize="12"
+                                Foreground="{ThemeResource MfaSecurityTextBrush}" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        Text="安全"
+                        Margin="4,4,0,0"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource MfaSecondaryTextBrush}" />
+                    <Button
+                        Style="{StaticResource MfaSoftRowButtonStyle}"
+                        AutomationProperties.Name="立即锁定全部验证码"
+                        Click="LockButton_Click">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock
+                                    Text="立即锁定"
+                                    FontSize="15"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                <TextBlock
+                                    Text="立即隐藏全部验证码"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource MfaTertiaryTextBrush}" />
+                            </StackPanel>
+                            <TextBlock
+                                Grid.Column="1"
+                                Text="锁定"
+                                Foreground="{ThemeResource MfaSecurityBrush}"
+                                VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                    <Button
+                        Style="{StaticResource MfaSoftRowButtonStyle}"
+                        AutomationProperties.Name="启动保护设置"
+                        Click="StartupProtectionButton_Click">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock
+                                    Text="启动保护"
+                                    FontSize="15"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                <TextBlock
+                                    Text="支持 Windows Hello 或电脑密码"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource MfaTertiaryTextBrush}" />
+                            </StackPanel>
+                            <Border
+                                Grid.Column="1"
+                                Padding="10,5"
+                                Background="{ThemeResource MfaSecuritySoftBrush}"
+                                CornerRadius="12"
+                                VerticalAlignment="Center">
+                                <TextBlock
+                                    x:Name="StartupProtectionStatusText"
+                                    Text="未开启"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource MfaSecurityTextBrush}" />
+                            </Border>
+                        </Grid>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Spacing="10">
+                    <TextBlock
+                        Text="数据"
+                        Margin="4,4,0,0"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource MfaSecondaryTextBrush}" />
+                    <Button
+                        Style="{StaticResource MfaSoftRowButtonStyle}"
+                        AutomationProperties.Name="导入加密备份"
+                        Click="ImportBackupButton_Click">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock
+                                    Text="导入加密备份"
+                                    FontSize="15"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                <TextBlock
+                                    Text="从本机文件恢复账户"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource MfaTertiaryTextBrush}" />
+                            </StackPanel>
+                            <TextBlock
+                                Grid.Column="1"
+                                Text="选择文件"
+                                Foreground="{ThemeResource MfaSecurityBrush}"
+                                VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                    <Button
+                        Style="{StaticResource MfaSoftRowButtonStyle}"
+                        AutomationProperties.Name="导出加密备份"
+                        Click="ExportBackupButton_Click">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock
+                                    Text="导出加密备份"
+                                    FontSize="15"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                <TextBlock
+                                    Text="使用密码保护导出的文件"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource MfaTertiaryTextBrush}" />
+                            </StackPanel>
+                            <TextBlock
+                                Grid.Column="1"
+                                Text="导出"
+                                Foreground="{ThemeResource MfaSecurityBrush}"
+                                VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                </StackPanel>
+
+                <TextBlock
+                    Margin="4,4,4,8"
+                    Text="密钥与备份均保存在本机。导出文件会经过加密，请妥善保管恢复密码。"
+                    FontSize="12"
+                    Foreground="{ThemeResource MfaTertiaryTextBrush}"
+                    TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

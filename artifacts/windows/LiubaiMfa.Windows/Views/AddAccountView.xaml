@@ -13,32 +13,32 @@
                 x:Name="StatusBar"
                 IsClosable="True"
                 IsOpen="False" />
-            <Grid ColumnSpacing="12">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Button
-                    Width="44"
-                    Height="44"
-                    Padding="0"
-                    VerticalAlignment="Top"
-                    ToolTipService.ToolTip="返回验证码列表"
-                    AutomationProperties.Name="返回验证码列表"
-                    Click="BackButton_Click">
-                    <FontIcon Glyph="&#xE72B;" FontSize="18" />
-                </Button>
-                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                    <TextBlock
-                        Text="添加账户"
-                        FontSize="28"
-                        FontWeight="SemiBold"
-                        Foreground="{ThemeResource MfaPrimaryTextBrush}" />
-                    <TextBlock
-                        Text="选择一种添加方式"
-                        Foreground="{ThemeResource MfaSecondaryTextBrush}" />
-                </StackPanel>
-            </Grid>
+            <Border Style="{StaticResource MfaSectionBorderStyle}">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button
+                        Style="{StaticResource CompactIconButtonStyle}"
+                        VerticalAlignment="Top"
+                        ToolTipService.ToolTip="返回验证码列表"
+                        AutomationProperties.Name="返回验证码列表"
+                        Click="BackButton_Click">
+                        <FontIcon Glyph="&#xE72B;" FontSize="18" />
+                    </Button>
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock
+                            Text="添加账户"
+                            FontSize="24"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                        <TextBlock
+                            Text="选择一种添加方式"
+                            Foreground="{ThemeResource MfaSecondaryTextBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
 
             <Button
                 x:Name="ScreenshotScanButton"
@@ -47,7 +47,7 @@
                 HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Stretch"
                 VerticalContentAlignment="Center"
-                Style="{StaticResource AccentButtonStyle}"
+                Style="{StaticResource MfaAccentButtonStyle}"
                 ToolTipService.ToolTip="截图并扫描二维码"
                 AutomationProperties.Name="截图并扫描二维码"
                 AutomationProperties.HelpText="框选屏幕上的二维码，识别后可确认账户信息"
@@ -82,13 +82,8 @@
                     FontWeight="SemiBold"
                     Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 <Button
-                    MinHeight="72"
-                    Padding="16,12"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
+                    Style="{StaticResource MfaSoftRowButtonStyle}"
                     VerticalContentAlignment="Center"
-                    BorderBrush="{ThemeResource MfaBorderBrush}"
-                    BorderThickness="1"
                     ToolTipService.ToolTip="从图片导入"
                     AutomationProperties.Name="从图片导入"
                     AutomationProperties.HelpText="选择 PNG、JPG 或 BMP 图片"
@@ -115,13 +110,8 @@
                     </Grid>
                 </Button>
                 <Button
-                    MinHeight="72"
-                    Padding="16,12"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
+                    Style="{StaticResource MfaSoftRowButtonStyle}"
                     VerticalContentAlignment="Center"
-                    BorderBrush="{ThemeResource MfaBorderBrush}"
-                    BorderThickness="1"
                     ToolTipService.ToolTip="手动输入"
                     AutomationProperties.Name="手动输入"
                     AutomationProperties.HelpText="输入服务、账户和密钥"

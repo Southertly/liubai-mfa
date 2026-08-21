@@ -4,7 +4,6 @@ using LiubaiMfa.Windows.Services;
 using LiubaiMfa.Windows.ViewModels;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -35,40 +34,11 @@ public sealed partial class AuthenticatorView : UserControl
     public AuthenticatorView()
     {
         InitializeComponent();
-        SettingsButton.Flyout = CreateSettingsFlyout();
         AccountsList.LayoutUpdated += AccountsList_LayoutUpdated;
     }
 
-    private MenuFlyout CreateSettingsFlyout()
-    {
-        var flyout = new MenuFlyout();
-        flyout.Items.Add(CreateMenuItem("立即锁定", "立即锁定", LockMenuItem_Click));
-        flyout.Items.Add(CreateMenuItem("启动保护…", "启动保护设置", SettingsMenuItem_Click));
-        flyout.Items.Add(new MenuFlyoutSeparator());
-        flyout.Items.Add(CreateMenuItem("导入备份…", "导入备份", ImportBackupItem_Click));
-        flyout.Items.Add(CreateMenuItem("导出加密备份…", "导出加密备份", ExportBackupItem_Click));
-        return flyout;
-    }
-
-    private static MenuFlyoutItem CreateMenuItem(
-        string text,
-        string automationName,
-        RoutedEventHandler clickHandler)
-    {
-        var item = new MenuFlyoutItem
-        {
-            Text = text,
-        };
-        AutomationProperties.SetName(item, automationName);
-        item.Click += clickHandler;
-        return item;
-    }
-
     public event EventHandler? AddRequested;
-    public event EventHandler? LockRequested;
     public event EventHandler? SettingsRequested;
-    public event EventHandler? ImportBackupRequested;
-    public event EventHandler? ExportBackupRequested;
     public event EventHandler<AccountRequestedEventArgs>? CopyRequested;
     public event EventHandler<AccountRequestedEventArgs>? EditRequested;
     public event EventHandler<AccountRequestedEventArgs>? ShowSecretRequested;
@@ -358,10 +328,7 @@ public sealed partial class AuthenticatorView : UserControl
     }
 
     private void AddButton_Click(object sender, RoutedEventArgs e) => this.AddRequested?.Invoke(this, EventArgs.Empty);
-    private void LockMenuItem_Click(object sender, RoutedEventArgs e) => LockRequested?.Invoke(this, EventArgs.Empty);
-    private void SettingsMenuItem_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
-    private void ImportBackupItem_Click(object sender, RoutedEventArgs e) => ImportBackupRequested?.Invoke(this, EventArgs.Empty);
-    private void ExportBackupItem_Click(object sender, RoutedEventArgs e) => ExportBackupRequested?.Invoke(this, EventArgs.Empty);
+    private void SettingsButton_Click(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
 
     private void AccountRow_Tapped(object sender, TappedRoutedEventArgs e)
     {

@@ -69,18 +69,20 @@ public sealed partial class MainWindow : Window
             "Liubai MFA");
         ViewModel = new MainViewModel(new EncryptedAccountRepository(dataDirectory));
         AuthenticatorView.AddRequested += ShowAddAccountView;
-        AuthenticatorView.LockRequested += Lock_Click;
-        AuthenticatorView.ImportBackupRequested += ImportBackup_Click;
-        AuthenticatorView.ExportBackupRequested += ExportBackup_Click;
         AuthenticatorView.CopyRequested += CopyCode_Click;
         AuthenticatorView.EditRequested += EditAccount_Click;
         AuthenticatorView.ShowSecretRequested += ShowSecret_Click;
         AuthenticatorView.DeleteRequested += DeleteAccount_Click;
-        AuthenticatorView.SettingsRequested += Settings_Click;
+        AuthenticatorView.SettingsRequested += ShowSettingsView;
         AddAccountView.BackRequested += ShowAuthenticatorView;
         AddAccountView.ScreenshotScanRequested += ScreenshotScan_Click;
         AddAccountView.ImportImageRequested += ImportImage_Click;
         AddAccountView.ManualEntryRequested += ManualEntry_Click;
+        SettingsView.BackRequested += ShowAuthenticatorView;
+        SettingsView.LockRequested += Lock_Click;
+        SettingsView.StartupProtectionRequested += Settings_Click;
+        SettingsView.ImportBackupRequested += ImportBackup_Click;
+        SettingsView.ExportBackupRequested += ExportBackup_Click;
         LockView.UnlockRequested += Unlock_Click;
         LockView.PasswordUnlockRequested += PasswordUnlock_Click;
         _windowsHello = new WindowsHelloService(this);
@@ -153,6 +155,7 @@ public sealed partial class MainWindow : Window
         RootGrid.Loaded -= RootGrid_Loaded;
         _startupProtectionEnabled = _startupProtectionSettings.IsEnabled;
         AuthenticatorView.ApplyStartupProtection(_startupProtectionEnabled);
+        SettingsView.ApplyStartupProtection(_startupProtectionEnabled);
         if (!StartupProtectionPolicy.ShouldStartLocked(_startupProtectionEnabled))
         {
             try
@@ -466,10 +469,12 @@ public sealed partial class MainWindow : Window
         Volatile.Write(ref _activeSession, sessionToken);
         _isUnlocked = true;
         AuthenticatorView.ApplyStartupProtection(_startupProtectionEnabled);
+        SettingsView.ApplyStartupProtection(_startupProtectionEnabled);
         AuthenticatorView.Attach(ViewModel);
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         LockView.Visibility = Visibility.Collapsed;
         AddAccountView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
         AuthenticatorView.Visibility = Visibility.Visible;
         _timer.Start();
         TryDeliverCancelledBackupNotice(sessionToken);
@@ -536,6 +541,7 @@ public sealed partial class MainWindow : Window
 
             _startupProtectionEnabled = requested.Value;
             AuthenticatorView.ApplyStartupProtection(_startupProtectionEnabled);
+            SettingsView.ApplyStartupProtection(_startupProtectionEnabled);
             if (!_startupProtectionEnabled)
             {
                 CancelBackgroundLock();
@@ -568,11 +574,14 @@ public sealed partial class MainWindow : Window
         Interlocked.Increment(ref _navigationEpoch);
         ResetPageVisual(AuthenticatorView);
         ResetPageVisual(AddAccountView);
+        ResetPageVisual(SettingsView);
         LockView.Message = message;
         LockView.ShowHelloPrimary();
         LockView.ButtonContent = _startupProtectionEnabled ? "使用 Windows Hello 解锁" : "重试打开";
         AuthenticatorView.Visibility = Visibility.Collapsed;
         AddAccountView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        SettingsView.ClearStatus();
         LockView.Visibility = Visibility.Visible;
         CancelBackgroundLock();
         _autoLockActivationState.Clear();
@@ -620,12 +629,36 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void ShowSettingsView(object? sender, EventArgs e)
+    {
+        if (!TryCaptureUnlockedSession(out var token))
+        {
+            return;
+        }
+
+        var keyboardInitiated = IsKeyboardNavigation();
+        try
+        {
+            await NavigateToSettingsViewAsync(token, keyboardInitiated);
+        }
+        catch (Exception)
+        {
+            if (IsSessionCurrent(token))
+            {
+                ShowSettingsViewImmediately();
+            }
+        }
+    }
+
     private void ShowAuthenticatorView()
     {
         Interlocked.Increment(ref _navigationEpoch);
         ResetPageVisual(AddAccountView);
+        ResetPageVisual(SettingsView);
         ResetPageVisual(AuthenticatorView);
         AddAccountView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        SettingsView.ClearStatus();
         AuthenticatorView.Visibility = Visibility.Visible;
         AuthenticatorView.FocusAddAction();
     }
@@ -634,11 +667,28 @@ public sealed partial class MainWindow : Window
     {
         Interlocked.Increment(ref _navigationEpoch);
         ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(SettingsView);
         ResetPageVisual(AddAccountView);
         AuthenticatorView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        SettingsView.ClearStatus();
         AddAccountView.Visibility = Visibility.Visible;
         AddAccountView.ClearStatus();
         AddAccountView.FocusPrimaryAction();
+    }
+
+    private void ShowSettingsViewImmediately()
+    {
+        Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(AddAccountView);
+        ResetPageVisual(SettingsView);
+        AuthenticatorView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Visible;
+        SettingsView.ClearStatus();
+        SettingsView.ApplyStartupProtection(_startupProtectionEnabled);
+        SettingsView.FocusBackAction();
     }
 
     private async Task NavigateToAddAccountViewAsync(long sessionToken, bool keyboardInitiated)
@@ -650,8 +700,11 @@ public sealed partial class MainWindow : Window
 
         var navigationEpoch = Interlocked.Increment(ref _navigationEpoch);
         ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(SettingsView);
         ResetPageVisual(AddAccountView);
         AuthenticatorView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        SettingsView.ClearStatus();
         AddAccountView.Visibility = Visibility.Visible;
         AddAccountView.ClearStatus();
         await RunPageEntranceTransitionAsync(
@@ -672,8 +725,11 @@ public sealed partial class MainWindow : Window
 
         var navigationEpoch = Interlocked.Increment(ref _navigationEpoch);
         ResetPageVisual(AddAccountView);
+        ResetPageVisual(SettingsView);
         ResetPageVisual(AuthenticatorView);
         AddAccountView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Collapsed;
+        SettingsView.ClearStatus();
         AuthenticatorView.Visibility = Visibility.Visible;
         await RunPageEntranceTransitionAsync(
             AuthenticatorView,
@@ -681,6 +737,31 @@ public sealed partial class MainWindow : Window
         if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
         {
             AuthenticatorView.FocusAddAction();
+        }
+    }
+
+    private async Task NavigateToSettingsViewAsync(long sessionToken, bool keyboardInitiated)
+    {
+        if (!IsSessionCurrent(sessionToken))
+        {
+            return;
+        }
+
+        var navigationEpoch = Interlocked.Increment(ref _navigationEpoch);
+        ResetPageVisual(AuthenticatorView);
+        ResetPageVisual(AddAccountView);
+        ResetPageVisual(SettingsView);
+        AuthenticatorView.Visibility = Visibility.Collapsed;
+        AddAccountView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Visible;
+        SettingsView.ClearStatus();
+        SettingsView.ApplyStartupProtection(_startupProtectionEnabled);
+        await RunPageEntranceTransitionAsync(
+            SettingsView,
+            keyboardInitiated ? 0f : PageTransitionOffset);
+        if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+        {
+            SettingsView.FocusBackAction();
         }
     }
 
@@ -1058,12 +1139,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var copySucceeded = _clipboard.TryCopyText(account.Code);
+        var copyFeedback = ClipboardResultPolicy.CreateStatus(_clipboard.TryCopyText(account.Code), "验证码已复制。");
+        var copySucceeded = copyFeedback.Severity == InfoBarSeverity.Success;
         AuthenticatorView.ShowCopyFeedback(e.AccountId, copySucceeded);
         if (!copySucceeded)
         {
-            var copyFeedback = ClipboardResultPolicy.CreateStatus(false, "验证码已复制。");
-            ShowStatus(token, "复制失败", copyFeedback.Severity);
+            ShowStatus(token, copyFeedback.Message, copyFeedback.Severity);
         }
     }
 
@@ -1495,7 +1576,16 @@ public sealed partial class MainWindow : Window
 
     private void ShowStatus(long token, string message, InfoBarSeverity severity)
     {
-        if (IsSessionCurrent(token))
+        if (!IsSessionCurrent(token))
+        {
+            return;
+        }
+
+        if (SettingsView.Visibility == Visibility.Visible)
+        {
+            SettingsView.ShowStatus(message, severity);
+        }
+        else
         {
             AuthenticatorView.ShowStatus(message, severity);
         }
