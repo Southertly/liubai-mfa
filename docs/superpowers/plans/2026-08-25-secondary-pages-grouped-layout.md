@@ -106,7 +106,7 @@
 
 **Files:**
 - Modify: `artifacts/windows/LiubaiMfa.Windows/Views/LockView.xaml`
-- Preserve: `artifacts/windows/LiubaiMfa.Windows/Views/LockView.xaml.cs`
+- Modify: `artifacts/windows/LiubaiMfa.Windows/Views/LockView.xaml.cs`
 
 - [ ] **Step 1: Keep centered security introduction**
 
@@ -114,7 +114,7 @@
 
 - [ ] **Step 2: Put both unlock actions in one grouped panel**
 
-保留 `UnlockButton`、`PasswordUnlockButton` 以及两个 Click 处理器。将两者改成同一面板内的透明行按钮：Windows Hello 行使用强调色图标和主操作状态，电脑密码行使用普通图标；行间添加内缩分隔线。保留 `ShowHelloPrimary`、`ShowPasswordPrimary` 对第二行的可见性控制。
+保留 `UnlockButton`、`PasswordUnlockButton` 以及两个 Click 处理器。将两者改成同一面板内的透明行按钮：Windows Hello 行使用强调色图标和主操作状态，电脑密码行使用普通图标；行间添加内缩分隔线。新增命名的行内文字控件，让 code-behind 的 `ButtonContent`、`ShowHelloPrimary`、`ShowPasswordPrimary` 更新文字而不覆盖整行 Grid 内容；保留第二行可见性控制。
 
 - [ ] **Step 3: Parse the page XAML**
 
