@@ -188,7 +188,7 @@ static void VerifyPackagedAppDisablesDeploymentManagerAutoInitialize()
 static void VerifyAccountCardDoesNotSetControlFocusPropertiesOnBorder()
 {
     var xamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
-    var source = File.ReadAllText(xamlPath);
+    var source = File.ReadAllText(xamlPath).ReplaceLineEndings("\n");
     var borderStart = source.IndexOf("<Border\n                                Tag=\"{x:Bind Id}\"", StringComparison.Ordinal);
     Assert(borderStart >= 0, "账户卡片 Border 必须存在。 ");
     var borderEnd = source.IndexOf("</Border>", borderStart, StringComparison.Ordinal);
