@@ -15,7 +15,7 @@
 - C# 空白格式检查通过。
 - NuGet 对平台层直接及传递依赖的漏洞检查未发现已知漏洞。
 - XAML、项目文件和清单均为结构正确的 XML。
-- `Package.appxmanifest` 未声明网络、麦克风、摄像头、全文件系统或受限能力。
+- `Package.appxmanifest` 仅声明 WinUI 3 桌面入口所需的 `runFullTrust`，未声明网络、麦克风、摄像头或全文件系统能力。
 - 新增源码未发现输出 MFA 密钥或恢复密钥的日志。
 
 ## 待 Windows 11 x64 验证

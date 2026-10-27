@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 $certificate = New-SelfSignedCertificate `
     -Type Custom `
@@ -16,4 +16,4 @@ Export-Certificate -Cert $certificate -FilePath $publicCertificatePath | Out-Nul
 Write-Host "开发证书已创建。"
 Write-Host "Thumbprint: $($certificate.Thumbprint)"
 Write-Host "公开证书: $publicCertificatePath"
-Write-Host "安装测试 MSIX 前，请在测试机上手动将公开证书导入‘受信任人’存储。"
+Write-Host "安装测试 MSIX 前，请在测试机上手动将公开证书导入受信任人存储。"
