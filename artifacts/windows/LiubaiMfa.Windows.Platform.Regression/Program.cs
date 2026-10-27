@@ -2988,7 +2988,8 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
         .ToArray();
     var topAddButtons = authenticatorAddButtons
         .Where(element => GetRuntimeXamlAttribute(element, "ToolTipService.ToolTip") == "添加账户"
-            && element.Descendants(presentation + "FontIcon").Any())
+            && (element.Descendants(presentation + "FontIcon").Any()
+                || element.Descendants(presentation + "SymbolIcon").Any()))
         .ToArray();
     var emptyAddButtons = authenticatorAddButtons
         .Where(element => GetRuntimeXamlAttribute(element, "Content") == "添加账户")
@@ -3019,9 +3020,9 @@ static void VerifyUnifiedAddAccountEntrySourceContract()
 
     foreach (var text in new[]
     {
-        "添加账户", "选择一种添加方式",
-        "截图并扫描二维码", "框选屏幕上的二维码，识别后可确认账户信息",
-        "其他方式", "从图片导入", "选择 PNG、JPG 或 BMP 图片",
+        "添加账户", "选择一种方式，把验证码账户保存到本机",
+        "截图并扫描二维码", "推荐 · 框选屏幕上的二维码，识别后确认账户信息",
+        "添加方式", "从图片导入", "选择 PNG、JPG 或 BMP 图片",
         "手动输入", "输入服务、账户和密钥",
     })
     {
@@ -3099,11 +3100,11 @@ static void VerifyMainWindowAddAccountFlowSourceContract()
         .ToArray();
     Assert(settingsButtons.Length == 1
             && GetRuntimeXamlAttribute(settingsButtons[0], "Click") == "SettingsButton_Click"
-            && GetRuntimeXamlAttribute(settingsButtons[0], "Width") is null
-            && GetRuntimeXamlAttribute(settingsButtons[0], "Height") is null
-            && settingsButtons[0].Descendants(presentation + "FontIcon")
-                .Any(icon => GetRuntimeXamlAttribute(icon, "Glyph") == ""),
-        "顶部设置入口必须是 44px 规范齿轮图标按钮并进入独立设置页。");
+            && GetRuntimeXamlAttribute(settingsButtons[0], "Width") == "40"
+            && GetRuntimeXamlAttribute(settingsButtons[0], "Height") == "40"
+            && settingsButtons[0].Descendants(presentation + "SymbolIcon")
+                .Any(icon => GetRuntimeXamlAttribute(icon, "Symbol") == "Setting"),
+        "顶部设置入口必须是 40px 规范齿轮图标按钮并进入独立设置页。");
     Assert(!authenticatorDocument.Descendants().Any(element => element.Name.LocalName is "MenuFlyout" or "MenuFlyoutItem")
             && !authenticatorSource.Contains("CreateSettingsFlyout", StringComparison.Ordinal),
         "主页面不得继续承载设置菜单浮层。");
@@ -3442,7 +3443,7 @@ static void AssertClosedHandlerContract(MethodDeclarationSyntax closedHandler)
         FindInvocationPosition(closedHandler, "_sessionCancellation", "Invalidate"),
         FindInvocationPosition(closedHandler, "Volatile", "Write", "ref _activeSession", "0"),
         FindAssignmentPosition(closedHandler, "_isUnlocked", "false"),
-        FindInvocationPosition(closedHandler, "_timer", "Stop"),
+        FindInvocationPosition(closedHandler, null, "StopCodeRefresh"),
         FindInvocationPosition(closedHandler, null, "CancelBackgroundLock"),
         FindInvocationPosition(closedHandler, "ViewModel", "Unload"),
         FindInvocationPosition(closedHandler, "_snippingCaptureState", "Abandon"),
