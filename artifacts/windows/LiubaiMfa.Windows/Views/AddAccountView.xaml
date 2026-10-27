@@ -1,0 +1,117 @@
+<UserControl
+    x:Class="LiubaiMfa.Windows.Views.AddAccountView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    FontFamily="Microsoft YaHei UI"
+    KeyDown="AddAccountView_KeyDown">
+
+    <Grid Background="{ThemeResource MfaPageBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel
+                Padding="{StaticResource MfaPagePadding}"
+                Spacing="{StaticResource MfaCardSpacing}"
+                MaxWidth="{StaticResource MfaSecondaryContentMaxWidth}"
+                HorizontalAlignment="Stretch">
+                <InfoBar x:Name="StatusBar" IsClosable="True" IsOpen="False" HorizontalAlignment="Stretch" />
+
+                <Grid ColumnSpacing="12" Padding="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button
+                        Width="40"
+                        Height="40"
+                        Padding="0"
+                        VerticalAlignment="Top"
+                        ToolTipService.ToolTip="返回验证码列表"
+                        AutomationProperties.Name="返回验证码列表"
+                        Click="BackButton_Click">
+                        <SymbolIcon Symbol="Back" />
+                    </Button>
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="添加账户" FontSize="28" FontWeight="SemiBold" Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                        <TextBlock Text="选择一种方式，把验证码账户保存到本机" FontSize="13" Foreground="{ThemeResource MfaSecondaryTextBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Style="{StaticResource MfaSectionBorderStyle}">
+                    <StackPanel>
+                        <TextBlock Text="添加方式" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource MfaPrimaryTextBrush}" Margin="0,0,0,8" />
+                        <Button
+                            x:Name="ScreenshotScanButton"
+                            Style="{StaticResource MfaSecondaryRowButtonStyle}"
+                            MinHeight="72"
+                            ToolTipService.ToolTip="截图并扫描二维码"
+                            AutomationProperties.Name="截图并扫描二维码"
+                            AutomationProperties.HelpText="框选屏幕上的二维码，识别后可确认账户信息"
+                            Click="ScreenshotScanButton_Click">
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE722;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="20" Foreground="{ThemeResource MfaSecurityBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="截图并扫描二维码" FontSize="16" Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                    <TextBlock Text="推荐 · 框选屏幕上的二维码，识别后确认账户信息" FontSize="12" Foreground="{ThemeResource MfaTertiaryTextBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="14" Foreground="{ThemeResource MfaTertiaryTextBrush}" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Rectangle Height="1" Fill="{ThemeResource MfaBorderBrush}" Margin="44,0,0,0" />
+                        <Button
+                            x:Name="ImportImageButton"
+                            Style="{StaticResource MfaSecondaryRowButtonStyle}"
+                            ToolTipService.ToolTip="从图片导入"
+                            AutomationProperties.Name="从图片导入"
+                            AutomationProperties.HelpText="选择 PNG、JPG 或 BMP 图片"
+                            Click="ImportImageButton_Click">
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE8B9;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="20" Foreground="{ThemeResource MfaSecurityBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Text="从图片导入" FontSize="15" Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                    <TextBlock Text="选择 PNG、JPG 或 BMP 图片" FontSize="12" Foreground="{ThemeResource MfaTertiaryTextBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="14" Foreground="{ThemeResource MfaTertiaryTextBrush}" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <Rectangle Height="1" Fill="{ThemeResource MfaBorderBrush}" Margin="44,0,0,0" />
+                        <Button
+                            x:Name="ManualEntryButton"
+                            Style="{StaticResource MfaSecondaryRowButtonStyle}"
+                            ToolTipService.ToolTip="手动输入"
+                            AutomationProperties.Name="手动输入"
+                            AutomationProperties.HelpText="输入服务、账户和密钥"
+                            Click="ManualEntryButton_Click">
+                            <Grid ColumnSpacing="14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE70F;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="20" Foreground="{ThemeResource MfaSecurityBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                    <TextBlock Text="手动输入" FontSize="15" Foreground="{ThemeResource MfaPrimaryTextBrush}" />
+                                    <TextBlock Text="输入服务、账户和密钥" FontSize="12" Foreground="{ThemeResource MfaTertiaryTextBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontFamily="{ThemeResource SymbolThemeFontFamily}" FontSize="14" Foreground="{ThemeResource MfaTertiaryTextBrush}" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="账户信息只保存在本机，可随时在设置中导入或导出备份。" FontSize="12" Foreground="{ThemeResource MfaTertiaryTextBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

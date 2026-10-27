@@ -7,9 +7,176 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
-            <SolidColorBrush x:Key="AccentBrush" Color="#5B8DEF" />
-            <SolidColorBrush x:Key="CardBrush" Color="#171A21" />
-            <SolidColorBrush x:Key="MutedBrush" Color="#9CA3AF" />
+
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="MfaPageBackgroundBrush" Color="#EAF1F5" />
+                    <SolidColorBrush x:Key="MfaSurfaceBrush" Color="#EAF1F5" />
+                    <SolidColorBrush x:Key="MfaRaisedSurfaceBrush" Color="#F0F7F9" />
+                    <SolidColorBrush x:Key="MfaMutedSurfaceBrush" Color="#DEE9EE" />
+                    <SolidColorBrush x:Key="MfaShadowBrush" Color="#C4D2D9" />
+                    <SolidColorBrush x:Key="MfaBorderBrush" Color="#F9FCFD" />
+                    <SolidColorBrush x:Key="MfaInsetBorderBrush" Color="#CFDDE3" />
+                    <SolidColorBrush x:Key="MfaPrimaryTextBrush" Color="#12364A" />
+                    <SolidColorBrush x:Key="MfaSecondaryTextBrush" Color="#496170" />
+                    <SolidColorBrush x:Key="MfaTertiaryTextBrush" Color="#708591" />
+                    <SolidColorBrush x:Key="MfaSecurityBrush" Color="#0E79B2" />
+                    <SolidColorBrush x:Key="MfaSecuritySoftBrush" Color="#D9F2E7" />
+                    <SolidColorBrush x:Key="MfaSecurityTextBrush" Color="#087A4B" />
+                    <SolidColorBrush x:Key="MfaProgressBrush" Color="#10A5DB" />
+                    <SolidColorBrush x:Key="MfaWarningBrush" Color="#E99B12" />
+                    <SolidColorBrush x:Key="MfaCopiedBrush" Color="#D9F2E7" />
+                    <SolidColorBrush x:Key="MfaAccentBrush" Color="#0E79B2" />
+                    <SolidColorBrush x:Key="MfaAccentTextBrush" Color="#FFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="MfaPageBackgroundBrush" Color="#17232B" />
+                    <SolidColorBrush x:Key="MfaSurfaceBrush" Color="#1C2B35" />
+                    <SolidColorBrush x:Key="MfaRaisedSurfaceBrush" Color="#243943" />
+                    <SolidColorBrush x:Key="MfaMutedSurfaceBrush" Color="#13232B" />
+                    <SolidColorBrush x:Key="MfaShadowBrush" Color="#0E171D" />
+                    <SolidColorBrush x:Key="MfaBorderBrush" Color="#304550" />
+                    <SolidColorBrush x:Key="MfaInsetBorderBrush" Color="#0D1A21" />
+                    <SolidColorBrush x:Key="MfaPrimaryTextBrush" Color="#E7F3F8" />
+                    <SolidColorBrush x:Key="MfaSecondaryTextBrush" Color="#B4C6D0" />
+                    <SolidColorBrush x:Key="MfaTertiaryTextBrush" Color="#8EA3AE" />
+                    <SolidColorBrush x:Key="MfaSecurityBrush" Color="#38A9E0" />
+                    <SolidColorBrush x:Key="MfaSecuritySoftBrush" Color="#173D35" />
+                    <SolidColorBrush x:Key="MfaSecurityTextBrush" Color="#68D9A5" />
+                    <SolidColorBrush x:Key="MfaProgressBrush" Color="#38BDF8" />
+                    <SolidColorBrush x:Key="MfaWarningBrush" Color="#F7B955" />
+                    <SolidColorBrush x:Key="MfaCopiedBrush" Color="#173D35" />
+                    <SolidColorBrush x:Key="MfaAccentBrush" Color="#38A9E0" />
+                    <SolidColorBrush x:Key="MfaAccentTextBrush" Color="#102530" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="MfaPageBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="MfaSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="MfaRaisedSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="MfaMutedSurfaceBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+                    <SolidColorBrush x:Key="MfaShadowBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaInsetBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaPrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaTertiaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaSecurityBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="MfaSecuritySoftBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+                    <SolidColorBrush x:Key="MfaSecurityTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="MfaProgressBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="MfaWarningBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="MfaCopiedBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+                    <SolidColorBrush x:Key="MfaAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="MfaAccentTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <Thickness x:Key="MfaPagePadding">24,20,24,16</Thickness>
+            <x:Double x:Key="MfaSecondaryContentWidth">480</x:Double>
+            <x:Double x:Key="MfaSecondaryContentMaxWidth">680</x:Double>
+            <x:Double x:Key="MfaSecondaryRailWidth">148</x:Double>
+            <x:Double x:Key="MfaPageHeaderHeight">56</x:Double>
+            <x:Double x:Key="MfaActionRowHeight">64</x:Double>
+            <CornerRadius x:Key="MfaListSurfaceCornerRadius">16</CornerRadius>
+            <CornerRadius x:Key="MfaGroupCornerRadius">14</CornerRadius>
+            <x:Double x:Key="MfaGroupRowHeight">56</x:Double>
+            <x:Double x:Key="MfaGroupDetailRowHeight">68</x:Double>
+            <Thickness x:Key="MfaCardPadding">0</Thickness>
+            <CornerRadius x:Key="MfaCardCornerRadius">20</CornerRadius>
+            <x:Double x:Key="MfaCardSpacing">12</x:Double>
+
+            <Style x:Key="MfaSoftShadowBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource MfaShadowBrush}" />
+                <Setter Property="CornerRadius" Value="{StaticResource MfaCardCornerRadius}" />
+            </Style>
+
+            <Style x:Key="CompactIconButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="44" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Background" Value="{ThemeResource MfaRaisedSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource MfaBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Foreground" Value="{ThemeResource MfaPrimaryTextBrush}" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <Style x:Key="MfaSoftActionButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="44" />
+                <Setter Property="Padding" Value="18,0" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Background" Value="{ThemeResource MfaRaisedSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource MfaBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Foreground" Value="{ThemeResource MfaPrimaryTextBrush}" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <Style x:Key="MfaSoftRowButtonStyle" TargetType="Button" BasedOn="{StaticResource MfaSoftActionButtonStyle}">
+                <Setter Property="MinHeight" Value="70" />
+                <Setter Property="Padding" Value="18,12" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+
+            <Style x:Key="MfaSecondaryRowButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="{StaticResource MfaActionRowHeight}" />
+                <Setter Property="Padding" Value="12,8" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Foreground" Value="{ThemeResource MfaPrimaryTextBrush}" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <Style x:Key="MfaAccentButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="44" />
+                <Setter Property="Padding" Value="18,0" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Background" Value="{ThemeResource MfaAccentBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource MfaAccentBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Foreground" Value="{ThemeResource MfaAccentTextBrush}" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <Style x:Key="MfaCardBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource MfaRaisedSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource MfaBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource MfaCardCornerRadius}" />
+            </Style>
+
+            <Style x:Key="MfaSectionBorderStyle" TargetType="Border" BasedOn="{StaticResource MfaCardBorderStyle}">
+                <Setter Property="Padding" Value="20,16" />
+            </Style>
+
+            <Style x:Key="MfaSearchBoxStyle" TargetType="AutoSuggestBox">
+                <Setter Property="Height" Value="48" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+            <Style x:Key="MfaAccountItemStyle" TargetType="ListViewItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="MinHeight" Value="148" />
+                <Setter Property="Padding" Value="{StaticResource MfaCardPadding}" />
+                <Setter Property="Margin" Value="0,0,0,12" />
+                <Setter Property="CornerRadius" Value="{StaticResource MfaCardCornerRadius}" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

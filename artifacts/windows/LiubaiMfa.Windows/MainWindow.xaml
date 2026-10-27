@@ -4,111 +4,35 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:viewModels="using:LiubaiMfa.Windows.ViewModels"
+    xmlns:views="using:LiubaiMfa.Windows.Views"
     mc:Ignorable="d"
     Title="留白 MFA">
 
-    <Grid x:Name="RootGrid" Background="#0D0F14">
+    <Grid
+        x:Name="RootGrid"
+        Background="Transparent">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="32" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="28,22,28,16">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Spacing="4">
-                <TextBlock Text="留白 MFA" FontSize="28" FontWeight="SemiBold" Foreground="White" />
-                <TextBlock Text="验证码仅在本机生成，不需要联网" Foreground="{StaticResource MutedBrush}" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="从二维码图片导入" Click="ImportQr_Click" />
-                <Button Content="添加账户" Style="{StaticResource AccentButtonStyle}" Click="AddAccount_Click" />
-            </StackPanel>
-        </Grid>
+        <Grid
+            x:Name="TitleBarDragRegion"
+            Height="32"
+            Background="Transparent"
+            AutomationProperties.Name="窗口标题栏" />
 
-        <InfoBar
-            x:Name="StatusBar"
-            Grid.Row="1"
-            Margin="28,0,28,12"
-            IsOpen="False"
-            IsClosable="True" />
-
-        <Grid Grid.Row="2" Padding="20,0,20,12">
-            <TextBlock
-                x:Name="EmptyState"
-                Text="还没有账户。添加密钥或导入二维码后，验证码会显示在这里。"
-                Foreground="{StaticResource MutedBrush}"
-                FontSize="16"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center" />
-
-            <ListView
-                x:Name="AccountsList"
-                ItemsSource="{x:Bind ViewModel.Accounts, Mode=OneWay}"
-                SelectionMode="None"
-                IsItemClickEnabled="False">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Margin" Value="0,0,0,10" />
-                        <Setter Property="Padding" Value="0" />
-                    </Style>
-                </ListView.ItemContainerStyle>
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="viewModels:AccountItemViewModel">
-                        <Border Background="{StaticResource CardBrush}" CornerRadius="14" Padding="18" BorderBrush="#252936" BorderThickness="1">
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="2*" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="4" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind Issuer}" Foreground="White" FontSize="18" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Account}" Foreground="{StaticResource MutedBrush}" />
-                                    <TextBlock Text="{x:Bind GroupLabel}" Foreground="#6E7687" FontSize="12" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" MinWidth="150">
-                                    <TextBlock Text="{x:Bind Code, Mode=OneWay}" Foreground="White" FontFamily="Consolas" FontSize="30" FontWeight="SemiBold" CharacterSpacing="100" />
-                                    <TextBlock Text="{x:Bind RemainingLabel, Mode=OneWay}" Foreground="#7CA2F8" HorizontalAlignment="Right" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                    <Button Content="复制" Tag="{x:Bind Id}" Click="CopyCode_Click" />
-                                    <Button Content="编辑" Tag="{x:Bind Id}" Click="EditAccount_Click" />
-                                    <Button Content="密钥" Tag="{x:Bind Id}" Click="ShowSecret_Click" />
-                                    <Button Content="删除" Tag="{x:Bind Id}" Click="DeleteAccount_Click" />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Grid>
-
-        <Grid Grid.Row="3" Padding="28,10,28,22">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="本地加密 · Windows Hello 保护敏感操作" Foreground="#6E7687" VerticalAlignment="Center" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                <Button Content="导入备份" Click="ImportBackup_Click" />
-                <Button Content="导出加密备份" Click="ExportBackup_Click" />
-                <Button Content="立即锁定" Click="Lock_Click" />
-            </StackPanel>
-        </Grid>
-
-        <Grid x:Name="LockOverlay" Grid.RowSpan="4" Background="#F20D0F14" Visibility="Visible">
-            <StackPanel Width="420" Spacing="16" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="留白 MFA 已锁定" Foreground="White" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                <TextBlock x:Name="LockMessage" Text="使用 Windows Hello 解锁" Foreground="{StaticResource MutedBrush}" TextAlignment="Center" TextWrapping="Wrap" />
-                <Button x:Name="UnlockButton" Content="使用 Windows Hello 解锁" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="Unlock_Click" />
-            </StackPanel>
+        <Grid Grid.Row="1">
+            <views:AuthenticatorView
+                x:Name="AuthenticatorView"
+                Visibility="Collapsed" />
+            <views:AddAccountView
+                x:Name="AddAccountView"
+                Visibility="Collapsed" />
+            <views:SettingsView
+                x:Name="SettingsView"
+                Visibility="Collapsed" />
+            <views:LockView x:Name="LockView" />
         </Grid>
     </Grid>
 </Window>

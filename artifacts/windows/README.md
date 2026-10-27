@@ -8,7 +8,8 @@
 - 手动添加、编辑、删除和分组字段。
 - 从 PNG/JPEG/BMP 二维码图片导入 `otpauth://totp` 账户。
 - 当前 Windows 用户范围保护的设备密钥，以及加密的本地账户文件。
-- Windows Hello 启动解锁、60 秒离开后重新锁定、查看/复制密钥和导出备份前再次验证。
+- 可选的安全锁定；开启后支持启动解锁、手动锁定和离开 60 秒后自动锁定，优先使用 Windows Hello，不可用时可使用 Windows 系统密码。
+- 查看/复制 MFA 原始密钥和导出备份前始终再次进行系统身份验证（Windows Hello 或电脑密码）。
 - 与移动端一致的 v2 加密备份、独立恢复密钥、去重导入和篡改拒绝。
 - Windows 11 x64 单项目 MSIX 配置与开发签名脚本。
 
@@ -30,7 +31,7 @@
 1. Visual Studio 的 Windows 应用开发工作负载；
 2. .NET 8 SDK；
 3. Windows 11 SDK；
-4. 已配置的 Windows Hello（系统 PIN、指纹或面容之一）。
+4. 如需启用启动保护或执行敏感操作，已配置 Windows Hello 或可用的 Windows 系统密码。未配置 Windows Hello 时，安全锁定会自动提供电脑密码解锁。
 
 先运行核心回归：
 
@@ -63,6 +64,7 @@ dotnet build .\LiubaiMfa.sln -c Release -p:Platform=x64
 - `accounts.v2.json`：使用上述设备密钥加密后的账户数据；不应包含明文 MFA 密钥。
 - 导出备份：AES-256-CBC + HMAC-SHA-256 的 v2 格式，恢复密钥不会写入备份文件。
 - 本地数据无法解锁时，应用保持锁定并停止写入，避免用空数据覆盖原文件。
+- “打开应用时启用安全锁定”默认关闭。关闭时应用仍使用当前 Windows 用户范围的 DPAPI 设备密钥和加密账户文件，但打开主界面前不弹系统验证。
 
 ## 验收边界
 

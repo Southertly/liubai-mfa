@@ -28,4 +28,10 @@
   <ItemGroup>
     <ProjectReference Include="../LiubaiMfa.Core/LiubaiMfa.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LiubaiMfa.Windows" />
+    <InternalsVisibleTo Include="LiubaiMfa.Windows.Platform.Regression" />
+    <InternalsVisibleTo Include="LiubaiMfa.Windows.CodeBehindCheck" />
+  </ItemGroup>
 </Project>

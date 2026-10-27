@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiubaiMfa.Windows.CodeBehin
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiubaiMfa.Windows", "LiubaiMfa.Windows\LiubaiMfa.Windows.csproj", "{0D44848A-B76B-49CB-85B8-9CE53A8C0631}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LiubaiMfa.Windows.Platform.Regression", "LiubaiMfa.Windows.Platform.Regression\LiubaiMfa.Windows.Platform.Regression.csproj", "{710803E4-1BFF-4A4A-AF25-5242AA4E36F3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -38,5 +40,9 @@ Global
 		{0D44848A-B76B-49CB-85B8-9CE53A8C0631}.Debug|x64.Build.0 = Debug|x64
 		{0D44848A-B76B-49CB-85B8-9CE53A8C0631}.Release|x64.ActiveCfg = Release|x64
 		{0D44848A-B76B-49CB-85B8-9CE53A8C0631}.Release|x64.Build.0 = Release|x64
+		{710803E4-1BFF-4A4A-AF25-5242AA4E36F3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{710803E4-1BFF-4A4A-AF25-5242AA4E36F3}.Debug|x64.Build.0 = Debug|Any CPU
+		{710803E4-1BFF-4A4A-AF25-5242AA4E36F3}.Release|x64.ActiveCfg = Release|Any CPU
+		{710803E4-1BFF-4A4A-AF25-5242AA4E36F3}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
