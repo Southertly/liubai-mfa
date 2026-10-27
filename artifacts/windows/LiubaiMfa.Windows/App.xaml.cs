@@ -34,6 +34,8 @@ public partial class App : Application
         _ = PendingActivations.TryEnqueue(activation);
     }
 
+    internal static DispatcherQueue? CurrentDispatcherQueue => Volatile.Read(ref _current)?._dispatcherQueue;
+
     internal static void OnAppInstanceActivated(object? sender, AppActivationArguments activation)
     {
         ArgumentNullException.ThrowIfNull(activation);

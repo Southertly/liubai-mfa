@@ -137,6 +137,13 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("截图服务拒绝空关联和空白令牌", VerifySnippingToolCaptureRejectsInvalidArgumentsAsync),
     ("截图服务拒绝空委托并传播委托异常", VerifySnippingToolCaptureDependencyBoundariesAsync),
     ("截图服务拒绝空任务和空兑换文件且不泄露输入", VerifySnippingToolCaptureNullResultsAsync),
+    ("新增账户定位高亮使用柔和边框", () => RunSync(VerifyRevealHighlightUsesSoftBorder)),
+    ("账户卡片不显示组标签", () => RunSync(VerifyAccountCardHidesGroupLabel)),
+    ("启动按钮样式保留 WinUI 原生模板", () => RunSync(VerifyStartupButtonsKeepNativeTemplate)),
+    ("账户卡片不在 Border 上设置焦点属性", () => RunSync(VerifyAccountCardDoesNotSetControlFocusPropertiesOnBorder)),
+    ("主窗口验证码计时器使用 DispatcherQueueTimer", () => RunSync(VerifyMainWindowUsesDispatcherQueueTimer)),
+    ("打包应用关闭不必要的部署管理器自动初始化", () => RunSync(VerifyPackagedAppDisablesDeploymentManagerAutoInitialize)),
+    ("页面过渡始终在 UI 调度队列清理和恢复焦点", () => RunSync(VerifyPageTransitionMarshalsUiCleanup)),
     ("添加账户统一入口源契约", () => RunSync(VerifyUnifiedAddAccountEntrySourceContract)),
     ("主窗口添加账户、标题栏与截图生命周期源契约", () => RunSync(VerifyMainWindowAddAccountFlowSourceContract)),
     ("激活调度队列保持首次参数优先的 FIFO", () => RunSync(VerifyActivationDispatchQueueInitialFirstFifo)),
@@ -146,6 +153,96 @@ var checks = new List<(string Name, Func<Task> Run)>
     ("激活调度队列停止后清空并拒绝后续参数", () => RunSync(VerifyActivationDispatchQueueStop)),
     ("单实例协议激活入口源契约", () => RunSync(VerifySingleInstanceActivationSourceContract)),
 };
+
+static void VerifyRevealHighlightUsesSoftBorder()
+{
+    var xamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var source = File.ReadAllText(xamlPath);
+    var borderStart = source.IndexOf("BorderBrush=\"{ThemeResource MfaSecurityBrush}\"", StringComparison.Ordinal);
+    Assert(borderStart >= 0, "新增账户定位高亮边框必须存在。");
+    var borderEnd = source.IndexOf(" />", borderStart, StringComparison.Ordinal);
+    Assert(borderEnd > borderStart, "新增账户定位高亮边框必须是完整元素。");
+    var border = source[borderStart..borderEnd];
+    Assert(border.Contains("BorderThickness=\"1\"", StringComparison.Ordinal), "新增账户定位高亮边框必须使用 1px 线宽。");
+    Assert(border.Contains("Opacity=\"{Binding RevealHintOpacity}\"", StringComparison.Ordinal), "新增账户定位高亮必须绑定可控透明度。");
+}
+
+static void VerifyStartupButtonsKeepNativeTemplate()
+{
+    var xamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "App.xaml"));
+    var source = File.ReadAllText(xamlPath);
+    Assert(!source.Contains("x:Key=\"MfaSoftButtonTemplate\"", StringComparison.Ordinal),
+        "全局按钮样式不得替换 WinUI 原生模板；自定义模板会在窗口首次布局时触发原生 XAML 崩溃。 ");
+    Assert(!source.Contains("Property=\"Template\" Value=\"{StaticResource MfaSoftButtonTemplate}\"", StringComparison.Ordinal),
+        "启动页面按钮必须继续使用 WinUI 原生模板。 ");
+}
+
+static void VerifyPackagedAppDisablesDeploymentManagerAutoInitialize()
+{
+    var projectPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "LiubaiMfa.Windows.csproj"));
+    var source = File.ReadAllText(projectPath);
+    Assert(source.Contains("<WindowsAppSdkDeploymentManagerInitialize>false</WindowsAppSdkDeploymentManagerInitialize>", StringComparison.Ordinal),
+        "框架依赖型 MSIX 不需要启动时注册 Main/Singleton 包，必须关闭 Deployment Manager 自动初始化。 ");
+}
+
+static void VerifyAccountCardDoesNotSetControlFocusPropertiesOnBorder()
+{
+    var xamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var source = File.ReadAllText(xamlPath);
+    var borderStart = source.IndexOf("<Border\n                                Tag=\"{x:Bind Id}\"", StringComparison.Ordinal);
+    Assert(borderStart >= 0, "账户卡片 Border 必须存在。 ");
+    var borderEnd = source.IndexOf("</Border>", borderStart, StringComparison.Ordinal);
+    Assert(borderEnd > borderStart, "账户卡片 Border 必须是完整元素。 ");
+    var border = source[borderStart..borderEnd];
+    Assert(!border.Contains("IsTabStop=", StringComparison.Ordinal)
+            && !border.Contains("UseSystemFocusVisuals=", StringComparison.Ordinal),
+        "Border 不是 Control，不能设置 Control 的焦点属性；这些属性会在账户行首次物化时触发 WinUI XAML 崩溃。 ");
+}
+
+static void VerifyMainWindowUsesDispatcherQueueTimer()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var source = File.ReadAllText(sourcePath);
+    Assert(source.Contains("DispatcherQueueTimer", StringComparison.Ordinal),
+        "主窗口验证码刷新必须使用 WinUI 3 的 DispatcherQueueTimer。 ");
+    Assert(!source.Contains("DispatcherTimer", StringComparison.Ordinal),
+        "主窗口启动不能创建旧版 XAML DispatcherTimer；它会在 WinUI 3 账户列表布局后触发原生崩溃。 ");
+}
+
+static void VerifyAccountCardHidesGroupLabel()
+{
+    var xamlPath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "Views", "AuthenticatorView.xaml"));
+    var source = File.ReadAllText(xamlPath);
+    Assert(!source.Contains("Text=\"{x:Bind GroupLabel}\"", StringComparison.Ordinal),
+        "账户卡片不得在服务与账户信息旁显示组标签；分组筛选仍由顶部分组栏提供。 ");
+}
+
+static void VerifyPageTransitionMarshalsUiCleanup()
+{
+    var sourcePath = FindWorkspaceSourceFile(Path.Combine("LiubaiMfa.Windows", "MainWindow.xaml.cs"));
+    var source = File.ReadAllText(sourcePath);
+    var root = ParseCSharpRoot(source, "MainWindow.xaml.cs");
+    var mainWindow = FindUniqueClass(root, "MainWindow");
+    var dispatcherField = mainWindow.Members.OfType<FieldDeclarationSyntax>()
+        .SingleOrDefault(field => field.Declaration.Variables.Any(variable => variable.Identifier.ValueText == "_dispatcherQueue"));
+    var constructor = mainWindow.Members.OfType<ConstructorDeclarationSyntax>().Single();
+    var runOnUi = FindUniqueMethod(mainWindow, "RunOnUiAsync");
+    var transition = FindUniqueMethod(mainWindow, "RunPageEntranceTransitionAsync");
+    var addNavigation = FindUniqueMethod(mainWindow, "NavigateToAddAccountViewAsync");
+    var backNavigation = FindUniqueMethod(mainWindow, "NavigateToAuthenticatorViewAsync");
+    var settingsNavigation = FindUniqueMethod(mainWindow, "NavigateToSettingsViewAsync");
+
+    Assert(dispatcherField is not null
+            && constructor.Body?.ToString().Contains("_dispatcherQueue = App.CurrentDispatcherQueue", StringComparison.Ordinal) == true
+            && HasInvocation(runOnUi, "_dispatcherQueue", "TryEnqueue"),
+        "页面过渡必须使用应用启动阶段捕获的 UI 调度队列，不能在线程切换后重新访问窗口调度器。 ");
+    Assert(HasInvocation(transition, null, "RunOnUiAsync"),
+        "页面过渡清理必须回到 UI 调度队列，不能在动画完成线程直接操作 XAML。 ");
+    Assert(HasInvocation(addNavigation, null, "RunOnUiAsync")
+            && HasInvocation(backNavigation, null, "RunOnUiAsync")
+            && HasInvocation(settingsNavigation, null, "RunOnUiAsync"),
+        "页面切换后的焦点恢复必须通过 UI 调度队列执行。 ");
+}
 
 static void VerifyActivationDispatchQueueInitialFirstFifo()
 {
@@ -2043,9 +2140,9 @@ static void VerifyExpiryProgressUsesDirectAlertOverlay()
     var alertEnd = source.IndexOf("/>", alertName, StringComparison.Ordinal);
     Assert(alertStart >= 0 && alertEnd > alertName, "无法定位临期警示进度条。");
     var alertProgress = source[alertStart..(alertEnd + 2)];
-    Assert(alertProgress.Contains("Value=\"{x:Bind ProgressValue, Mode=OneWay}\"", StringComparison.Ordinal),
+    Assert(alertProgress.Contains("Value=\"{Binding ProgressValue}\"", StringComparison.Ordinal),
         "临期警示进度条必须与普通进度条使用相同进度值。");
-    Assert(alertProgress.Contains("Opacity=\"{x:Bind ExpiryAlertOpacity, Mode=OneWay}\"", StringComparison.Ordinal),
+    Assert(alertProgress.Contains("Opacity=\"{Binding ExpiryAlertOpacity}\"", StringComparison.Ordinal),
         "临期警示进度条必须直接绑定警示透明度。");
     Assert(alertProgress.Contains("Foreground=\"{ThemeResource SystemFillColorCriticalBrush}\"", StringComparison.Ordinal),
         "临期警示进度条必须使用主题感知的 CriticalBrush。");

@@ -21,13 +21,10 @@
                 x:Name="StatusBar"
                 IsOpen="False"
                 IsClosable="True" />
-            <Border
-                Padding="24,16"
-                Style="{StaticResource MfaCardBorderStyle}">
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
+            <Grid ColumnSpacing="16" Padding="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Spacing="3" VerticalAlignment="Center">
                         <TextBlock
@@ -44,30 +41,34 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <Button
                             x:Name="SettingsButton"
-                            Style="{StaticResource CompactIconButtonStyle}"
+                            Width="40"
+                            Height="40"
+                            Padding="0"
                             ToolTipService.ToolTip="设置"
                             AutomationProperties.Name="设置"
                             Click="SettingsButton_Click">
-                            <FontIcon Glyph="&#xE713;" FontSize="20" />
+                            <SymbolIcon Symbol="Setting" />
                         </Button>
                         <Button
                             x:Name="AddButton"
-                            Padding="0"
-                            Style="{StaticResource MfaAccentButtonStyle}"
+                            Padding="14,8"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                             ToolTipService.ToolTip="添加账户"
                             AutomationProperties.Name="添加账户"
                             Click="AddButton_Click">
-                            <FontIcon Glyph="&#xE710;" FontSize="20" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <SymbolIcon Symbol="Add" />
+                                <TextBlock Text="添加账户" VerticalAlignment="Center" />
+                            </StackPanel>
                         </Button>
                     </StackPanel>
-                </Grid>
-            </Border>
+            </Grid>
         </StackPanel>
 
         <AutoSuggestBox
             x:Name="SearchBox"
             Grid.Row="1"
-            Style="{StaticResource MfaSearchBoxStyle}"
             PlaceholderText="搜索服务、账户或分组"
             QueryIcon="Find"
             AutomationProperties.Name="搜索账户"
@@ -76,7 +77,7 @@
         <ListView
             x:Name="GroupsList"
             Grid.Row="2"
-            Height="38"
+            Height="40"
             Background="Transparent"
             BorderThickness="0"
             SelectionMode="Single"
@@ -92,12 +93,9 @@
             <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem">
                     <Setter Property="MinWidth" Value="0" />
-                    <Setter Property="MinHeight" Value="32" />
-                    <Setter Property="Padding" Value="12,4" />
-                    <Setter Property="Margin" Value="0,0,6,0" />
-                    <Setter Property="CornerRadius" Value="16" />
-                    <Setter Property="Background" Value="{ThemeResource MfaMutedSurfaceBrush}" />
-                    <Setter Property="Foreground" Value="{ThemeResource MfaSecondaryTextBrush}" />
+                    <Setter Property="MinHeight" Value="36" />
+                    <Setter Property="Padding" Value="12,6" />
+                    <Setter Property="Margin" Value="0,0,8,0" />
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
@@ -113,22 +111,13 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Spacing="14">
-                <Border
-                    Width="88"
-                    Height="88"
-                    Background="{ThemeResource MfaSecuritySoftBrush}"
-                    BorderBrush="{ThemeResource MfaBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="28"
-                    HorizontalAlignment="Center">
-                    <FontIcon
-                        Glyph="&#xE72E;"
-                        FontSize="36"
-                        Foreground="{ThemeResource MfaSecurityTextBrush}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        AutomationProperties.Name="本机安全存储" />
-                </Border>
+                <FontIcon
+                    Glyph="&#xE72E;"
+                    FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                    FontSize="32"
+                    Foreground="{ThemeResource MfaSecurityTextBrush}"
+                    HorizontalAlignment="Center"
+                    AutomationProperties.Name="本机安全存储" />
                 <TextBlock
                     Text="还没有账户"
                     FontSize="22"
@@ -147,7 +136,8 @@
                     Content="添加账户"
                     Padding="24,0"
                     HorizontalAlignment="Center"
-                    Style="{StaticResource MfaAccentButtonStyle}"
+                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                    Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
                     AutomationProperties.Name="添加账户"
                     Click="EmptyAddButton_Click" />
             </StackPanel>
@@ -170,13 +160,12 @@
                     TextAlignment="Center" />
                 <Button
                     Content="清除搜索和筛选"
+                    Padding="16,8"
                     HorizontalAlignment="Center"
-                    Style="{StaticResource MfaSoftActionButtonStyle}"
                     Click="ClearFiltersButton_Click" />
             </StackPanel>
             <ListView
                 x:Name="AccountsList"
-                ItemContainerStyle="{StaticResource MfaAccountItemStyle}"
                 SelectionMode="None"
                 IsItemClickEnabled="False"
                 Visibility="Collapsed"
@@ -202,13 +191,15 @@
                             </SwipeControl.RightItems>
                             <Border
                                 Tag="{x:Bind Id}"
-                                Style="{StaticResource MfaCardBorderStyle}"
-                                Padding="24,20"
-                                IsTabStop="True"
-                                UseSystemFocusVisuals="True"
-                                AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
-                                Tapped="AccountRow_Tapped"
-                                KeyDown="AccountRow_KeyDown">
+                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="16,14"
+                                Margin="0,0,0,8"
+                                    AutomationProperties.Name="{Binding AccessibleName}"
+                                    Tapped="AccountRow_Tapped"
+                                    KeyDown="AccountRow_KeyDown">
                                 <Grid RowSpacing="12">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
@@ -260,15 +251,6 @@
                                                     MaxLines="1"
                                                     TextWrapping="NoWrap"
                                                     TextTrimming="CharacterEllipsis" />
-                                                <TextBlock
-                                                    Grid.Column="1"
-                                                    Text="{x:Bind GroupLabel}"
-                                                    FontSize="11"
-                                                    MaxWidth="72"
-                                                    Foreground="{ThemeResource MfaSecurityBrush}"
-                                                    MaxLines="1"
-                                                    TextWrapping="NoWrap"
-                                                    TextTrimming="CharacterEllipsis" />
                                             </Grid>
                                         </StackPanel>
                                         <StackPanel
@@ -277,14 +259,14 @@
                                             Spacing="2"
                                             VerticalAlignment="Center">
                                             <TextBlock
-                                                Text="{x:Bind CodeDisplay, Mode=OneWay}"
+                                                Text="{Binding CodeDisplay}"
                                                 FontFamily="Consolas"
                                                 FontSize="30"
                                                 FontWeight="SemiBold"
                                                 Foreground="{ThemeResource MfaPrimaryTextBrush}"
                                                 HorizontalAlignment="Right" />
                                             <TextBlock
-                                                Text="{x:Bind RemainingLabel, Mode=OneWay}"
+                                                Text="{Binding RemainingLabel}"
                                                 FontSize="12"
                                                 Foreground="{ThemeResource MfaTertiaryTextBrush}"
                                                 HorizontalAlignment="Right" />
@@ -295,15 +277,15 @@
                                             x:Name="ExpiryProgress"
                                             Height="3"
                                             Maximum="1"
-                                            Value="{x:Bind ProgressValue, Mode=OneWay}"
+                                            Value="{Binding ProgressValue}"
                                             Foreground="{ThemeResource MfaProgressBrush}"
                                             Background="{ThemeResource MfaMutedSurfaceBrush}" />
                                         <ProgressBar
                                             x:Name="ExpiryAlertProgress"
                                             Height="3"
                                             Maximum="1"
-                                            Value="{x:Bind ProgressValue, Mode=OneWay}"
-                                            Opacity="{x:Bind ExpiryAlertOpacity, Mode=OneWay}"
+                                            Value="{Binding ProgressValue}"
+                                            Opacity="{Binding ExpiryAlertOpacity}"
                                             Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                             Background="{ThemeResource MfaMutedSurfaceBrush}"
                                             IsHitTestVisible="False"
@@ -312,10 +294,10 @@
                                     <Border
                                         Grid.RowSpan="2"
                                         BorderBrush="{ThemeResource MfaSecurityBrush}"
-                                        BorderThickness="2"
+                                        BorderThickness="1"
                                         CornerRadius="10"
                                         IsHitTestVisible="False"
-                                        Opacity="{x:Bind RevealHintOpacity, Mode=OneWay}" />
+                                        Opacity="{Binding RevealHintOpacity}" />
                                     <FontIcon
                                         Grid.RowSpan="2"
                                         Glyph="&#xE73E;"
@@ -324,7 +306,7 @@
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Top"
                                         IsHitTestVisible="False"
-                                        Opacity="{x:Bind RevealHintOpacity, Mode=OneWay}" />
+                                        Opacity="{Binding RevealHintOpacity}" />
                                 </Grid>
                             </Border>
                         </SwipeControl>

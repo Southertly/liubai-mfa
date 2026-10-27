@@ -6,7 +6,6 @@ namespace LiubaiMfa.Windows.Views;
 public sealed partial class SettingsView : UserControl
 {
     private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(4) };
-
     public SettingsView()
     {
         InitializeComponent();

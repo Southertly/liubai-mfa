@@ -92,7 +92,7 @@ public sealed class AccountItemViewModel : INotifyPropertyChanged
         }
     }
 
-    public double RevealHintOpacity => IsRevealHighlighted ? 1 : 0;
+    public double RevealHintOpacity => IsRevealHighlighted ? 0.72 : 0;
 
     public void ReplaceModel(MfaAccount model)
     {

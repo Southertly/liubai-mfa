@@ -71,6 +71,9 @@ namespace LiubaiMfa.Windows.Views
         private readonly InfoBar StatusBar = new();
         private readonly Button BackButton = new();
         private readonly TextBlock StartupProtectionStatusText = new();
+        private readonly StackPanel SecuritySection = new();
+        private readonly StackPanel DataSection = new();
+        private readonly StackPanel AboutSection = new();
 
         private void InitializeComponent()
         {

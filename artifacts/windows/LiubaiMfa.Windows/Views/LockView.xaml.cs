@@ -21,10 +21,10 @@ public sealed partial class LockView : UserControl
 
     public string ButtonContent
     {
-        get => UnlockButton.Content?.ToString() ?? string.Empty;
+        get => GetUnlockButtonText() ?? UnlockButton.Content?.ToString() ?? string.Empty;
         set
         {
-            UnlockButton.Content = value;
+            SetUnlockButtonText(value);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UnlockButton, value);
         }
     }
@@ -42,7 +42,7 @@ public sealed partial class LockView : UserControl
     public void ShowHelloPrimary()
     {
         UnlockButton.Visibility = Visibility.Visible;
-        UnlockButton.Content = "使用 Windows Hello 解锁";
+        SetUnlockButtonText("使用 Windows Hello 解锁");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UnlockButton, "使用 Windows Hello 解锁");
         PasswordUnlockButton.Visibility = Visibility.Visible;
     }
@@ -50,9 +50,30 @@ public sealed partial class LockView : UserControl
     public void ShowPasswordPrimary()
     {
         UnlockButton.Visibility = Visibility.Visible;
-        UnlockButton.Content = "使用电脑密码解锁";
+        SetUnlockButtonText("使用电脑密码解锁");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UnlockButton, "使用电脑密码解锁");
         PasswordUnlockButton.Visibility = Visibility.Collapsed;
+    }
+
+    private string? GetUnlockButtonText()
+    {
+        if (UnlockButton.Content is not Grid layout || layout.Children.Count < 2 || layout.Children[1] is not TextBlock text)
+        {
+            return null;
+        }
+
+        return text.Text;
+    }
+
+    private void SetUnlockButtonText(string value)
+    {
+        if (UnlockButton.Content is Grid layout && layout.Children.Count >= 2 && layout.Children[1] is TextBlock text)
+        {
+            text.Text = value;
+            return;
+        }
+
+        UnlockButton.Content = value;
     }
 
     private void UnlockButton_Click(object sender, RoutedEventArgs e) =>

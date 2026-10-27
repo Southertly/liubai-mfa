@@ -6,6 +6,7 @@ using LiubaiMfa.Windows.Views;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -44,11 +45,12 @@ public sealed partial class MainWindow : Window
     private readonly UnlockSessionGuard _sessionGuard = new();
     private readonly SessionCancellationGuard _sessionCancellation = new();
     private readonly AutoLockActivationState _autoLockActivationState = new();
+    private readonly DispatcherQueue _dispatcherQueue;
     private readonly SnippingCaptureState _snippingCaptureState = new();
     private readonly SnippingToolCaptureService _snippingToolCaptureService = new();
     private readonly QrAccountImportCoordinator _qrImportCoordinator;
     private readonly UISettings _uiSettings = new();
-    private readonly DispatcherTimer _timer;
+    private DispatcherQueueTimer? _codeRefreshTimer;
     private CancellationTokenSource? _backgroundLockCancellation;
     private ContentDialog? _activeDialog;
     private long _activeSession;
@@ -63,6 +65,8 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _dispatcherQueue = App.CurrentDispatcherQueue
+            ?? throw new InvalidOperationException("无法获取主窗口 UI 调度队列。");
         SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
         var dataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -99,8 +103,6 @@ public sealed partial class MainWindow : Window
         _backupDialogs = new BackupDialogService(ShowDialogAsync, IsSessionCurrent);
         _protectionSettingsDialogs = new ProtectionSettingsDialogService(ShowDialogAsync, IsSessionCurrent);
         _placementService = new WindowPlacementService();
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        _timer.Tick += (_, _) => ViewModel.UpdateCodes();
         Activated += Window_Activated;
         Closed += MainWindow_Closed;
         RootGrid.Loaded += RootGrid_Loaded;
@@ -126,7 +128,7 @@ public sealed partial class MainWindow : Window
         _sessionCancellation.Invalidate();
         Volatile.Write(ref _activeSession, 0);
         _isUnlocked = false;
-        _timer.Stop();
+        StopCodeRefresh();
         CancelBackgroundLock();
         ViewModel.Unload();
         _snippingCaptureState.Abandon();
@@ -476,7 +478,7 @@ public sealed partial class MainWindow : Window
         AddAccountView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility = Visibility.Collapsed;
         AuthenticatorView.Visibility = Visibility.Visible;
-        _timer.Start();
+        StartCodeRefresh(sessionToken);
         TryDeliverCancelledBackupNotice(sessionToken);
         ApplyBackgroundLockDecision(backgroundLockDecision);
         var pendingCapture = _snippingCaptureState.ResumeAfterUnlock(sessionCurrent: true);
@@ -561,6 +563,28 @@ public sealed partial class MainWindow : Window
 
     private void Lock() => ForceLock("验证身份后即可查看验证码。");
 
+    private void StartCodeRefresh(long sessionToken)
+    {
+        StopCodeRefresh();
+        var timer = _dispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(1);
+        timer.Tick += (_, _) =>
+        {
+            if (IsSessionCurrent(sessionToken))
+            {
+                ViewModel.UpdateCodes();
+            }
+        };
+        _codeRefreshTimer = timer;
+        timer.Start();
+    }
+
+    private void StopCodeRefresh()
+    {
+        var timer = Interlocked.Exchange(ref _codeRefreshTimer, null);
+        timer?.Stop();
+    }
+
     private void ForceLock(string message)
     {
         _sessionGuard.Invalidate();
@@ -568,7 +592,7 @@ public sealed partial class MainWindow : Window
         Volatile.Write(ref _activeSession, 0);
         _isUnlocked = false;
         HideActiveDialog();
-        _timer.Stop();
+        StopCodeRefresh();
         AuthenticatorView.Detach();
         ViewModel.Unload();
         Interlocked.Increment(ref _navigationEpoch);
@@ -710,10 +734,13 @@ public sealed partial class MainWindow : Window
         await RunPageEntranceTransitionAsync(
             AddAccountView,
             keyboardInitiated ? 0f : PageTransitionOffset);
-        if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+        await RunOnUiAsync(() =>
         {
-            AddAccountView.FocusPrimaryAction();
-        }
+            if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+            {
+                AddAccountView.FocusPrimaryAction();
+            }
+        });
     }
 
     private async Task NavigateToAuthenticatorViewAsync(long sessionToken, bool keyboardInitiated)
@@ -734,10 +761,13 @@ public sealed partial class MainWindow : Window
         await RunPageEntranceTransitionAsync(
             AuthenticatorView,
             keyboardInitiated ? 0f : -PageTransitionOffset);
-        if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+        await RunOnUiAsync(() =>
         {
-            AuthenticatorView.FocusAddAction();
-        }
+            if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+            {
+                AuthenticatorView.FocusAddAction();
+            }
+        });
     }
 
     private async Task NavigateToSettingsViewAsync(long sessionToken, bool keyboardInitiated)
@@ -759,10 +789,36 @@ public sealed partial class MainWindow : Window
         await RunPageEntranceTransitionAsync(
             SettingsView,
             keyboardInitiated ? 0f : PageTransitionOffset);
-        if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+        await RunOnUiAsync(() =>
         {
-            SettingsView.FocusBackAction();
+            if (navigationEpoch == Volatile.Read(ref _navigationEpoch) && IsSessionCurrent(sessionToken))
+            {
+                SettingsView.FocusBackAction();
+            }
+        });
+    }
+
+    private Task RunOnUiAsync(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_dispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    action();
+                    completion.TrySetResult(true);
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                }
+            }))
+        {
+            completion.TrySetResult(false);
         }
+
+        return completion.Task;
     }
 
     private async Task RunPageEntranceTransitionAsync(FrameworkElement target, float horizontalOffset)
@@ -801,21 +857,24 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            try
-            {
-                batch.Completed -= completedHandler;
-            }
-            finally
+            await RunOnUiAsync(() =>
             {
                 try
                 {
-                    batch.Dispose();
+                    batch.Completed -= completedHandler;
                 }
                 finally
                 {
-                    ResetPageVisual(target);
+                    try
+                    {
+                        batch.Dispose();
+                    }
+                    finally
+                    {
+                        ResetPageVisual(target);
+                    }
                 }
-            }
+            });
         }
     }
 
