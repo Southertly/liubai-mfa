@@ -8,7 +8,7 @@
 
 | 平台           | 实现                                      | 分发状态                                   | 验证边界                                                                            |
 | -------------- | ----------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
-| Android        | Expo SDK 54 / React Native + 原生安全模块 | `v1.1.1` APK 已发布 | 1.1.1 签名及模拟器覆盖升级通过；本地直接检查通过，pnpm 门禁受鸿蒙依赖 404 阻断；真机验收待确认 |
+| Android        | Expo SDK 54 / React Native + 原生安全模块 | `v1.1.1` APK 已发布 | 1.1.1 签名及模拟器覆盖升级通过；移动端 pnpm 类型检查及安全回归通过；真机验收待确认 |
 | HarmonyOS NEXT | ArkTS / ArkUI 原生客户端                  | `1.1.2` 已于 2026-11-14 在华为应用市场正式上架 | 用户已确认从 `1.1.0` 测试版覆盖更新，原有账户保留且验证码正常；其他流程按对应设备验证 |
 | Windows 11 x64 | WinUI 3 / C# MVP                          | 暂无安装包                                 | 核心源码已实现；XAML、Windows Hello、DPAPI 和 MSIX 必须在 Windows 11 x64 验证       |
 
@@ -119,7 +119,9 @@ pnpm --filter @workspace/mobile run typecheck
 pnpm --filter @workspace/scripts exec tsx ../artifacts/mobile/scripts/security-regression.ts
 ```
 
-当前完整 pnpm 门禁会在依赖解析阶段受到 HarmonyOS 专用依赖不在 npm registry 的 404 阻断。该阻断不等同于移动端检查失败，但在依赖来源修复前，完整工作区门禁仍标记为待确认；本地直接 TypeScript 检查不能替代完整门禁。
+HarmonyOS 原生工程已从 pnpm 工作区排除，继续使用独立的 DevEco / Hvigor 工具链，构建命令见其 README。2026-11-19，上述两条标准移动端检查均通过，鸿蒙调试与发布构建均通过。
+
+`mockup-sandbox` 的 TypeScript 配置将 React 类型统一解析到自身声明的 `@types/react`，避免日历、图标依赖解析到不同版本而产生 `ref` 类型冲突。2026-11-19，根目录 `pnpm run typecheck` 全部通过，原型工程生产构建通过（`PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run build`）。
 
 Android 正式构建从环境变量和 macOS 钥匙串读取签名信息：
 

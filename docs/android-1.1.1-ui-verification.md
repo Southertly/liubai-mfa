@@ -33,8 +33,11 @@
 | 新旧 APK 包名、版本及签名证书比较 | 包名相同、2 → 3、证书一致 |
 | `node artifacts/mobile/node_modules/typescript/bin/tsc -p artifacts/mobile/tsconfig.json --noEmit` | 通过；直接检查仅作诊断，不替代完整 pnpm 门禁 |
 | `node --import ./scripts/node_modules/tsx/dist/loader.mjs artifacts/mobile/scripts/security-regression.ts` | 原安全回归脚本实际执行通过，不输出密钥 |
-| `pnpm --filter @workspace/mobile run typecheck` | 未进入类型检查，被工作区 HarmonyOS `@ohos/hvigor` npm 404 阻断 |
-| `pnpm --filter @workspace/scripts exec tsx ../artifacts/mobile/scripts/security-regression.ts` | 未进入安全脚本，同样被 HarmonyOS 依赖 404 阻断 |
+| `pnpm --filter @workspace/mobile run typecheck` | 2026-11-19 排除鸿蒙原生工程后重跑通过；此前被鸿蒙依赖 404 阻断 |
+| `pnpm --filter @workspace/scripts exec tsx ../artifacts/mobile/scripts/security-regression.ts` | 2026-11-19 排除鸿蒙原生工程后重跑通过；实际执行安全回归脚本 |
+| 根目录 `pnpm run typecheck` | 2026-11-19 修复原型工程 React 类型解析冲突后重跑全部通过，涵盖库、API 服务、移动端、原型工程和辅助脚本 |
+| `PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run build` | 2026-11-19 通过；组件与日历、图标依赖统一解析到原型工程的 React 类型，运行时依赖未更改 |
+| 鸿蒙原有 Hvigor `assembleApp` | 2026-11-19，`default/debug` 和 `release/release` 均构建成功；鸿蒙源码、依赖和签名配置未改动 |
 | `pnpm dlx expo-doctor@latest artifacts/mobile` | 16/18 通过；Expo API TLS/网络失败，及现有原生目录与 app.json 同步提示 |
 | `git diff --check` | 通过 |
 
@@ -58,7 +61,7 @@
 
 ## 验证边界
 
-- 完整 pnpm 门禁仍为“待确认”，没有将依赖阻断算作测试通过。
+- 移动端两条标准 pnpm 门禁、根目录工作区总类型检查和原型工程生产构建已通过；Expo Doctor 仍保留上表所列网络及原生配置同步限制，本次未重跑。
 - 未进行最新真机安装、厂商指纹/面容认证、真实相机二维码识别或 Android↔HarmonyOS 双设备端到端迁移。
 - 未在本次测试中导出真实备份、展示/复制真实密钥或恢复密钥，未选择系统分享接收方。备份加密与解析由原安全回归脚本验证，完整备份 UI 流程仍需单独验收。
 - 未触发真实异常崩溃或验证所有异常页面状态；空态、表单和主要页面已检查。

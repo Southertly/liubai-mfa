@@ -17,7 +17,7 @@
 - Android 版本递增至 1.1.1（versionCode 3），包名和正式签名保持一致。
 - 正式签名 APK 与 SHA-256 校验文件通过 [GitHub Release v1.1.1](https://github.com/Southertly/liubai-mfa/releases/tag/v1.1.1) 分发；本次不涉及应用市场发布。
 - Android API 36 模拟器覆盖升级后，原测试账户保留且验证码持续刷新；已检查浅深色界面、分组管理、小屏滚动及系统锁屏认证。
-- 本地直接执行 TypeScript 检查和安全回归脚本通过；标准 pnpm 门禁仍被 HarmonyOS 依赖 404 阻断，完整门禁和最新真机验收待确认。
+- 本地直接执行 TypeScript 检查和安全回归脚本通过；2026-11-19 后续排除独立鸿蒙工程并统一原型工程 React 类型解析后，标准移动端 pnpm 门禁及工作区总类型检查通过；最新真机验收待确认。
 - 详细范围及限制见 [Android 1.1.1 验证记录](docs/android-1.1.1-ui-verification.md)。
 
 ## 1.1.2（HarmonyOS）- 2026-11-14
