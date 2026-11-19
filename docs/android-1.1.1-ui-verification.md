@@ -38,7 +38,7 @@
 | 根目录 `pnpm run typecheck` | 2026-11-19 修复原型工程 React 类型解析冲突后重跑全部通过，涵盖库、API 服务、移动端、原型工程和辅助脚本 |
 | `PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run build` | 2026-11-19 通过；组件与日历、图标依赖统一解析到原型工程的 React 类型，运行时依赖未更改 |
 | 鸿蒙原有 Hvigor `assembleApp` | 2026-11-19，`default/debug` 和 `release/release` 均构建成功；鸿蒙源码、依赖和签名配置未改动 |
-| `pnpm dlx expo-doctor@latest artifacts/mobile` | 16/18 通过；Expo API TLS/网络失败，及现有原生目录与 app.json 同步提示 |
+| `pnpm dlx expo-doctor@latest artifacts/mobile` | 发布时 16/18 通过；后续本地 SDK 54 补丁维护后启用检查 17/17 通过，详见下方本地验收说明 |
 | `git diff --check` | 通过 |
 
 版本号已同时更新 `app.json` 和原生 Gradle 配置，没有通过重新生成原生工程覆盖安全定制。
@@ -61,7 +61,7 @@
 
 ## 验证边界
 
-- 移动端两条标准 pnpm 门禁、根目录工作区总类型检查和原型工程生产构建已通过；Expo Doctor 仍保留上表所列网络及原生配置同步限制，本次未重跑。
+- 移动端两条标准 pnpm 门禁、根目录工作区总类型检查和原型工程生产构建已通过；后续未发布的依赖补丁与 Doctor 验收记录见 [本地 SDK 54 维护说明](android-expo-sdk54-local-verification.md)，已发布的 1.1.1 APK 保持不变。
 - 未进行最新真机安装、厂商指纹/面容认证、真实相机二维码识别或 Android↔HarmonyOS 双设备端到端迁移。
 - 未在本次测试中导出真实备份、展示/复制真实密钥或恢复密钥，未选择系统分享接收方。备份加密与解析由原安全回归脚本验证，完整备份 UI 流程仍需单独验收。
 - 未触发真实异常崩溃或验证所有异常页面状态；空态、表单和主要页面已检查。

@@ -123,6 +123,8 @@ HarmonyOS 原生工程已从 pnpm 工作区排除，继续使用独立的 DevEco
 
 `mockup-sandbox` 的 TypeScript 配置将 React 类型统一解析到自身声明的 `@types/react`，避免日历、图标依赖解析到不同版本而产生 `ref` 类型冲突。2026-11-19，根目录 `pnpm run typecheck` 全部通过，原型工程生产构建通过（`PORT=4173 BASE_PATH=/ pnpm --filter @workspace/mockup-sandbox run build`）。
 
+Android 原生工程由仓库手动维护，Gradle 构建不会自动同步 `app.json` 或重放 config plugins。修改相关配置后需核对原生实现及安全定制；本地 SDK 54 补丁升级、Doctor 提醒处理方式和验收记录见 [维护说明](docs/android-expo-sdk54-local-verification.md)。
+
 Android 正式构建从环境变量和 macOS 钥匙串读取签名信息：
 
 ```bash
