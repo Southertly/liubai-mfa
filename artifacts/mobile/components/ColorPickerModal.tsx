@@ -1,15 +1,16 @@
-import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import React from "react";
 import {
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { LABEL_COLORS } from "@/constants/labelColors";
+import { LabelColorOptions } from "@/components/LabelColorOptions";
 import { useColors } from "@/hooks/useColors";
 
 interface Props {
@@ -19,15 +20,14 @@ interface Props {
   onClose: () => void;
 }
 
-export function ColorPickerModal({ visible, selectedColor, onSelect, onClose }: Props) {
+export function ColorPickerModal({
+  visible,
+  selectedColor,
+  onSelect,
+  onClose,
+}: Props) {
   const colors = useColors();
-
-  const handleSelect = (id: string | undefined) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    onSelect(id);
-    onClose();
-  };
-
+  const insets = useSafeAreaInsets();
   return (
     <Modal
       visible={visible}
@@ -35,143 +35,58 @@ export function ColorPickerModal({ visible, selectedColor, onSelect, onClose }: 
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <View
+        style={[
+          styles.overlay,
+          {
+            backgroundColor: colors.scrim,
+            paddingTop: insets.top + 20,
+            paddingBottom: insets.bottom + 20,
+          },
+        ]}
+      >
         <Pressable
-          style={[styles.sheet, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View style={styles.handle} />
-
-          <Text style={[styles.title, { color: colors.foreground }]}>
-            选择标签颜色
-          </Text>
-
-          <View style={styles.grid}>
-            {/* No color option */}
-            <Pressable
-              onPress={() => handleSelect(undefined)}
-              style={[
-                styles.swatch,
-                styles.noColor,
-                {
-                  borderColor: !selectedColor ? colors.foreground : colors.border,
-                  backgroundColor: colors.muted,
-                },
-              ]}
-            >
-              {!selectedColor && (
-                <Feather name="check" size={14} color={colors.foreground} />
-              )}
-              {!(!selectedColor) && (
-                <Feather name="slash" size={14} color={colors.mutedForeground} />
-              )}
-            </Pressable>
-
-            {LABEL_COLORS.map((lc) => {
-              const active = selectedColor === lc.id;
-              return (
-                <Pressable
-                  key={lc.id}
-                  onPress={() => handleSelect(lc.id)}
-                  style={[
-                    styles.swatch,
-                    {
-                      backgroundColor: lc.hex,
-                      borderColor: active ? colors.foreground : "transparent",
-                      borderWidth: active ? 2.5 : 2,
-                    },
-                  ]}
-                >
-                  {active && (
-                    <Feather name="check" size={14} color="#fff" />
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* Color name label */}
-          <Text style={[styles.colorName, { color: colors.mutedForeground }]}>
-            {selectedColor
-              ? LABEL_COLORS.find((c) => c.id === selectedColor)?.name ?? ""
-              : "无标签"}
-          </Text>
-
-          <Pressable
-            onPress={onClose}
-            style={[styles.cancelBtn, { borderColor: colors.border }]}
-          >
-            <Text style={[styles.cancelText, { color: colors.mutedForeground }]}>
-              取消
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="关闭颜色选择"
+        />
+        <View style={[styles.card, { backgroundColor: colors.surfaceRaised }]}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <Text style={[styles.title, { color: colors.foreground }]}>
+              更改标签颜色
             </Text>
-          </Pressable>
-        </Pressable>
-      </Pressable>
+            <LabelColorOptions
+              selectedColor={selectedColor}
+              onSelect={(color) => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onSelect(color);
+                onClose();
+              }}
+            />
+            <Pressable
+              onPress={onClose}
+              style={styles.cancel}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: colors.mutedForeground }}>取消</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
     </Modal>
   );
 }
 
-const SWATCH = 44;
-
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderWidth: 1,
-    borderBottomWidth: 0,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 24,
-    paddingBottom: 32,
-    paddingTop: 12,
-    alignItems: "center",
-    gap: 16,
   },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#8888",
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    justifyContent: "center",
-  },
-  swatch: {
-    width: SWATCH,
-    height: SWATCH,
-    borderRadius: SWATCH / 2,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-  },
-  noColor: {
-    borderWidth: 1.5,
-  },
-  colorName: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-    height: 18,
-  },
-  cancelBtn: {
-    width: "100%",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-  cancelText: {
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-  },
+  card: { width: "100%", maxWidth: 420, maxHeight: "100%", borderRadius: 8 },
+  content: { padding: 20, gap: 12 },
+  title: { fontSize: 20, fontFamily: "Inter_700Bold" },
+  cancel: { minHeight: 48, alignItems: "center", justifyContent: "center" },
 });

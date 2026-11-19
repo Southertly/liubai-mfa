@@ -1,9 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,13 +14,27 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ColorPickerModal } from "@/components/ColorPickerModal";
+import { LabelColorOptions } from "@/components/LabelColorOptions";
+import { PageHeader } from "@/components/PageHeader";
 import { GroupSelectModal } from "@/components/GroupSelectModal";
 import { SensitiveAuthGate } from "@/components/SensitiveAuthGate";
-import { LABEL_COLORS, resolveColor } from "@/constants/labelColors";
-import { useAccounts } from "@/context/AccountsContext";
+import { resolveColor } from "@/constants/labelColors";
+import { Account, useAccounts } from "@/context/AccountsContext";
 import { useColors } from "@/hooks/useColors";
 import { setSensitiveClipboard } from "@/utils/sensitiveClipboard";
+import { generateTOTP } from "@/utils/totp";
+
+function CodePreview({ account }: { account: Account }) {
+  const colors = useColors();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const code = generateTOTP(account.secret, account.period, account.digits, account.algorithm, now);
+  const split = Math.ceil(code.length / 2);
+  return <Text style={[styles.codePreview, { color: colors.foreground }]}>{code.slice(0, split)} {code.slice(split)}</Text>;
+}
 
 export default function EditAccountScreen() {
   const colors = useColors();
@@ -36,7 +49,6 @@ export default function EditAccountScreen() {
   const [selectedGroup, setSelectedGroup] = useState<string | undefined>(account?.group);
   const [selectedColor, setSelectedColor] = useState<string | undefined>(account?.color);
   const [groupModalVisible, setGroupModalVisible] = useState(false);
-  const [colorModalVisible, setColorModalVisible] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -46,7 +58,6 @@ export default function EditAccountScreen() {
   const [secretCopied, setSecretCopied] = useState(false);
   const [authGateVisible, setAuthGateVisible] = useState(false);
 
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   if (!account) {
@@ -109,28 +120,7 @@ export default function EditAccountScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View
-          style={[
-            styles.header,
-            {
-              paddingTop: topPad + 12,
-              borderBottomColor: colors.border,
-              backgroundColor: colors.background,
-            },
-          ]}
-        >
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Feather name="x" size={24} color={colors.mutedForeground} />
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            编辑账户
-          </Text>
-          <Pressable onPress={handleSave} disabled={loading} hitSlop={8}>
-            <Text style={[styles.saveText, { color: loading ? colors.mutedForeground : accentColor }]}>
-              {loading ? "保存中…" : "保存"}
-            </Text>
-          </Pressable>
-        </View>
+        <PageHeader title="编辑账户" />
 
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 24 }]}
@@ -142,11 +132,12 @@ export default function EditAccountScreen() {
             style={[
               styles.secretCard,
               {
-                backgroundColor: secretRevealed ? colors.card : colors.muted,
+                backgroundColor: colors.card,
                 borderColor: secretRevealed ? accentColor + "55" : colors.border,
               },
             ]}
           >
+            <CodePreview account={account} />
             {/* Header row */}
             <View style={styles.secretHeaderRow}>
               <View style={styles.secretLabelRow}>
@@ -244,11 +235,11 @@ export default function EditAccountScreen() {
           </View>
 
           {/* ── Editable fields ── */}
-          <View style={styles.form}>
+          <View style={[styles.form, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.mutedForeground }]}>服务名称</Text>
               <TextInput
-                style={[styles.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                style={[styles.input, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground }]}
                 value={issuer}
                 onChangeText={setIssuer}
                 placeholder="如 Google"
@@ -263,7 +254,7 @@ export default function EditAccountScreen() {
               <TextInput
                 style={[
                   styles.input,
-                  { backgroundColor: colors.card, borderColor: error ? colors.destructive : colors.border, color: colors.foreground },
+                  { backgroundColor: colors.input, borderColor: error ? colors.destructive : colors.border, color: colors.foreground },
                 ]}
                 value={accountName}
                 onChangeText={(t) => { setAccountName(t); setError(""); }}
@@ -284,12 +275,12 @@ export default function EditAccountScreen() {
                 onPress={() => setGroupModalVisible(true)}
                 style={({ pressed }) => [
                   styles.input, styles.rowField,
-                  { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
+                  { backgroundColor: colors.input, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
                 ]}
               >
                 <Feather name="folder" size={16} color={selectedGroup ? accentColor : colors.mutedForeground} />
                 <Text style={[styles.rowText, { color: selectedGroup ? colors.foreground : colors.mutedForeground }]}>
-                  {selectedGroup ?? "不分组"}
+                  {selectedGroup ?? "未分组"}
                 </Text>
                 <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
               </Pressable>
@@ -297,27 +288,7 @@ export default function EditAccountScreen() {
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.mutedForeground }]}>标签颜色（可选）</Text>
-              <Pressable
-                onPress={() => setColorModalVisible(true)}
-                style={({ pressed }) => [
-                  styles.input, styles.rowField,
-                  { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.colorDot,
-                    {
-                      backgroundColor: selectedColor ? accentColor : colors.muted,
-                      borderColor: selectedColor ? "transparent" : colors.border,
-                    },
-                  ]}
-                />
-                <Text style={[styles.rowText, { color: selectedColor ? colors.foreground : colors.mutedForeground }]}>
-                  {selectedColor ? LABEL_COLORS.find((c) => c.id === selectedColor)?.name ?? "自定义" : "无标签"}
-                </Text>
-                <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
-              </Pressable>
+              <LabelColorOptions selectedColor={selectedColor} onSelect={setSelectedColor} />
             </View>
           </View>
 
@@ -342,12 +313,6 @@ export default function EditAccountScreen() {
         onClose={() => setGroupModalVisible(false)}
       />
 
-      <ColorPickerModal
-        visible={colorModalVisible}
-        selectedColor={selectedColor}
-        onSelect={(c) => setSelectedColor(c)}
-        onClose={() => setColorModalVisible(false)}
-      />
       <SensitiveAuthGate
         visible={authGateVisible}
         reason="验证成功后才能查看和复制 MFA 密钥"
@@ -368,30 +333,22 @@ export default function EditAccountScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
-  saveText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  content: { paddingHorizontal: 20, paddingTop: 20, gap: 20 },
+  content: { paddingHorizontal: 16, paddingTop: 8, gap: 18 },
 
   // Secret card
+  codePreview: { fontSize: 34, fontFamily: "Inter_700Bold", textAlign: "center", marginBottom: 8 },
   secretCard: { borderRadius: 8, borderWidth: 1, padding: 14, gap: 10 },
   secretHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   secretLabelRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  secretLabel: { fontSize: 11, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.6 },
+  secretLabel: { fontSize: 11, fontFamily: "Inter_500Medium" },
   revealBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingVertical: 10,
+    minHeight: 44,
+    borderRadius: 6,
     borderWidth: 1,
   },
   revealBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
@@ -416,13 +373,12 @@ const styles = StyleSheet.create({
   secretNoteText: { fontSize: 11, fontFamily: "Inter_400Regular" },
 
   // Form
-  form: { gap: 16 },
+  form: { borderWidth: 1, borderRadius: 8, padding: 16, gap: 10 },
   fieldGroup: { gap: 6 },
-  label: { fontSize: 12, fontFamily: "Inter_500Medium", textTransform: "uppercase", letterSpacing: 0.6 },
-  input: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: "Inter_400Regular" },
+  label: { fontSize: 12, fontFamily: "Inter_500Medium" },
+  input: { minHeight: 48, borderWidth: 0, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: "Inter_400Regular" },
   rowField: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowText: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
-  colorDot: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5 },
   errorText: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   saveBtn: { borderRadius: 8, paddingVertical: 15, alignItems: "center", marginTop: 8 },
   saveBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#ffffff" },

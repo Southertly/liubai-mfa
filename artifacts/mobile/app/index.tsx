@@ -3,8 +3,8 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   FlatList,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
   Platform,
@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ActionDialog } from "@/components/ActionDialog";
 import { AccountCard } from "@/components/AccountCard";
 import { GroupSelectModal } from "@/components/GroupSelectModal";
 import { Account, useAccounts } from "@/context/AccountsContext";
@@ -43,6 +44,8 @@ export default function HomeScreen() {
   // Rename modal state
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [groupAction, setGroupAction] = useState<string | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -61,36 +64,9 @@ export default function HomeScreen() {
   const handleGroupLongPress = useCallback(
     (name: string) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      Alert.alert(`分组：${name}`, undefined, [
-        {
-          text: "重命名",
-          onPress: () => {
-            setRenameTarget(name);
-            setRenameValue(name);
-          },
-        },
-        {
-          text: "删除分组",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert(
-              "删除分组",
-              `删除「${name}」分组后，组内账户将移至未分组。`,
-              [
-                { text: "取消", style: "cancel" },
-                {
-                  text: "删除",
-                  style: "destructive",
-                  onPress: () => removeGroup(name),
-                },
-              ]
-            );
-          },
-        },
-        { text: "取消", style: "cancel" },
-      ]);
+      setGroupAction(name);
     },
-    [removeGroup]
+    []
   );
 
   const handleRenameConfirm = useCallback(async () => {
@@ -211,19 +187,23 @@ export default function HomeScreen() {
       <View
         style={[
           styles.header,
-          { paddingTop: topPad + 12, borderBottomColor: colors.border, backgroundColor: colors.background },
+          { paddingTop: topPad + 16, borderBottomColor: colors.border, backgroundColor: colors.background },
         ]}
       >
         <Text style={[styles.title, { color: colors.foreground }]}>身份验证器</Text>
         <View style={styles.headerActions}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="设置"
             onPress={() => router.push("/backup")}
             style={[styles.iconBtn, { backgroundColor: colors.muted }]}
             hitSlop={8}
           >
-            <Feather name="settings" size={18} color={colors.mutedForeground} />
+            <Feather name="settings" size={21} color={colors.foreground} />
           </Pressable>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="添加账户"
             onPress={() => router.push("/add")}
             style={[styles.addBtn, { backgroundColor: colors.primary }]}
             hitSlop={8}
@@ -243,7 +223,7 @@ export default function HomeScreen() {
               style={[styles.searchInput, { color: colors.foreground }]}
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="搜索账户或服务…"
+              placeholder="搜索账户"
               placeholderTextColor={colors.mutedForeground}
               autoCorrect={false}
               autoCapitalize="none"
@@ -289,7 +269,7 @@ export default function HomeScreen() {
             renderItem={({ item }) => (
               <AccountCard account={item} groups={groups} onDelete={removeAccount} onMoveToGroup={setMovingAccount} searchQuery={searchQuery} />
             )}
-            contentContainerStyle={{ paddingTop: 10, paddingBottom: bottomPad + 24 }}
+            contentContainerStyle={{ paddingTop: 6, paddingBottom: bottomPad + 24 }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           />
@@ -302,28 +282,12 @@ export default function HomeScreen() {
             <AccountCard account={item} groups={groups} onDelete={removeAccount} onMoveToGroup={setMovingAccount} />
           )}
           renderSectionHeader={renderSectionHeader}
-          stickySectionHeadersEnabled
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: bottomPad + 80 }}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={{ paddingTop: 6, paddingBottom: bottomPad + 24 }}
           scrollEnabled={!!accounts.length}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         />
-      )}
-
-      {/* Scan button */}
-      {accounts.length > 0 && !isSearching && (
-        <View style={[styles.scanBtnContainer, { bottom: bottomPad + 16 }]}>
-          <Pressable
-            onPress={() => router.push("/scan")}
-            style={({ pressed }) => [
-              styles.scanBtn,
-              { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <Feather name="camera" size={20} color={colors.primary} />
-            <Text style={[styles.scanBtnText, { color: colors.primary }]}>扫描二维码</Text>
-          </Pressable>
-        </View>
       )}
 
       {/* Move to group modal */}
@@ -335,6 +299,24 @@ export default function HomeScreen() {
         onClose={() => setMovingAccount(null)}
       />
 
+      <ActionDialog
+        visible={groupAction !== null}
+        title={groupAction ?? "分组操作"}
+        onClose={() => setGroupAction(null)}
+        actions={[
+          { label: "重命名分组", onPress: () => { setRenameTarget(groupAction); setRenameValue(groupAction ?? ""); } },
+          { label: "删除分组", destructive: true, onPress: () => setDeletingGroup(groupAction) },
+          { label: "管理分组", onPress: () => router.push("/groups") },
+        ]}
+      />
+      <ActionDialog
+        visible={deletingGroup !== null}
+        title="删除分组"
+        message={`删除「${deletingGroup ?? ""}」后，组内账户将移至未分组，账户不会被删除。`}
+        onClose={() => setDeletingGroup(null)}
+        actions={[{ label: "确认删除分组", destructive: true, onPress: () => { if (deletingGroup) void removeGroup(deletingGroup); } }]}
+      />
+
       {/* Rename group modal */}
       <Modal
         visible={!!renameTarget}
@@ -342,12 +324,12 @@ export default function HomeScreen() {
         animationType="fade"
         onRequestClose={() => setRenameTarget(null)}
       >
-        <Pressable style={styles.renameBackdrop} onPress={() => setRenameTarget(null)} />
-        <View style={[styles.renameDialogWrap, { pointerEvents: "box-none" }]}>
+        <Pressable style={[styles.renameBackdrop, { backgroundColor: colors.scrim }]} onPress={() => setRenameTarget(null)} />
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.renameDialogWrap} pointerEvents="box-none">
           <View style={[styles.renameDialog, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.renameTitle, { color: colors.foreground }]}>重命名分组</Text>
             <TextInput
-              style={[styles.renameInput, { backgroundColor: colors.background, borderColor: colors.border, color: colors.foreground }]}
+              style={[styles.renameInput, { backgroundColor: colors.input, borderColor: colors.border, color: colors.foreground }]}
               value={renameValue}
               onChangeText={setRenameValue}
               placeholder="输入新名称"
@@ -372,7 +354,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -386,14 +368,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 18,
     paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   title: { fontSize: 25, fontFamily: "Inter_700Bold", letterSpacing: 0 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   addBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  searchContainer: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  searchBar: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 },
+  searchContainer: { paddingHorizontal: 16, paddingBottom: 10 },
+  searchBar: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 42, borderRadius: 24, paddingHorizontal: 14, paddingVertical: 9 },
   searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", padding: 0 },
   sectionHeader: {
     flexDirection: "row",
@@ -414,9 +395,6 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontSize: 14, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 20 },
   emptyBtn: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 8, marginTop: 8 },
   emptyBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#ffffff" },
-  scanBtnContainer: { position: "absolute", left: 0, right: 0, alignItems: "center" },
-  scanBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1 },
-  scanBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   // Rename modal
   renameBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
   renameDialogWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },

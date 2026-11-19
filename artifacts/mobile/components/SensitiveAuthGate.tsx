@@ -47,9 +47,9 @@ export function SensitiveAuthGate({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, { backgroundColor: colors.scrim }]}>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[styles.icon, { backgroundColor: colors.primary + "18" }]}>
+          <View style={[styles.icon, { backgroundColor: colors.primarySoft }]}>
             <Feather name="shield" size={22} color={colors.primary} />
           </View>
           <Text style={[styles.title, { color: colors.foreground }]}>验证身份</Text>
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  icon: { width: 48, height: 48, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  icon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 20, fontFamily: "Inter_700Bold" },
   reason: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", lineHeight: 19 },
   progress: { alignItems: "center", paddingVertical: 12 },

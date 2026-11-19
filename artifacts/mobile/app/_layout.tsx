@@ -44,6 +44,7 @@ function RootLayoutNav() {
           name="backup"
           options={{ headerShown: false, presentation: "modal" }}
         />
+        <Stack.Screen name="groups" options={{ headerShown: false }} />
         <Stack.Screen
           name="qr-transfer"
           options={{ headerShown: false, presentation: "fullScreenModal" }}

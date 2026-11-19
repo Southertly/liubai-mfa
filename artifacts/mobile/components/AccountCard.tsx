@@ -1,9 +1,8 @@
 import * as Haptics from "expo-haptics";
-import { FontAwesome6 } from "@expo/vector-icons";
+import { Feather, FontAwesome6 } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
   Animated,
   Image,
   Pressable,
@@ -14,6 +13,7 @@ import {
 import { Swipeable } from "react-native-gesture-handler";
 import Svg, { Circle } from "react-native-svg";
 
+import { ActionDialog } from "@/components/ActionDialog";
 import { ColorPickerModal } from "@/components/ColorPickerModal";
 import { HighlightText } from "@/components/HighlightText";
 import { resolveColor } from "@/constants/labelColors";
@@ -85,6 +85,8 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
   const copyFeedbackOpacity = useRef(new Animated.Value(0)).current;
   const copyFeedbackScale = useRef(new Animated.Value(0.8)).current;
   const [colorPickerVisible, setColorPickerVisible] = useState(false);
+  const [actionsVisible, setActionsVisible] = useState(false);
+  const [deleteVisible, setDeleteVisible] = useState(false);
   const swipeableRef = useRef<Swipeable>(null);
 
   const labelColor = resolveColor(account.color, colors.primary);
@@ -134,16 +136,8 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
 
   const handleLongPress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      account.issuer || account.account,
-      account.group ? `分组：${account.group}` : "未分组",
-      [
-        { text: "更改标签颜色", onPress: () => setColorPickerVisible(true) },
-        { text: "移动到分组", onPress: () => onMoveToGroup(account) },
-        { text: "取消", style: "cancel" },
-      ]
-    );
-  }, [account, onMoveToGroup]);
+    setActionsVisible(true);
+  }, []);
 
   const handleColorSelect = useCallback(
     async (colorId: string | undefined) => {
@@ -164,19 +158,19 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
       return (
         <Animated.View style={[styles.leftAction, { transform: [{ translateX }] }]}>
           <Pressable
-            style={[styles.actionBtn, { backgroundColor: labelColor }]}
+            style={[styles.actionBtn, { backgroundColor: colors.primary }]}
             onPress={() => {
               swipeableRef.current?.close();
               router.push(`/edit/${account.id}`);
             }}
           >
-            <Text style={styles.actionIcon}>✏️</Text>
+            <Feather name="edit-2" size={21} color="#fff" />
             <Text style={styles.actionLabel}>编辑</Text>
           </Pressable>
         </Animated.View>
       );
     },
-    [account.id, labelColor]
+    [account.id, colors.primary]
   );
 
   /** Left-swipe reveals: Delete (right action panel) */
@@ -192,21 +186,10 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
             style={[styles.actionBtn, { backgroundColor: colors.destructive }]}
             onPress={() => {
               swipeableRef.current?.close();
-              Alert.alert(
-                "删除账户",
-                `确定要删除「${account.issuer || account.account}」吗？此操作不可撤销。`,
-                [
-                  { text: "取消", style: "cancel" },
-                  {
-                    text: "删除",
-                    style: "destructive",
-                    onPress: () => onDelete(account.id),
-                  },
-                ]
-              );
+              setDeleteVisible(true);
             }}
           >
-            <Text style={styles.actionIcon}>🗑️</Text>
+            <Feather name="trash-2" size={21} color="#fff" />
             <Text style={styles.actionLabel}>删除</Text>
           </Pressable>
         </Animated.View>
@@ -236,6 +219,8 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
       >
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${account.issuer || account.account}，点击复制验证码，长按打开账户操作`}
             onPress={handleCopy}
             onLongPress={handleLongPress}
             style={({ pressed }) => [
@@ -317,7 +302,7 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
               <Svg width={RING_SIZE} height={RING_SIZE}>
                 <Circle
                   cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RADIUS}
-                  stroke={colors.border} strokeWidth={STROKE} fill="none"
+                  stroke={colors.input} strokeWidth={STROKE} fill="none"
                 />
                 <Circle
                   cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RADIUS}
@@ -329,7 +314,7 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
                   origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
                 />
               </Svg>
-              <Text style={[styles.timerText, { color: isLow ? colors.destructive : colors.mutedForeground }]}>
+              <Text style={[styles.timerText, { color: colors.foreground }]}>
                 {remaining}
               </Text>
             </View>
@@ -337,6 +322,15 @@ export function AccountCard({ account, groups, onDelete, onMoveToGroup, searchQu
         </Animated.View>
       </Swipeable>
 
+      <ActionDialog visible={actionsVisible} title="账户操作" message={account.account} onClose={() => setActionsVisible(false)} actions={[
+        { label: "更改标签颜色", onPress: () => setColorPickerVisible(true) },
+        { label: "移动到分组", onPress: () => onMoveToGroup(account) },
+        { label: "编辑账户", onPress: () => router.push(`/edit/${account.id}`) },
+        { label: "删除账户", destructive: true, onPress: () => setDeleteVisible(true) },
+      ]} />
+      <ActionDialog visible={deleteVisible} title="删除账户" message={`确定要删除「${account.issuer || account.account}」吗？此操作不可撤销。`} onClose={() => setDeleteVisible(false)} actions={[
+        { label: "确认删除账户", destructive: true, onPress: () => onDelete(account.id) },
+      ]} />
       <ColorPickerModal
         visible={colorPickerVisible}
         selectedColor={account.color}
@@ -378,8 +372,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingLeft: 16,
+    paddingRight: 12,
     paddingVertical: 12,
     gap: 12,
     overflow: "hidden",
@@ -409,7 +403,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     width: RING_SIZE, height: RING_SIZE,
   },
-  timerText: { position: "absolute", fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  timerText: { position: "absolute", fontSize: 11, fontFamily: "Inter_500Medium" },
   copyBadge: {
     position: "absolute",
     right: 52,
@@ -417,7 +411,7 @@ const styles = StyleSheet.create({
     marginTop: -13,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
