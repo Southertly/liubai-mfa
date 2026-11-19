@@ -10,6 +10,8 @@
     "allowImportingTsExtensions": true,
     "types": ["node", "vite/client"],
     "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
       "@/*": ["./src/*"]
     }
   }

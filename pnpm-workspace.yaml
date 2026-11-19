@@ -36,6 +36,8 @@ minimumReleaseAgeExclude:
 
 packages:
   - artifacts/*
+  # HarmonyOS uses the independent DevEco / Hvigor toolchain.
+  - '!artifacts/harmonyos-next-spike'
   - lib/*
   - lib/integrations/*
   - scripts
