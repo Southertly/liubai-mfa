@@ -175,7 +175,7 @@ struct Index {
   private readonly themeKey: string = 'theme_preference';
   private readonly privacyKey: string = 'mfa_verifier_privacy_consent_v1';
   private readonly appLockKey: string = 'mfa_verifier_app_lock_enabled_v1';
-  private readonly privacyPolicyUrl: string = 'https://example.com/mfa-verifier/privacy';
+  private readonly privacyPolicyUrl: string = 'https://www.sediary.com/tick-mfa/privacy/';
   private readonly assetPrefix: string = 'mfa-verifier-account-secret-';
   private readonly codeClipboardTtlMs: number = 30_000;
   private readonly sensitiveClipboardTtlMs: number = 60_000;
@@ -3417,7 +3417,16 @@ struct Index {
           .borderRadius(8)
           .border({ width: 1, color: this.colors().border })
           .width('100%');
-
+          Button('阅读隐私政策')
+            .height(42)
+            .fontSize(13)
+            .fontColor(this.colors().primary)
+            .backgroundColor(this.colors().primarySoft)
+            .borderRadius(8)
+            .width('100%')
+            .onClick(() => {
+              void this.openPrivacyPolicy();
+            });
 
           this.statusStrip();
         }

@@ -9,19 +9,21 @@
 | 平台           | 实现                                      | 分发状态                                   | 验证边界                                                                            |
 | -------------- | ----------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
 | Android        | Expo SDK 54 / React Native + 原生安全模块 | `v1.1.0` APK 已发布                        | 正式构建、签名、类型检查和安全回归已完成；当前 Release APK 的最新真机安装验收待补跑 |
-| HarmonyOS NEXT | ArkTS / ArkUI 原生客户端                  | 源码版本 `1.1.0`，不在 GitHub 发布 HAP/APP | 正式构建与签名可在本机完成；AppGallery 上架及正式包迁移验收待确认                   |
+| HarmonyOS NEXT | ArkTS / ArkUI 原生客户端                  | `1.1.2` 已于 2026-11-14 在华为应用市场正式上架 | 用户已确认从 `1.1.0` 测试版覆盖更新，原有账户保留且验证码正常；其他流程按对应设备验证 |
 | Windows 11 x64 | WinUI 3 / C# MVP                          | 暂无安装包                                 | 核心源码已实现；XAML、Windows Hello、DPAPI 和 MSIX 必须在 Windows 11 x64 验证       |
 
 源码、构建成功和历史测试不能单独证明应用市场已上架或当前设备已完成验收。运行状态以对应平台的最新产物和真实设备结果为准。
 
 ## 下载
 
-Android 正式安装包位于 [GitHub Releases](https://github.com/Southertly/mfa-verifier/releases)：
+Android 正式安装包位于 [GitHub Releases](https://github.com/Southertly/liubai-mfa/releases)：
 
 - `Liubai-MFA-Android-1.1.0.apk`
 - `SHA256SUMS.txt`
 
-当前 Release 不提供 HarmonyOS 或 Windows 安装包。
+鸿蒙用户可在华为应用市场搜索「留白 MFA」获取正式版 `1.1.2`。已有测试版的用户可通过应用市场的「更新」入口覆盖升级，保留现有账户。
+
+GitHub Releases 提供 Android 安装包，HarmonyOS 安装包通过华为应用市场分发，Windows 安装包尚未发布。
 
 下载后可校验完整性：
 
@@ -60,7 +62,9 @@ artifacts/mobile/scripts/verify-android-upgrade.sh <旧版.apk> <新版.apk>
 
 ### HarmonyOS NEXT
 
-HarmonyOS Bundle ID 为 `com.sediary.liubaimfa`。正式包只应通过受控渠道或 AppGallery 分发，GitHub 不提供 HAP/APP。
+HarmonyOS Bundle ID 为 `com.sediary.liubaimfa`。正式版 `1.1.2` 已于 2026-11-14 在华为应用市场上架，版本号为 `1100200`。
+
+2026-11-16，用户确认已从 `1.1.0` 测试版通过华为应用市场覆盖更新，原有账户保留且验证码正常。已有测试版请使用应用市场的「更新」入口；更新过程中保留旧应用及其数据。
 
 调试签名与正式签名不能互相覆盖。切换签名之前必须从旧应用导出加密备份；确认备份文件和恢复密钥均已保存后，才能迁移到正式版。详细构建和设备说明见 [HarmonyOS README](artifacts/harmonyos-next-spike/README.md)。
 
@@ -134,4 +138,4 @@ artifacts/mobile/scripts/build-signed-android.sh
 
 ## 许可证
 
-本仓库目前为私有项目，未授予开源使用、修改或再分发许可。除非仓库所有者另行书面授权，保留所有权利。
+本仓库公开可见，未授予开源使用、修改或再分发许可。除非仓库所有者另行书面授权，保留所有权利。
