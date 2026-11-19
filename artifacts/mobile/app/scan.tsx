@@ -120,10 +120,12 @@ export default function ScanScreen() {
         >
           <Pressable
             onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="返回"
             style={styles.closeBtn}
             hitSlop={8}
           >
-            <Feather name="x" size={24} color="#fff" />
+            <Feather name="chevron-left" size={28} color="#fff" />
           </Pressable>
           <Text style={styles.topTitle}>扫描二维码</Text>
           <View style={{ width: 40 }} />
@@ -209,21 +211,21 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
+    gap: 8,
+    paddingHorizontal: 16,
     paddingBottom: 16,
   },
   closeBtn: {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.4)",
-    borderRadius: 8,
+    borderRadius: 24,
   },
   topTitle: {
-    fontSize: 17,
-    fontFamily: "Inter_600SemiBold",
+    fontSize: 25,
+    fontFamily: "Inter_700Bold",
     color: "#fff",
   },
   scanArea: {

@@ -14,9 +14,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ColorPickerModal } from "@/components/ColorPickerModal";
+import { LabelColorOptions } from "@/components/LabelColorOptions";
+import { PageHeader } from "@/components/PageHeader";
 import { GroupSelectModal } from "@/components/GroupSelectModal";
-import { LABEL_COLORS, resolveColor } from "@/constants/labelColors";
 import { useAccounts } from "@/context/AccountsContext";
 import { useColors } from "@/hooks/useColors";
 import { generateTOTP } from "@/utils/totp";
@@ -32,11 +32,9 @@ export default function AddAccountScreen() {
   const [selectedGroup, setSelectedGroup] = useState<string | undefined>();
   const [selectedColor, setSelectedColor] = useState<string | undefined>();
   const [groupModalVisible, setGroupModalVisible] = useState(false);
-  const [colorModalVisible, setColorModalVisible] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const handleAdd = async () => {
@@ -81,24 +79,7 @@ export default function AddAccountScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View
-          style={[
-            styles.header,
-            {
-              paddingTop: topPad + 12,
-              borderBottomColor: colors.border,
-              backgroundColor: colors.background,
-            },
-          ]}
-        >
-          <Pressable onPress={() => router.back()} hitSlop={8}>
-            <Feather name="x" size={24} color={colors.mutedForeground} />
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            添加账户
-          </Text>
-          <View style={{ width: 24 }} />
-        </View>
+        <PageHeader title="添加账户" />
 
         <ScrollView
           contentContainerStyle={[
@@ -114,7 +95,7 @@ export default function AddAccountScreen() {
               style={[
                 styles.scanBtn,
                 {
-                  backgroundColor: colors.primary + "18",
+                  backgroundColor: colors.primarySoft,
                   borderColor: colors.primary + "44",
                 },
               ]}
@@ -126,37 +107,24 @@ export default function AddAccountScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.dividerRow}>
-            <View
-              style={[styles.divider, { backgroundColor: colors.border }]}
-            />
-            <Text
-              style={[styles.dividerText, { color: colors.mutedForeground }]}
-            >
-              或手动输入
-            </Text>
-            <View
-              style={[styles.divider, { backgroundColor: colors.border }]}
-            />
-          </View>
-
-          <View style={styles.form}>
+          <View style={[styles.form, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>手动添加</Text>
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.mutedForeground }]}>
-                服务名称（如 Google、GitHub）
+                服务名称
               </Text>
               <TextInput
                 style={[
                   styles.input,
                   {
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.input,
                     borderColor: colors.border,
                     color: colors.foreground,
                   },
                 ]}
                 value={issuer}
                 onChangeText={setIssuer}
-                placeholder="如 Google"
+                placeholder="例如 Google"
                 placeholderTextColor={colors.mutedForeground}
                 autoCapitalize="words"
                 returnKeyType="next"
@@ -171,7 +139,7 @@ export default function AddAccountScreen() {
                 style={[
                   styles.input,
                   {
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.input,
                     borderColor: colors.border,
                     color: colors.foreground,
                   },
@@ -195,7 +163,7 @@ export default function AddAccountScreen() {
                   styles.input,
                   styles.secretInput,
                   {
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.input,
                     borderColor: error ? colors.destructive : colors.border,
                     color: colors.foreground,
                   },
@@ -205,7 +173,7 @@ export default function AddAccountScreen() {
                   setSecret(t);
                   setError("");
                 }}
-                placeholder="JBSWY3DPEHPK3PXP"
+                placeholder="输入由服务提供的密钥"
                 placeholderTextColor={colors.mutedForeground}
                 autoCapitalize="characters"
                 autoCorrect={false}
@@ -221,6 +189,8 @@ export default function AddAccountScreen() {
               )}
             </View>
 
+          </View>
+          <View style={[styles.form, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.fieldGroup}>
               <Text style={[styles.label, { color: colors.mutedForeground }]}>
                 分组（可选）
@@ -231,7 +201,7 @@ export default function AddAccountScreen() {
                   styles.input,
                   styles.groupRow,
                   {
-                    backgroundColor: colors.card,
+                    backgroundColor: colors.input,
                     borderColor: colors.border,
                     opacity: pressed ? 0.8 : 1,
                   },
@@ -254,7 +224,7 @@ export default function AddAccountScreen() {
                     },
                   ]}
                 >
-                  {selectedGroup ?? "不分组"}
+                  {selectedGroup ?? "未分组"}
                 </Text>
                 <Feather
                   name="chevron-right"
@@ -268,49 +238,7 @@ export default function AddAccountScreen() {
               <Text style={[styles.label, { color: colors.mutedForeground }]}>
                 标签颜色（可选）
               </Text>
-              <Pressable
-                onPress={() => setColorModalVisible(true)}
-                style={({ pressed }) => [
-                  styles.input,
-                  styles.groupRow,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.colorDot,
-                    {
-                      backgroundColor: selectedColor
-                        ? resolveColor(selectedColor, colors.primary)
-                        : colors.muted,
-                      borderColor: selectedColor ? "transparent" : colors.border,
-                    },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.groupText,
-                    {
-                      color: selectedColor
-                        ? colors.foreground
-                        : colors.mutedForeground,
-                    },
-                  ]}
-                >
-                  {selectedColor
-                    ? LABEL_COLORS.find((c) => c.id === selectedColor)?.name ?? "自定义"
-                    : "无标签"}
-                </Text>
-                <Feather
-                  name="chevron-right"
-                  size={16}
-                  color={colors.mutedForeground}
-                />
-              </Pressable>
+              <LabelColorOptions selectedColor={selectedColor} onSelect={setSelectedColor} />
             </View>
           </View>
 
@@ -345,12 +273,6 @@ export default function AddAccountScreen() {
         onClose={() => setGroupModalVisible(false)}
       />
 
-      <ColorPickerModal
-        visible={colorModalVisible}
-        selectedColor={selectedColor}
-        onSelect={(c) => setSelectedColor(c)}
-        onClose={() => setColorModalVisible(false)}
-      />
     </>
   );
 }
@@ -359,22 +281,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontFamily: "Inter_600SemiBold",
-  },
   content: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    gap: 20,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 18,
   },
   scanPrompt: {
     alignItems: "center",
@@ -386,7 +296,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 8,
-    borderWidth: 1,
+    minHeight: 48,
     width: "100%",
     justifyContent: "center",
   },
@@ -394,35 +304,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
   },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  divider: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-  },
-  dividerText: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-  },
-  form: {
-    gap: 16,
-  },
+  form: { borderWidth: 1, borderRadius: 8, padding: 16, gap: 10 },
+  sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   fieldGroup: {
     gap: 6,
   },
   label: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
   },
   input: {
-    borderWidth: 1,
+    borderWidth: 0,
+    minHeight: 48,
     borderRadius: 8,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
@@ -440,12 +335,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
-  },
-  colorDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 8,
-    borderWidth: 1.5,
   },
   errorText: {
     fontSize: 12,

@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -21,6 +22,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Account, useAccounts } from "@/context/AccountsContext";
+import { PageHeader } from "@/components/PageHeader";
 import { SensitiveAuthGate } from "@/components/SensitiveAuthGate";
 import { useLock } from "@/context/LockContext";
 import { ThemePreference, useTheme } from "@/context/ThemeContext";
@@ -71,7 +73,6 @@ export default function BackupScreen() {
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState("");
 
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   // ── Export ──────────────────────────────────────────────────────────────
@@ -207,25 +208,7 @@ export default function BackupScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          {
-            paddingTop: topPad + 12,
-            borderBottomColor: colors.border,
-            backgroundColor: colors.background,
-          },
-        ]}
-      >
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Feather name="x" size={24} color={colors.mutedForeground} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-          备份与恢复
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <PageHeader title="备份与恢复" />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
@@ -235,9 +218,6 @@ export default function BackupScreen() {
         {/* ── Appearance Section ── */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.sectionHead}>
-            <View style={[styles.iconWrap, { backgroundColor: colors.muted }]}>
-              <Feather name="sun" size={18} color={colors.mutedForeground} />
-            </View>
             <View style={styles.sectionHeadText}>
               <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                 外观
@@ -251,11 +231,11 @@ export default function BackupScreen() {
           <View style={styles.themeRow}>
             {(
               [
-                { value: "system", icon: "monitor", label: "跟随系统" },
-                { value: "light", icon: "sun", label: "浅色" },
-                { value: "dark", icon: "moon", label: "深色" },
-              ] as { value: ThemePreference; icon: string; label: string }[]
-            ).map(({ value, icon, label }) => {
+                { value: "system", label: "跟随系统" },
+                { value: "light", label: "浅色" },
+                { value: "dark", label: "深色" },
+              ] as { value: ThemePreference; label: string }[]
+            ).map(({ value, label }) => {
               const active = themePreference === value;
               return (
                 <Pressable
@@ -267,20 +247,15 @@ export default function BackupScreen() {
                   style={[
                     styles.themeOption,
                     {
-                      backgroundColor: active ? colors.primary : colors.background,
+                      backgroundColor: active ? colors.primary : colors.input,
                       borderColor: active ? colors.primary : colors.border,
                     },
                   ]}
                 >
-                  <Feather
-                    name={icon as any}
-                    size={16}
-                    color={active ? "#fff" : colors.mutedForeground}
-                  />
                   <Text
                     style={[
                       styles.themeLabel,
-                      { color: active ? "#fff" : colors.mutedForeground },
+                      { color: active ? "#fff" : colors.foreground },
                     ]}
                   >
                     {label}
@@ -292,14 +267,14 @@ export default function BackupScreen() {
         </View>
 
         {/* ── System authentication ── */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}> 
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.sectionHead}>
-            <View style={[styles.iconWrap, { backgroundColor: colors.destructive + "18" }]}> 
-              <Feather name="lock" size={18} color={colors.destructive} />
+            <View style={[styles.iconWrap, { backgroundColor: "transparent" }]}>
+              <Feather name="lock" size={20} color={colors.primary} />
             </View>
             <View style={styles.sectionHeadText}>
               <Text style={[styles.sectionTitle, { color: colors.foreground }]}>系统身份认证</Text>
-              <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}> 
+              <Text style={[styles.sectionSub, { color: colors.mutedForeground }]}>
                 指纹、面容或手机锁屏密码
               </Text>
             </View>
@@ -321,9 +296,9 @@ export default function BackupScreen() {
             />
           </View>
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
-          <View style={[styles.secureNotice, { backgroundColor: colors.primary + "0D" }]}> 
+          <View style={[styles.secureNotice, { backgroundColor: colors.primarySoft }]}>
             <Feather name="shield" size={16} color={colors.primary} />
-            <Text style={[styles.secureNoticeText, { color: colors.mutedForeground }]}> 
+            <Text style={[styles.secureNoticeText, { color: colors.mutedForeground }]}>
               关闭应用锁不影响查看或复制密钥、导出备份时的系统身份验证。应用不会读取或保存你的系统 PIN。
             </Text>
           </View>
@@ -338,7 +313,7 @@ export default function BackupScreen() {
             style={({ pressed }) => [
               styles.manualLockBtn,
               {
-                backgroundColor: colors.background,
+                backgroundColor: colors.input,
                 borderColor: colors.border,
                 opacity: !systemAuthAvailable ? 0.45 : pressed ? 0.78 : 1,
               },
@@ -352,7 +327,7 @@ export default function BackupScreen() {
         {/* ── Export Section ── */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.sectionHead}>
-            <View style={[styles.iconWrap, { backgroundColor: colors.primary + "18" }]}>
+            <View style={styles.iconWrap}>
               <Feather name="refresh-cw" size={18} color={colors.primary} />
             </View>
             <View style={styles.sectionHeadText}>
@@ -373,8 +348,8 @@ export default function BackupScreen() {
         {/* ── Export Section ── */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.sectionHead}>
-            <View style={[styles.iconWrap, { backgroundColor: colors.primary + "18" }]}>
-              <Feather name="upload-cloud" size={18} color={colors.primary} />
+            <View style={styles.iconWrap}>
+              <Feather name="upload" size={18} color={colors.primary} />
             </View>
             <View style={styles.sectionHeadText}>
               <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
@@ -388,9 +363,9 @@ export default function BackupScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          <View style={[styles.secureNotice, { backgroundColor: colors.primary + "12" }]}> 
+          <View style={[styles.secureNotice, { backgroundColor: colors.primarySoft }]}>
             <Feather name="shield" size={16} color={colors.primary} />
-            <Text style={[styles.secureNoticeText, { color: colors.mutedForeground }]}> 
+            <Text style={[styles.secureNoticeText, { color: colors.mutedForeground }]}>
               导出前需要验证身份。备份始终加密，并生成仅用于本次备份的恢复密钥。
             </Text>
           </View>
@@ -416,8 +391,8 @@ export default function BackupScreen() {
         {/* ── Import Section ── */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.sectionHead}>
-            <View style={[styles.iconWrap, { backgroundColor: colors.accent + "18" }]}>
-              <Feather name="download-cloud" size={18} color={colors.accent} />
+            <View style={styles.iconWrap}>
+              <Feather name="download" size={18} color={colors.primary} />
             </View>
             <View style={styles.sectionHeadText}>
               <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
@@ -439,14 +414,14 @@ export default function BackupScreen() {
               styles.input,
               styles.textArea,
               {
-                backgroundColor: colors.background,
+                backgroundColor: colors.input,
                 borderColor: importError ? colors.destructive : colors.border,
                 color: colors.foreground,
               },
             ]}
             value={importText}
             onChangeText={(t) => { setImportText(t); setImportError(""); }}
-            placeholder='粘贴备份内容（{"version":1,...}）'
+            placeholder='粘贴加密备份内容'
             placeholderTextColor={colors.mutedForeground}
             multiline
             autoCapitalize="none"
@@ -460,7 +435,7 @@ export default function BackupScreen() {
             style={[
               styles.input,
               {
-                backgroundColor: colors.background,
+                backgroundColor: colors.input,
                 borderColor: colors.border,
                 color: colors.foreground,
               },
@@ -489,7 +464,7 @@ export default function BackupScreen() {
             style={({ pressed }) => [
               styles.actionBtn,
               {
-                backgroundColor: importLoading ? colors.accent + "88" : colors.accent,
+                backgroundColor: importLoading ? colors.primary + "88" : colors.primary,
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
@@ -500,6 +475,19 @@ export default function BackupScreen() {
             </Text>
           </Pressable>
         </View>
+
+        <Pressable accessibilityRole="button" onPress={() => router.push("/groups")} style={({ pressed }) => [styles.manualLockBtn, { backgroundColor: colors.input, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}>
+          <Feather name="folder" size={18} color={colors.foreground} />
+          <Text style={[styles.manualLockBtnText, { color: colors.foreground }]}>管理分组</Text>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </Pressable>
+
+        <Pressable accessibilityRole="link" onPress={async () => {
+          try { await Linking.openURL("https://www.sediary.com/tick-mfa/privacy/"); }
+          catch { Alert.alert("无法打开隐私政策", "请检查网络后重试。"); }
+        }} style={({ pressed }) => [styles.manualLockBtn, { borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}>
+          <Text style={[styles.manualLockBtnText, { color: colors.primary }]}>阅读隐私政策</Text>
+        </Pressable>
 
         {/* Warning */}
         <View style={[styles.warningBox, { backgroundColor: colors.muted, borderColor: colors.border }]}>
@@ -526,16 +514,16 @@ export default function BackupScreen() {
         animationType="fade"
         onRequestClose={() => setRecoveryModalVisible(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.recoveryCard, { backgroundColor: colors.card, borderColor: colors.border }]}> 
-            <View style={[styles.recoveryIcon, { backgroundColor: colors.primary + "18" }]}> 
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.scrim }]}>
+          <View style={[styles.recoveryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.recoveryIcon, { backgroundColor: colors.primary + "18" }]}>
               <Feather name="key" size={22} color={colors.primary} />
             </View>
             <Text style={[styles.recoveryTitle, { color: colors.foreground }]}>保存恢复密钥</Text>
-            <Text style={[styles.recoveryDescription, { color: colors.mutedForeground }]}> 
+            <Text style={[styles.recoveryDescription, { color: colors.mutedForeground }]}>
               换机恢复时必须使用此密钥。它不会包含在备份中，丢失后无法找回。
             </Text>
-            <Text selectable style={[styles.recoveryValue, { color: colors.foreground, backgroundColor: colors.background, borderColor: colors.border }]}> 
+            <Text selectable style={[styles.recoveryValue, { color: colors.foreground, backgroundColor: colors.input, borderColor: colors.border }]}>
               {formatRecoveryKey(recoveryKey)}
             </Text>
             <Pressable
@@ -543,7 +531,7 @@ export default function BackupScreen() {
               style={({ pressed }) => [styles.actionBtn, { backgroundColor: colors.secondary, opacity: pressed ? 0.8 : 1 }]}
             >
               <Feather name={recoveryKeyCopied ? "check" : "copy"} size={16} color={colors.secondaryForeground} />
-              <Text style={[styles.actionBtnText, { color: colors.secondaryForeground }]}> 
+              <Text style={[styles.actionBtnText, { color: colors.secondaryForeground }]}>
                 {recoveryKeyCopied ? "恢复密钥已复制" : "复制恢复密钥"}
               </Text>
             </Pressable>
@@ -567,44 +555,33 @@ export default function BackupScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold" },
-  content: { padding: 16, gap: 16 },
+  content: { paddingHorizontal: 16, paddingTop: 8, gap: 16 },
   card: {
     borderRadius: 8,
     borderWidth: 1,
     padding: 16,
-    gap: 10,
+    gap: 12,
   },
   sectionHead: { flexDirection: "row", alignItems: "center", gap: 12 },
-  iconWrap: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  iconWrap: { width: 24, height: 24, borderRadius: 0, alignItems: "center", justifyContent: "center" },
   sectionHeadText: { flex: 1, gap: 2 },
-  sectionTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  sectionSub: { fontSize: 12, fontFamily: "Inter_400Regular" },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 4 },
+  sectionTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  sectionSub: { fontSize: 12, lineHeight: 18, fontFamily: "Inter_400Regular" },
+  divider: { height: 0, marginVertical: 0 },
   fieldLabel: {
     fontSize: 11,
     fontFamily: "Inter_500Medium",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
   },
   input: {
-    borderWidth: 1,
+    borderWidth: 0,
+    minHeight: 48,
     borderRadius: 8,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
   },
   textArea: { minHeight: 80, textAlignVertical: "top" },
-  hint: { fontSize: 11, fontFamily: "Inter_400Regular" },
   secureNotice: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 8, padding: 10 },
   secureNoticeText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 18 },
   appLockRow: { flexDirection: "row", alignItems: "center", gap: 12 },
@@ -615,16 +592,16 @@ const styles = StyleSheet.create({
   themeRow: { flexDirection: "row", gap: 8 },
   themeOption: {
     flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderWidth: 1,
+    minHeight: 48,
+    borderWidth: 0,
     borderRadius: 6,
     paddingVertical: 10,
   },
   themeLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  manualLockBtn: { minHeight: 42, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  manualLockBtn: { minHeight: 48, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
   manualLockBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   actionBtn: {
     flexDirection: "row",
@@ -632,6 +609,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     borderRadius: 8,
+    minHeight: 48,
     paddingVertical: 13,
   },
   actionBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
@@ -649,7 +627,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-    backgroundColor: "rgba(0,0,0,0.58)",
+
   },
   recoveryCard: { width: "100%", maxWidth: 400, borderWidth: 1, borderRadius: 8, padding: 22, gap: 12 },
   recoveryIcon: { width: 48, height: 48, borderRadius: 24, alignSelf: "center", alignItems: "center", justifyContent: "center" },

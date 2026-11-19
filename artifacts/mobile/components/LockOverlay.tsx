@@ -46,10 +46,10 @@ export function LockOverlay() {
         },
       ]}
     >
-      <View style={[styles.iconWrap, { backgroundColor: colors.primary + "18" }]}>
-        <Feather name="shield" size={36} color={colors.primary} />
+      <View style={[styles.iconWrap, { backgroundColor: colors.primarySoft }]}>
+        <Feather name="lock" size={38} color={colors.primary} />
       </View>
-      <Text style={[styles.title, { color: colors.foreground }]}>验证身份</Text>
+      <Text style={[styles.title, { color: colors.foreground }]}>留白 MFA 已锁定</Text>
       <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
         使用指纹、面容或手机锁屏密码解锁
       </Text>
@@ -89,24 +89,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   iconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 8,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
   },
-  title: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  title: { fontSize: 24, fontFamily: "Inter_700Bold" },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "Inter_400Regular",
     textAlign: "center",
     lineHeight: 21,
     marginBottom: 12,
   },
   authButton: {
-    width: "100%",
-    maxWidth: 340,
+    width: 220,
+    minHeight: 48,
     borderRadius: 8,
     paddingVertical: 15,
     flexDirection: "row",

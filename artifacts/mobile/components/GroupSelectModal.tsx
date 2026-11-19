@@ -1,10 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
 import {
-  FlatList,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -34,204 +35,150 @@ export function GroupSelectModal({
   const [newGroupName, setNewGroupName] = useState("");
   const [showInput, setShowInput] = useState(false);
 
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
-
-  const handleNewGroup = () => {
-    const name = newGroupName.trim();
-    if (!name) return;
-    onSelect(name);
-    setNewGroupName("");
-    setShowInput(false);
-  };
-
   const handleClose = () => {
     setNewGroupName("");
     setShowInput(false);
     onClose();
   };
-
-  const options = groups.filter((g) => g !== selectedGroup);
+  const select = (group: string | undefined) => {
+    onSelect(group);
+    handleClose();
+  };
+  const handleNewGroup = () => {
+    if (newGroupName.trim()) select(newGroupName.trim());
+  };
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       onRequestClose={handleClose}
     >
-      <Pressable style={styles.backdrop} onPress={handleClose} />
-      <View
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={[
-          styles.sheet,
+          styles.overlay,
           {
-            backgroundColor: colors.card,
-            paddingBottom: bottomPad + 16,
+            backgroundColor: colors.scrim,
+            paddingTop: insets.top + 20,
+            paddingBottom: insets.bottom + 20,
           },
         ]}
       >
-        <View
-          style={[styles.handle, { backgroundColor: colors.mutedForeground }]}
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={handleClose}
+          accessibilityRole="button"
+          accessibilityLabel="关闭分组选择"
         />
-        <Text style={[styles.title, { color: colors.foreground }]}>
-          移动到分组
-        </Text>
-
-        {selectedGroup && (
-          <Pressable
-            onPress={() => onSelect(undefined)}
-            style={[
-              styles.option,
-              { borderBottomColor: colors.border },
-            ]}
+        <View style={[styles.card, { backgroundColor: colors.surfaceRaised }]}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.content}
           >
-            <Feather name="x-circle" size={18} color={colors.mutedForeground} />
-            <Text
-              style={[styles.optionText, { color: colors.mutedForeground }]}
-            >
-              移出分组
+            <Text style={[styles.title, { color: colors.foreground }]}>
+              选择分组
             </Text>
-          </Pressable>
-        )}
-
-        {options.map((group) => (
-          <Pressable
-            key={group}
-            onPress={() => onSelect(group)}
-            style={({ pressed }) => [
-              styles.option,
-              {
-                borderBottomColor: colors.border,
-                backgroundColor: pressed
-                  ? colors.primary + "12"
-                  : "transparent",
-              },
-            ]}
-          >
-            <Feather name="folder" size={18} color={colors.primary} />
-            <Text style={[styles.optionText, { color: colors.foreground }]}>
-              {group}
-            </Text>
-          </Pressable>
-        ))}
-
-        {showInput ? (
-          <View
-            style={[styles.newGroupRow, { borderTopColor: colors.border }]}
-          >
-            <TextInput
-              style={[
-                styles.newGroupInput,
-                {
-                  backgroundColor: colors.background,
-                  borderColor: colors.border,
-                  color: colors.foreground,
-                },
-              ]}
-              value={newGroupName}
-              onChangeText={setNewGroupName}
-              placeholder="输入分组名称"
-              placeholderTextColor={colors.mutedForeground}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={handleNewGroup}
-            />
+            {[undefined, ...groups].map((group) => (
+              <Pressable
+                key={group ?? "ungrouped"}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: selectedGroup === group }}
+                onPress={() => select(group)}
+                style={({ pressed }) => [
+                  styles.option,
+                  { backgroundColor: colors.input, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.optionText, { color: colors.foreground }]}>
+                  {group ?? "未分组"}
+                </Text>
+                {selectedGroup === group && (
+                  <Feather name="check" size={18} color={colors.primary} />
+                )}
+              </Pressable>
+            ))}
+            {showInput ? (
+              <>
+                <TextInput
+                  accessibilityLabel="新分组名称"
+                  value={newGroupName}
+                  onChangeText={setNewGroupName}
+                  autoFocus
+                  placeholder="输入新分组名称"
+                  placeholderTextColor={colors.mutedForeground}
+                  returnKeyType="done"
+                  onSubmitEditing={handleNewGroup}
+                  style={[
+                    styles.input,
+                    { backgroundColor: colors.input, color: colors.foreground },
+                  ]}
+                />
+                <Pressable
+                  disabled={!newGroupName.trim()}
+                  onPress={handleNewGroup}
+                  style={[
+                    styles.option,
+                    styles.center,
+                    {
+                      backgroundColor: colors.primary,
+                      opacity: newGroupName.trim() ? 1 : 0.5,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: "#fff" }}>创建并选择</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                onPress={() => setShowInput(true)}
+                style={[
+                  styles.option,
+                  styles.center,
+                  { backgroundColor: colors.primarySoft },
+                ]}
+              >
+                <Text style={{ color: colors.primary }}>新建分组</Text>
+              </Pressable>
+            )}
             <Pressable
-              onPress={handleNewGroup}
-              style={[
-                styles.newGroupBtn,
-                {
-                  backgroundColor:
-                    newGroupName.trim() ? colors.primary : colors.muted,
-                },
-              ]}
+              onPress={handleClose}
+              style={[styles.option, styles.center]}
             >
-              <Feather name="check" size={18} color="#fff" />
+              <Text style={{ color: colors.mutedForeground }}>取消</Text>
             </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => setShowInput(true)}
-            style={({ pressed }) => [
-              styles.option,
-              {
-                borderBottomColor: colors.border,
-                backgroundColor: pressed
-                  ? colors.primary + "12"
-                  : "transparent",
-              },
-            ]}
-          >
-            <Feather name="plus-circle" size={18} color={colors.accent} />
-            <Text style={[styles.optionText, { color: colors.accent }]}>
-              新建分组…
-            </Text>
-          </Pressable>
-        )}
-      </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
   },
-  sheet: {
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    paddingTop: 12,
-    paddingHorizontal: 16,
-    minHeight: 200,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
-    opacity: 0.3,
-  },
-  title: {
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
+  card: { width: "100%", maxWidth: 420, maxHeight: "100%", borderRadius: 8 },
+  content: { padding: 20, gap: 12 },
+  title: { fontSize: 20, fontFamily: "Inter_700Bold" },
   option: {
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    justifyContent: "space-between",
+    padding: 12,
     borderRadius: 8,
   },
-  optionText: {
-    fontSize: 15,
-    fontFamily: "Inter_500Medium",
-  },
-  newGroupRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  newGroupInput: {
-    flex: 1,
-    borderWidth: 1,
+  center: { justifyContent: "center" },
+  optionText: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
+  input: {
+    minHeight: 48,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
-  },
-  newGroupBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

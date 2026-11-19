@@ -1,10 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
-  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,12 +13,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
+import { useTheme } from "@/context/ThemeContext";
 
 const PRIVACY_CONSENT_KEY = "tick_mfa_privacy_consent_v1";
 const PRIVACY_POLICY_URL = "https://www.sediary.com/tick-mfa/privacy/";
 
 export function PrivacyConsentGate({ children }: { children: React.ReactNode }) {
   const colors = useColors();
+  const { resolvedScheme } = useTheme();
   const insets = useSafeAreaInsets();
   const [checkingConsent, setCheckingConsent] = useState(true);
   const [hasConsented, setHasConsented] = useState(false);
@@ -81,17 +84,18 @@ export function PrivacyConsentGate({ children }: { children: React.ReactNode }) 
 
   return (
     <View style={[styles.blockingScreen, { backgroundColor: colors.background }]}>
-      <Modal transparent visible animationType="fade" statusBarTranslucent>
+      <StatusBar style={resolvedScheme === "dark" ? "light" : "dark"} />
         <View
           style={[
             styles.scrim,
             {
+              backgroundColor: colors.background,
               paddingTop: insets.top + 24,
               paddingBottom: insets.bottom + 24,
             },
           ]}
         >
-          <View
+          <ScrollView
             style={[
               styles.card,
               {
@@ -99,6 +103,7 @@ export function PrivacyConsentGate({ children }: { children: React.ReactNode }) 
                 borderColor: colors.border,
               },
             ]}
+            contentContainerStyle={styles.cardContent}
           >
             <Text style={[styles.title, { color: colors.foreground }]}>
               留白 MFA 隐私政策
@@ -176,9 +181,8 @@ export function PrivacyConsentGate({ children }: { children: React.ReactNode }) 
                 </Text>
               </Pressable>
             </View>
-          </View>
+          </ScrollView>
         </View>
-      </Modal>
     </View>
   );
 }
@@ -203,9 +207,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
     maxWidth: 420,
-    padding: 22,
+    flexGrow: 0,
+    maxHeight: "100%",
     width: "100%",
   },
+  cardContent: { padding: 22 },
   title: {
     fontFamily: "Inter_700Bold",
     fontSize: 22,
@@ -214,8 +220,8 @@ const styles = StyleSheet.create({
   },
   body: {
     fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 23,
   },
   link: {
     fontFamily: "Inter_600SemiBold",
