@@ -70,6 +70,7 @@ Thumbs.db
 .idea/
 *.iml
 **/.gradle/
+**/.kotlin/
 **/.cxx/
 **/build/
 **/dist/
