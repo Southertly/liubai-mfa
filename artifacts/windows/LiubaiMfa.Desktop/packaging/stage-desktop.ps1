@@ -35,6 +35,8 @@ $executable = if ($Channel -eq 'stable') { 'LiubaiMfa' } else { 'LiubaiMfaPrevie
 $appName = if ($Channel -eq 'stable') { 'LiubaiMfa' } else { 'LiubaiMfaDesktopPreview' }
 Copy-Item -Path (Join-Path $electron '*') -Destination $layout -Recurse
 Rename-Item -LiteralPath (Join-Path $layout 'electron.exe') -NewName "$executable.exe"
+node (Join-Path $PSScriptRoot 'set-app-icon.mjs') (Join-Path $layout "$executable.exe")
+if ($LASTEXITCODE -ne 0) { throw '无法嵌入留白 MFA 应用图标。' }
 Rename-Item -LiteralPath (Join-Path $layout 'electron_wer.dll') -NewName "${executable}_wer.dll"
 Remove-Item -LiteralPath (Join-Path $layout 'resources\default_app.asar')
 
