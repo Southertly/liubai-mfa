@@ -1,0 +1,6 @@
+# 本地开发验证输出
+smoke-*.png
+smoke-result.json
+smoke-*-layout.json
+qr-smoke-*.png
+qr-smoke-result.json

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+<title>留白 MFA · 预览版</title>
+<link rel="stylesheet" href="styles.css">
+<script defer src="ui.js"></script>
+<script defer src="accounts-view.js"></script>
+<script defer src="account-dialog.js"></script>
+<script defer src="backup-dialog.js"></script>
+<script defer src="update-view.js"></script>
+<script defer src="renderer.js"></script>
+</head>
+<body data-state="connecting" data-page="home">
+<div class="shell">
+<section id="homePage" class="page" aria-label="身份验证器">
+  <header class="page-head home-header">
+    <div class="head-row"><span class="home-mark" data-icon="shield"></span><div class="head-title"><h1>身份验证器</h1><p class="subtitle">你的账户，随手可用</p></div><button id="settings" class="icon-button settings-button" aria-label="设置" disabled><span data-icon="gear"></span></button><button id="newGroup" class="new-group-button" aria-label="新建分组" disabled><span data-icon="folder"></span><span class="new-group-label">新建分组</span></button><button id="add" class="primary" disabled><span data-icon="plus"></span>添加账户</button></div>
+    <label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="搜索账户、服务或分组" aria-label="搜索服务、账户或分组" maxlength="120"><kbd>Ctrl F</kbd></label>
+  </header>
+  <main class="scroll" aria-label="账户列表"><div id="accounts" class="content"><div class="empty"><h2>正在读取账户</h2></div></div></main>
+</section>
+<section id="editor" class="page" aria-labelledby="editorTitle" hidden>
+  <header class="page-head"><div class="head-row"><button id="editorBack" class="icon-button back" aria-label="返回账户主页"><span data-icon="back"></span></button><h1 id="editorTitle">添加账户</h1></div><p id="editorDescription" class="subtitle subpage-subtitle">从二维码开始，也可以手动填写。</p></header>
+  <main class="scroll"><div class="content">
+    <div id="qrActions" class="qr-actions">
+      <button type="button" id="qrScreen" class="setting-row qr-entry qr-screen">
+        <span data-icon="scan"></span>
+        <span class="setting-text"><span class="setting-name">扫描当前屏幕</span><span class="setting-hint">识别窗口所在屏幕的二维码</span></span>
+        <span data-icon="chevron"></span>
+      </button>
+      <button type="button" id="qrImage" class="setting-row qr-entry qr-image">
+        <span data-icon="image"></span>
+        <span class="setting-text"><span class="setting-name">从二维码图片导入</span><span class="setting-hint">选择本机保存的二维码</span></span>
+        <span data-icon="chevron"></span>
+      </button>
+    </div>
+    <h2 id="formTitle" class="section-title">手动填写</h2>
+    <form id="accountForm" class="panel form">
+      <label>服务名称<input name="issuer" id="issuer" placeholder="例如 Google、GitHub" maxlength="80" required autocomplete="off"></label>
+      <label>账户名称<input name="account" id="account" placeholder="邮箱、用户名或便于识别的名称" maxlength="120" required autocomplete="off"></label>
+      <label id="secretField">账户密钥<input name="secret" id="secret" type="password" maxlength="1024" autocomplete="off" spellcheck="false" aria-describedby="secretError" required><span id="secretError" class="error" role="alert"></span><span class="field-hint">支持 TOTP · SHA-1 · 6 位 · 30 秒。</span></label>
+      <div class="group-field"><label for="groupSelect">分组</label><div class="group-controls"><select id="groupSelect" aria-describedby="groupHint"><option value="">未分组</option><option value="new">新建分组…</option></select><input name="group" id="group" maxlength="40" placeholder="输入新分组名称" aria-label="新分组名称" aria-describedby="groupHint groupError" autocomplete="off" hidden></div><span id="groupHint" class="field-hint">选择已有分组，或新建自定义名称。</span><span id="groupError" class="error" role="alert"></span></div>
+      <fieldset id="colorPicker" class="color-field"><legend>标签颜色</legend><div class="color-options">
+        <label class="color-option" data-color="blue" title="蓝色"><input type="radio" name="color" value="blue" aria-label="蓝色" checked><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="teal" title="青色"><input type="radio" name="color" value="teal" aria-label="青色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="green" title="绿色"><input type="radio" name="color" value="green" aria-label="绿色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="amber" title="黄色"><input type="radio" name="color" value="amber" aria-label="黄色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="orange" title="橙色"><input type="radio" name="color" value="orange" aria-label="橙色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="red" title="红色"><input type="radio" name="color" value="red" aria-label="红色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="pink" title="粉色"><input type="radio" name="color" value="pink" aria-label="粉色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="purple" title="紫色"><input type="radio" name="color" value="purple" aria-label="紫色"><span class="color-dot"><span data-icon="check"></span></span></label>
+        <label class="color-option" data-color="slate" title="灰色"><input type="radio" name="color" value="slate" aria-label="灰色"><span class="color-dot"><span data-icon="check"></span></span></label>
+      </div></fieldset>
+      <p id="formError" class="error" role="alert"></p><div class="dialog-actions"><button id="cancelEdit" type="button">取消</button><button id="save" class="primary" type="submit">保存账户</button></div>
+    </form>
+  </div></main>
+</section>
+<section id="settingsDialog" class="page" aria-labelledby="settingsTitle" hidden>
+  <header class="page-head"><div class="head-row"><button id="closeSettings" class="icon-button back" aria-label="返回账户主页"><span data-icon="back"></span></button><h1 id="settingsTitle">设置</h1></div><p class="subtitle subpage-subtitle">按你的习惯，安心使用。</p></header>
+  <main class="scroll"><div class="content settings-content">
+    <div>
+    <section class="settings-section tone-green"><h2 class="section-title">安全</h2><div class="panel">
+      <div class="setting-row"><span data-icon="shield"></span><div class="setting-text"><p class="setting-name">打开应用时验证身份</p><p class="setting-hint">使用 Windows Hello 或电脑密码</p></div><button id="protection" class="switch" role="switch" aria-label="打开应用时验证身份" aria-checked="false"></button></div>
+      <div class="setting-row"><span data-icon="lock"></span><div class="setting-text"><label for="autoLockSeconds" class="setting-name">离开应用后锁定</label><p id="autoLockHint" class="setting-hint">开启上方身份保护后生效</p></div><select id="autoLockSeconds" aria-describedby="autoLockHint" disabled><option value="30">30 秒</option><option value="60" selected>1 分钟</option><option value="120">2 分钟</option><option value="300">5 分钟</option><option value="600">10 分钟</option><option value="0">不自动锁定</option></select></div>
+      <button id="lockNow" class="setting-row"><span data-icon="lock"></span><span class="setting-text"><span class="setting-name">立即锁定</span><span class="setting-hint">隐藏全部账户和验证码</span></span><span data-icon="chevron"></span></button>
+    </div><p class="quiet-note">时间选择后自动保存，回到应用会重新计时。系统锁屏或休眠时仍立即锁定。</p></section>
+    <section class="settings-section tone-purple"><h2 class="section-title">外观</h2><div class="panel"><div class="setting-row"><span data-icon="sun"></span><div class="setting-text"><p class="setting-name">主题</p><p class="setting-hint">选择适合你的显示方式</p></div><div class="seg" role="group" aria-label="外观主题"><button data-theme-choice="light" aria-pressed="false">浅色</button><button data-theme-choice="dark" aria-pressed="false">深色</button><button data-theme-choice="system" aria-pressed="true">跟随系统</button></div><select id="theme" hidden aria-label="外观主题"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div></div></section>
+    </div>
+    <div>
+    <section class="settings-section tone-blue"><h2 class="section-title">备份与恢复</h2><div class="panel">
+      <button id="exportBackup" class="setting-row"><span data-icon="export"></span><span class="setting-text"><span class="setting-name">导出加密备份</span><span class="setting-hint">保存账户副本，方便换机或恢复</span></span><span data-icon="chevron"></span></button>
+      <button id="importBackup" class="setting-row"><span data-icon="import"></span><span class="setting-text"><span class="setting-name">从备份恢复</span><span class="setting-hint">使用备份文件和恢复密钥找回账户</span></span><span data-icon="chevron"></span></button>
+    </div></section>
+    <section class="settings-section">
+      <h2 class="section-title">关于</h2>
+      <div class="panel">
+        <div class="setting-row">
+          <span data-icon="info"></span>
+          <div class="setting-text"><p class="setting-name">留白 MFA</p><p id="appVersion" class="setting-hint">Windows 预览版</p></div>
+          <button id="checkUpdate" class="update-action" type="button">检查更新</button>
+        </div>
+        <div class="update-result">
+          <p id="updateStatus" class="setting-hint" role="status"></p>
+          <button id="openUpdate" class="update-action" type="button" hidden>查看新版</button>
+        </div>
+      </div>
+    </section>
+    </div>
+    <p id="settingsError" role="alert" class="error"></p>
+  </div></main>
+</section>
+<footer class="foot"><span class="storage-status"><span data-icon="shield"></span><span id="status" role="status">正在连接本地核心…</span></span><span id="accountCount" class="foot-count"></span><button id="retry" class="text-button">重新连接</button></footer>
+</div>
+<div id="toast" role="status" class="toast" hidden></div>
+<dialog id="renameGroupDialog" aria-labelledby="renameGroupTitle" aria-describedby="renameGroupDescription"><form id="renameGroupForm"><h2 id="renameGroupTitle">重命名分组</h2><p id="renameGroupDescription" class="muted"></p><label for="renameGroupName">分组名称</label><input id="renameGroupName" maxlength="40" autocomplete="off" aria-describedby="renameGroupError" required><p id="renameGroupError" class="error" role="alert"></p><div class="dialog-actions"><button id="cancelGroupRename" type="button">取消</button><button id="saveGroupRename" class="primary" type="submit">保存名称</button></div></form></dialog>
+<dialog id="deleteDialog" aria-labelledby="deleteTitle"><h2 id="deleteTitle">删除账户？</h2><p id="deleteDescription"></p><p id="deleteHint" class="muted">此操作无法撤销，请先确认已在其他地方保留恢复方式。</p><p id="deleteError" class="error" role="alert"></p><div class="dialog-actions"><button id="cancelDelete" autofocus>取消</button><button id="confirmDelete" class="danger">删除</button></div></dialog>
+<dialog id="backupDialog" aria-labelledby="backupTitle"><h2 id="backupTitle">加密备份</h2><p id="backupDescription" class="muted"></p><div id="recoveryBox" hidden><label>恢复密钥<textarea id="recoveryOutput" readonly rows="3" autocomplete="off" spellcheck="false"></textarea></label><p class="muted">请单独保存此密钥；它不会写入备份文件。此处最多显示 30 秒，离开窗口后自动隐藏。</p><label class="check-row"><input id="recoveryConfirmed" type="checkbox">我已单独保存恢复密钥</label></div><div id="importKeyBox" hidden><label>恢复密钥<input id="recoveryInput" type="password" autocomplete="off" maxlength="256" spellcheck="false"></label></div><div id="backupPreview" class="backup-preview" hidden></div><p id="backupError" class="error" role="alert"></p><div class="dialog-actions"><button id="backupCancel">取消</button><button id="backupNext" class="primary">继续</button></div></dialog>
+</body>
+</html>
