@@ -6,6 +6,7 @@ import { readQr } from './qr-import';
 import { AutoLockTimer, loadAutoLockSeconds, saveAutoLockSeconds } from './auto-lock';
 import { checkWindowsRelease } from './windows-updates';
 
+const releaseChannel = app.isPackaged && app.getName() === 'LiubaiMfa' ? 'stable' : 'preview';
 const root = path.resolve(__dirname, '../..');
 let bridge: CoreBridge;
 let window: BrowserWindow | undefined;
@@ -77,7 +78,7 @@ else {
       }});
     });
     window = new BrowserWindow({
-      width:880,height:640,minWidth:480,minHeight:520,title:'留白 MFA · 预览版',
+      width:880,height:640,minWidth:480,minHeight:520,title:releaseChannel === 'stable' ? '留白 MFA' : '留白 MFA · 预览版',
       icon:path.join(root, 'dist/renderer/app-icon.png'),backgroundColor:'#f2f2f5',show:false,
       webPreferences:{preload:path.join(root,'dist/preload/preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,devTools:!app.isPackaged},
     });
@@ -93,9 +94,10 @@ else {
       verifyApplicationFrame(event);
       if (args.length) throw new Error('输入内容无效。');
       if (method === 'version') return app.getVersion();
+      if (method === 'channel') return releaseChannel;
       if (method === 'check') {
         releaseUrl = undefined;
-        updateCheck ??= checkWindowsRelease(app.getVersion()).finally(() => { updateCheck = undefined; });
+        updateCheck ??= checkWindowsRelease(app.getVersion(), fetch, releaseChannel).finally(() => { updateCheck = undefined; });
         const result = await updateCheck;
         if (result.status === 'available') {
           releaseUrl = result.releaseUrl;

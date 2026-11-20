@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('mfaUpdates', Object.freeze({
   version: () => ipcRenderer.invoke('update:request', 'version'),
+  channel: () => ipcRenderer.invoke('update:request', 'channel'),
   check: () => ipcRenderer.invoke('update:request', 'check'),
   open: () => ipcRenderer.invoke('update:request', 'open'),
 }));

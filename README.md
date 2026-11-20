@@ -10,7 +10,7 @@
 | -------------- | ----------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
 | Android        | Expo SDK 54 / React Native + 原生安全模块 | `v1.1.1` APK 已发布 | 1.1.1 签名及模拟器覆盖升级通过；移动端 pnpm 类型检查及安全回归通过；真机验收待确认 |
 | HarmonyOS NEXT | ArkTS / ArkUI 原生客户端                  | `1.1.2` 已于 2026-11-14 在华为应用市场正式上架 | 用户已确认从 `1.1.0` 测试版覆盖更新，原有账户保留且验证码正常；其他流程按对应设备验证 |
-| Windows 11 x64 | Electron / C# / .NET 8 预览版              | Windows MSIX 尚未公开发布                  | 源码及开发签名打包脚本已纳入仓库 |
+| Windows 11 x64 | Electron / C# / .NET 8                    | [Windows 1.0.0 MSI](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0) | 可选择安装目录，首个公开 MSI 未签名 |
 
 源码、构建成功和历史测试不能单独证明应用市场已上架或当前设备已完成验收。运行状态以对应平台的最新产物和真实设备结果为准。
 
@@ -25,7 +25,7 @@ Android `1.1.1` 的正式签名 APK 和校验文件见 [GitHub Release](https://
 
 鸿蒙用户可在华为应用市场搜索「留白 MFA」获取正式版 `1.1.2`。已有测试版的用户可通过应用市场的「更新」入口覆盖升级，保留现有账户。
 
-GitHub Releases 提供 Android 安装包，HarmonyOS 安装包通过华为应用市场分发，Windows 安装包尚未发布。
+GitHub Releases 提供 Android 和 Windows 安装包。HarmonyOS 安装包通过华为应用市场分发。
 
 下载后可校验完整性：
 
@@ -72,7 +72,7 @@ HarmonyOS Bundle ID 为 `com.sediary.liubaimfa`。正式版 `1.1.2` 已于 2026-
 
 ### Windows
 
-新版 Windows 客户端使用 Electron 和本地 C# 核心。可查看[预览版构建和检查更新说明](artifacts/windows/LiubaiMfa.Desktop/README.md)。旧版 WinUI 3 项目与构建说明仍在 [Windows 工程目录](artifacts/windows/README.md)。
+Windows 11 x64 客户端使用 Electron 和本地 C# 核心。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)提供未签名 MSI 和 SHA-256 校验文件。构建和检查更新见 [Windows 版说明](artifacts/windows/LiubaiMfa.Desktop/README.md)。旧版 WinUI 3 项目与构建说明仍在 [Windows 工程目录](artifacts/windows/README.md)。
 
 ## 备份与二维码迁移
 

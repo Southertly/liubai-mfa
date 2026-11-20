@@ -10,7 +10,6 @@ $desktop = Split-Path -Parent $PSScriptRoot
 $windows = Split-Path -Parent $desktop
 $makeAppx = Join-Path $SdkBin 'makeappx.exe'
 $signTool = Join-Path $SdkBin 'signtool.exe'
-$electron = Join-Path $desktop 'node_modules\electron\dist'
 $manifest = Join-Path $PSScriptRoot 'AppxManifest.xml'
 $packageVersion = [version]([xml](Get-Content -LiteralPath $manifest -Raw)).Package.Identity.Version
 $packageName = "LiubaiMfa-Preview-$packageVersion-x64.msix"
@@ -24,62 +23,12 @@ foreach ($requiredFile in @($makeAppx, $signTool)) {
     }
 }
 
-$electronExecutable = Join-Path $electron 'electron.exe'
-if (-not (Test-Path -LiteralPath $electronExecutable -PathType Leaf)) {
-    $installElectron = Join-Path $desktop 'node_modules\electron\install.js'
-    if (-not (Test-Path -LiteralPath $installElectron -PathType Leaf)) {
-        throw '请先运行 npm ci 安装 Electron 开发依赖。'
-    }
-    node $installElectron
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $electronExecutable -PathType Leaf)) {
-        throw '未能安装 Electron 运行时。'
-    }
-}
-
-Push-Location $desktop
-try {
-    npm run build
-    if ($LASTEXITCODE -ne 0) { throw 'Electron 构建失败。' }
-} finally {
-    Pop-Location
-}
-
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $staging = Join-Path $tempRoot ('mfa-msix-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $staging | Out-Null
 try {
     $layout = Join-Path $staging 'layout'
-    New-Item -ItemType Directory -Path $layout | Out-Null
-    Copy-Item -Path (Join-Path $electron '*') -Destination $layout -Recurse
-    Rename-Item -LiteralPath (Join-Path $layout 'electron.exe') -NewName 'LiubaiMfaPreview.exe'
-    Rename-Item -LiteralPath (Join-Path $layout 'electron_wer.dll') -NewName 'LiubaiMfaPreview_wer.dll'
-    Remove-Item -LiteralPath (Join-Path $layout 'resources\default_app.asar')
-
-    $application = Join-Path $layout 'resources\app'
-    $main = Join-Path $application 'dist\main'
-    New-Item -ItemType Directory -Path $main | Out-Null
-    $metadata = @{ name = 'LiubaiMfaDesktopPreview'; version = $packageVersion.ToString(); main = 'dist/main/main.js' }
-    $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'package.json') -Encoding ascii
-    foreach ($file in @('main.js', 'core-bridge.js', 'qr-import.js', 'auto-lock.js', 'windows-updates.js')) {
-        Copy-Item -LiteralPath (Join-Path $desktop "dist\main\$file") -Destination $main
-    }
-    foreach ($folder in @('preload', 'renderer')) {
-        Copy-Item -LiteralPath (Join-Path $desktop "dist\$folder") -Destination (Join-Path $application 'dist') -Recurse
-    }
-
-    $core = Join-Path $layout 'resources\core'
-    # 用 .NET 8 SDK 自带的运行时版本，避免覆盖 Windows SDK 的框架引用版本。
-    '{"sdk":{"version":"8.0.100","rollForward":"latestFeature"}}' |
-        Set-Content -LiteralPath (Join-Path $staging 'global.json') -Encoding ascii
-    Push-Location $staging
-    try {
-        dotnet publish (Join-Path $windows 'LiubaiMfa.CoreHost\LiubaiMfa.CoreHost.csproj') -c Release -r win-x64 --self-contained true `
-            -p:DisableTransitiveFrameworkReferenceDownloads=true -p:WindowsSdkPackageVersion=10.0.19041.57 `
-            -p:DebugType=None -p:DebugSymbols=false -o $core
-        if ($LASTEXITCODE -ne 0) { throw '.NET 自包含宿主发布失败。' }
-    } finally {
-        Pop-Location
-    }
+    & (Join-Path $PSScriptRoot 'stage-desktop.ps1') -Staging $staging -Version $packageVersion -Channel preview
 
     Copy-Item -LiteralPath $manifest -Destination (Join-Path $layout 'AppxManifest.xml')
     $assets = Join-Path $layout 'Assets'
