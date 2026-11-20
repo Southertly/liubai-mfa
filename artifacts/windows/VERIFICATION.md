@@ -1,5 +1,9 @@
 # Windows 版本验证记录
 
+## Electron 正式版 1.0.1
+
+在 Windows 11 x64 上通过临时安装验证。测试副本使用独立的产品标识和含中文的自定义目录，验证了桌面和开始菜单快捷方式、EXE 内嵌图标及「已安装的应用」列表图标。卸载测试副本后核对快捷方式已移除。[Windows 1.0.1 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1)
+
 ## Electron 正式版 1.0.0
 
 验证日期为 2026-11-20，系统为 Windows 11 x64。发布的是未签名 MSI。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)

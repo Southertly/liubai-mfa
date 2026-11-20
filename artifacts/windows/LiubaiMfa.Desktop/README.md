@@ -20,9 +20,9 @@ Windows 正式发布使用 `windows-v<三段版本>` 标签和同版本的 `Liub
 
 ## 正式版 MSI
 
-Windows 11 x64 的 1.0.0 安装包及 SHA-256 校验文件可在 GitHub 下载。该版本 MSI 未签名。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)
+Windows 11 x64 的 1.0.1 安装包及 SHA-256 校验文件可在 GitHub 下载。该版本 MSI 未签名。[Windows 1.0.1 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1)
 
-MSI 可以选择程序安装目录。自定义目录应只允许当前用户、系统和管理员修改程序文件。账户库位于当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`，应用程序的安装和卸载不会操作该目录。升级时选择原来的程序安装目录。
+MSI 可以选择程序安装目录，并在桌面和开始菜单创建快捷方式。自定义目录应只允许当前用户、系统和管理员修改程序文件。账户库位于当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`，应用程序的安装和卸载不会操作该目录。升级时选择原来的程序安装目录。
 
 预览版和正式版使用独立账户库。转入时先在预览版导出加密备份并单独保存恢复密钥，再在正式版「设置 → 从备份恢复」导入。确认正式版的账户和验证码可用后再卸载预览版。
 
@@ -30,7 +30,7 @@ MSI 可以选择程序安装目录。自定义目录应只允许当前用户、�
 
 ```powershell
 npm ci
-.\packaging\build-msi.ps1 -Version 1.0.0
+.\packaging\build-msi.ps1 -Version 1.0.1
 ```
 
 WiX SDK 和扩展按项目固定版本获取。生成 MSI 位于 `../AppPackages/Desktop/`。未签名安装包以 `-unsigned` 标记，发布页注明签名状态并提供 SHA-256 校验值。使用可信证书时可以传入 `-CertificateThumbprint` 签名并验证时间戳。导入账户可使用现有的加密备份恢复入口。
