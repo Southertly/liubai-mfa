@@ -14,6 +14,8 @@
 
 在「设置 → 关于」可以查看当前版本并手动检查更新。发现新版时点「查看新版」，到项目的 GitHub 发布页下载对应渠道的 Windows x64 安装包。
 
+支持应用内更新的正式版在新版 MSI 提供 SHA-256 摘要时会显示「下载更新」。下载期间可以取消。校验通过后点击「安装更新」并确认，应用会退出并打开 Windows 安装程序，沿用原目录和安装范围。遇到下载或校验失败时，可以重试或打开 GitHub 发布页。
+
 发布 Windows 预览版时，在 [项目发布页](https://github.com/Southertly/liubai-mfa/releases) 使用 `windows-preview-v<四段版本>` 标签，并上传同版本的 `LiubaiMfa-Preview-<四段版本>-x64.msix`。例如发布 `0.1.13.0` 时，标签是 `windows-preview-v0.1.13.0`，附件是 `LiubaiMfa-Preview-0.1.13.0-x64.msix`。发布后才会被检查到。升级包沿用同一 MSIX 包标识及受信任的签名。
 
 Windows 正式发布使用 `windows-v<三段版本>` 标签和同版本的 `LiubaiMfa-<三段版本>-x64.msi` 或 `LiubaiMfa-<三段版本>-x64-unsigned.msi` 附件。正式版只检查正式发布，预览版只检查预览发布。

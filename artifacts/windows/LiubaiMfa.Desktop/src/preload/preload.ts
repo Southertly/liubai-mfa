@@ -4,6 +4,12 @@ contextBridge.exposeInMainWorld('mfaUpdates', Object.freeze({
   channel: () => ipcRenderer.invoke('update:request', 'channel'),
   check: () => ipcRenderer.invoke('update:request', 'check'),
   open: () => ipcRenderer.invoke('update:request', 'open'),
+  download: () => ipcRenderer.invoke('update:request', 'download'),
+  cancel: () => ipcRenderer.invoke('update:request', 'cancel'),
+  install: () => ipcRenderer.invoke('update:request', 'install'),
+  onProgress: (callback: (percent: number) => void) => {
+    ipcRenderer.on('update:progress', (_event, percent: number) => callback(percent));
+  },
 }));
 contextBridge.exposeInMainWorld('mfaCore',Object.freeze({
   exportPrepare:()=>ipcRenderer.invoke('core:request','exportPrepare'),
