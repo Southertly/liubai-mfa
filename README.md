@@ -10,7 +10,7 @@
 | -------------- | ----------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
 | Android        | Expo SDK 54 / React Native + 原生安全模块 | `v1.1.1` APK 已发布 | 1.1.1 签名及模拟器覆盖升级通过；移动端 pnpm 类型检查及安全回归通过；真机验收待确认 |
 | HarmonyOS NEXT | ArkTS / ArkUI 原生客户端                  | `1.1.2` 已于 2026-11-14 在华为应用市场正式上架 | 用户已确认从 `1.1.0` 测试版覆盖更新，原有账户保留且验证码正常；其他流程按对应设备验证 |
-| Windows 11 x64 | Electron / C# / .NET 8                    | [Windows 1.0.0 MSI](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0) | 可选择安装目录，首个公开 MSI 未签名 |
+| Windows 11 x64 | Electron / C# / .NET 8                    | [Windows 1.0.1 MSI](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1) | 可选择安装目录，MSI 未签名 |
 
 源码、构建成功和历史测试不能单独证明应用市场已上架或当前设备已完成验收。运行状态以对应平台的最新产物和真实设备结果为准。
 
@@ -25,7 +25,7 @@ Android `1.1.1` 的正式签名 APK 和校验文件见 [GitHub Release](https://
 
 鸿蒙用户可在华为应用市场搜索「留白 MFA」获取正式版 `1.1.2`。已有测试版的用户可通过应用市场的「更新」入口覆盖升级，保留现有账户。
 
-Windows 11 x64 用户可以下载 `LiubaiMfa-1.0.0-x64-unsigned.msi` 和 `SHA256SUMS-Windows-1.0.0.txt`。安装包未签名，可自选安装目录。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)
+Windows 11 x64 用户可以下载 `LiubaiMfa-1.0.1-x64-unsigned.msi` 和 `SHA256SUMS-Windows-1.0.1.txt`。安装包未签名，可自选安装目录。[Windows 1.0.1 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1)
 
 Android 下载后可校验完整性：
 
@@ -72,12 +72,12 @@ HarmonyOS Bundle ID 为 `com.sediary.liubaimfa`。正式版 `1.1.2` 已于 2026-
 
 ### Windows
 
-在 MSI 安装向导中选择程序目录。账户库独立保存在当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`。预览版用户请先导出加密备份并单独保管恢复密钥，安装正式版后，在「设置 → 从备份恢复」导入，确认账户可用后再卸载预览版。
+在 MSI 安装向导中选择程序目录。已安装正式版的用户可在「设置 → 关于 → 检查更新」打开新版下载页，升级时沿用原安装目录。账户库独立保存在当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`。预览版用户请先导出加密备份并单独保管恢复密钥，安装正式版后，在「设置 → 从备份恢复」导入，确认账户可用后再卸载预览版。
 
-可以在 PowerShell 中运行以下命令，将结果与发布页的 `SHA256SUMS-Windows-1.0.0.txt` 对照。Windows 可能提示未知发布者，系统或单位的安全策略也可能拦截未签名软件。
+可以在 PowerShell 中运行以下命令，将结果与发布页的 `SHA256SUMS-Windows-1.0.1.txt` 对照。Windows 可能提示未知发布者，系统或单位的安全策略也可能拦截未签名软件。
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath .\LiubaiMfa-1.0.0-x64-unsigned.msi
+Get-FileHash -Algorithm SHA256 -LiteralPath .\LiubaiMfa-1.0.1-x64-unsigned.msi
 ```
 
 构建与检查更新见 [Windows 版说明](artifacts/windows/LiubaiMfa.Desktop/README.md)。已验证的安装与迁移范围见 [Windows 验证记录](artifacts/windows/VERIFICATION.md)。

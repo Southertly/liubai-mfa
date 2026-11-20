@@ -2,6 +2,12 @@
 
 本文件记录留白 MFA 的用户可见变更。版本号遵循语义化版本的主版本、次版本和修订版本结构；不同平台的安装包仍使用各自独立的系统版本号与签名体系。
 
+## 1.0.1（Windows）- 2026-11-20
+
+- 安装程序自动创建桌面快捷方式。
+- 桌面、开始菜单、程序文件和 Windows「已安装的应用」列表统一使用留白 MFA 的蓝色盾牌图标。
+- 通过未签名 MSI 分发。[Windows 1.0.1 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1)
+
 ## 1.0.0（Windows）- 2026-11-20
 
 - Windows 11 x64 首次公开发布。使用 Electron 界面和 C# / .NET 8 本地核心，提供可自选安装目录的未签名 MSI。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)
