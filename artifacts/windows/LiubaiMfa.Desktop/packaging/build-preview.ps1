@@ -34,7 +34,7 @@ try {
     $assets = Join-Path $layout 'Assets'
     New-Item -ItemType Directory -Path $assets | Out-Null
     foreach ($asset in @('StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png')) {
-        Copy-Item -LiteralPath (Join-Path $windows "LiubaiMfa.Windows\Assets\$asset") -Destination $assets
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Assets\$asset") -Destination $assets
     }
     $package = Join-Path $staging $packageName
     & $makeAppx pack /d $layout /p $package

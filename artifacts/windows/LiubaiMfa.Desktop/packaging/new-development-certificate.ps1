@@ -8,7 +8,8 @@ $certificate = New-SelfSignedCertificate `
     -CertStoreLocation "Cert:\CurrentUser\My" `
     -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
 
-$outputDirectory = Join-Path (Split-Path -Parent $PSScriptRoot) "local-signing"
+$windows = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$outputDirectory = Join-Path $windows "local-signing"
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 $publicCertificatePath = Join-Path $outputDirectory "LiubaiMFA-Development.cer"
 Export-Certificate -Cert $certificate -FilePath $publicCertificatePath | Out-Null

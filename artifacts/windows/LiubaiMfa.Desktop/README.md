@@ -83,11 +83,11 @@ Windows 11 x64；Node.js 22.14、.NET SDK 9.0.313 / .NET 8、Electron 45.2.3、T
 
 ## 账户转入
 
-旧版账户迁移入口、专用页面及调用流程已取消。转入账户时使用二维码导入或 v2 加密备份恢复；既有账户库的存储布局继续兼容，不删除旧版数据或历史备份。
+转入账户时使用二维码导入或 v2 加密备份恢复。此前迁移生成的账户库也可以继续读取。
 
 ## Windows 11 x64 MSIX 预览包
 
-在已安装 .NET 8 SDK、Windows SDK 10.0.26100.0 和 Electron 开发依赖的机器上，从此目录运行以下命令。签名使用现有留白 MFA 开发证书的指纹。
+在已安装 .NET 8 SDK、Windows SDK 10.0.26100.0 和 Electron 开发依赖的机器上，从此目录运行以下命令。签名使用现有留白 MFA 开发证书的指纹。若需要新建开发证书，可运行 `.\packaging\new-development-certificate.ps1`。
 
 ```powershell
 .\packaging\build-preview.ps1 -CertificateThumbprint <开发证书指纹>
@@ -95,7 +95,7 @@ Windows 11 x64；Node.js 22.14、.NET SDK 9.0.313 / .NET 8、Electron 45.2.3、T
 
 生成并校验签名后的安装包位于 `../AppPackages/DesktopPreview/`，文件名包含版本号。可在信任该开发证书的 Windows 11 x64 电脑上安装，从开始菜单打开“留白 MFA 预览版”。安装包内含 Electron 和自包含 .NET 8 核心。
 
-预览版使用独立包身份 `com.mfaverifier.app.windows.electronpreview`，其配置目录为 `LiubaiMfaDesktopPreview`。账户库位于该目录的 `accounts`。旧版迁移功能已取消，现有账户和备份不会因升级被删除或重写。
+预览版使用独立包身份 `com.mfaverifier.app.windows.electronpreview`，其配置目录为 `LiubaiMfaDesktopPreview`。账户库位于该目录的 `accounts`。
 
 ## 自动锁定时间
 

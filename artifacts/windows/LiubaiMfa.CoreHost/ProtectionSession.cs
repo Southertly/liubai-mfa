@@ -12,7 +12,6 @@ internal sealed class ProtectionSession
     public bool Pending => cancellation is not null;
     public long Generation { get; private set; }
     public event Action? Invalidated;
-    public void ApplyMigrationProtection() { lock(Gate) { Enabled=true; Locked=false; Generation++; Invalidated?.Invoke(); } }
     public ProtectionSession(AccountStore store, IWindowsAuthentication authentication, TimeSpan? authenticationTimeout = null)
     { this.store = store; this.authentication = authentication; this.authenticationTimeout = authenticationTimeout ?? TimeSpan.FromSeconds(120); Enabled = store.ReadProtection(); Locked = Enabled; }
     public void Lock() { lock(Gate) { Generation++; Locked = true; Invalidated?.Invoke(); cancellation?.Cancel(); } }
