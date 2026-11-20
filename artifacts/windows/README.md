@@ -1,6 +1,6 @@
 # 留白 MFA Windows
 
-Windows 11 x64 正式版使用 Electron 和 C# / .NET 8 本地核心。1.0.2 提供可自选安装目录的未签名 MSI，并支持应用内下载后续正式版。[Windows 1.0.2 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.2)
+Windows 11 x64 正式版使用 Electron 和 C# / .NET 8 本地核心。1.0.3 提供可自选安装目录的未签名 MSI，并修正升级后的快捷方式图标。[Windows 1.0.3 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.3)
 
 正式版的安装、数据位置、构建和检查更新见 [LiubaiMfa.Desktop](LiubaiMfa.Desktop/README.md)。验证结果见 [Windows 验证记录](VERIFICATION.md)。下文为旧版 WinUI 3 工程说明。
 

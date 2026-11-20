@@ -4,6 +4,7 @@
     <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="本机已安装更新版本的留白 MFA。" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="medium" />
     <Icon Id="LiubaiMfa.ico" SourceFile="..\LiubaiMfa.ico" />
+    <Icon Id="LiubaiMfaShortcut.exe" SourceFile="$(var.ShortcutIconFile)" />
     <Property Id="ARPPRODUCTICON" Value="LiubaiMfa.ico" />
     <Property Id="WINDOWSBUILDNUMBER" Secure="yes">
       <RegistrySearch Id="ReadWindowsBuild" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
@@ -24,8 +25,10 @@
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="ApplicationShortcuts" Guid="be104d32-02ec-4325-94a9-e340e1eb0777">
-        <Shortcut Id="LaunchLiubaiMfa" Name="留白 MFA" Target="[INSTALLFOLDER]LiubaiMfa.exe" WorkingDirectory="INSTALLFOLDER" />
-        <Shortcut Id="DesktopLiubaiMfa" Name="留白 MFA" Directory="DesktopFolder" Target="[INSTALLFOLDER]LiubaiMfa.exe" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="LaunchLiubaiMfa" Name="留白 MFA" Target="[INSTALLFOLDER]LiubaiMfa.exe" WorkingDirectory="INSTALLFOLDER"
+                  Icon="LiubaiMfaShortcut.exe" IconIndex="0" />
+        <Shortcut Id="DesktopLiubaiMfa" Name="留白 MFA" Directory="DesktopFolder" Target="[INSTALLFOLDER]LiubaiMfa.exe" WorkingDirectory="INSTALLFOLDER"
+                  Icon="LiubaiMfaShortcut.exe" IconIndex="0" />
         <RegistryValue Root="HKCU" Key="Software\LiubaiMfa\Installer" Name="Shortcuts" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>

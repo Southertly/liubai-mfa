@@ -1,5 +1,9 @@
 # Windows 版本验证记录
 
+## Electron 正式版 1.0.3
+
+用独立产品标识和临时目录验证从 1.0.2 覆盖升级。升级后桌面和开始菜单快捷方式指向新版本的独立图标资源，Windows 读取到的图标与蓝色盾牌源图一致。测试安装已卸载。[Windows 1.0.3 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.3)
+
 ## Electron 正式版 1.0.1
 
 在 Windows 11 x64 上通过临时安装验证。测试副本使用独立的产品标识和含中文的自定义目录，验证了桌面和开始菜单快捷方式、EXE 内嵌图标及「已安装的应用」列表图标。卸载测试副本后核对快捷方式已移除。[Windows 1.0.1 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1)

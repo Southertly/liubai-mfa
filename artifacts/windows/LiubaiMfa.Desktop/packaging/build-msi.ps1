@@ -27,8 +27,9 @@ try {
     & (Join-Path $PSScriptRoot 'stage-desktop.ps1') -Staging $staging -Version $packageVersion -Channel stable
     $layout = Join-Path $staging 'layout'
     $output = Join-Path $staging 'installer'
+    $shortcutIcon = Join-Path $staging 'LiubaiMfaShortcut.exe'
     dotnet build (Join-Path $PSScriptRoot 'msi\LiubaiMfa.wixproj') -c Release -o $output `
-        "-p:ApplicationVersion=$Version" "-p:PayloadDirectory=$layout"
+        "-p:ApplicationVersion=$Version" "-p:PayloadDirectory=$layout" "-p:ShortcutIconFile=$shortcutIcon"
     if ($LASTEXITCODE -ne 0) { throw 'MSI 打包失败。' }
     $packages = @(Get-ChildItem -LiteralPath $output -File -Filter 'LiubaiMfa.msi' -Recurse)
     if ($packages.Count -ne 1) { throw '未生成唯一的 MSI。' }
