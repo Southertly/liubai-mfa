@@ -1,4 +1,4 @@
-# 留白 MFA · Electron 预览版
+# 留白 MFA · Windows
 
 支持手动添加真实 TOTP 密钥、加密保存、账户编辑删除、搜索和分组、验证码倒计时，以及 Windows 身份验证和锁定。
 
@@ -12,9 +12,24 @@
 
 ## 检查更新
 
-在「设置 → 关于」可以查看当前版本并手动检查更新。发现新版时点「查看新版」，到项目的 GitHub 发布页下载签名的 Windows x64 MSIX 安装包。
+在「设置 → 关于」可以查看当前版本并手动检查更新。发现新版时点「查看新版」，到项目的 GitHub 发布页下载对应渠道的 Windows x64 安装包。
 
 发布 Windows 预览版时，在 [项目发布页](https://github.com/Southertly/liubai-mfa/releases) 使用 `windows-preview-v<四段版本>` 标签，并上传同版本的 `LiubaiMfa-Preview-<四段版本>-x64.msix`。例如发布 `0.1.13.0` 时，标签是 `windows-preview-v0.1.13.0`，附件是 `LiubaiMfa-Preview-0.1.13.0-x64.msix`。发布后才会被检查到。升级包沿用同一 MSIX 包标识及受信任的签名。
+
+Windows 正式发布使用 `windows-v<三段版本>` 标签和同版本的 `LiubaiMfa-<三段版本>-x64.msi` 或 `LiubaiMfa-<三段版本>-x64-unsigned.msi` 附件。正式版只检查正式发布，预览版只检查预览发布。
+
+## 正式版 MSI
+
+MSI 可以选择程序安装目录，例如 `D:\软件\留白 MFA`。自定义目录应只允许当前用户、系统和管理员修改程序文件。账户库位于当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`，应用程序的安装和卸载不会操作该目录。升级时选择原来的程序安装目录。保留原有预览版时，两者使用独立账户库。
+
+在 Windows 11 x64 上安装 Node.js 22、.NET 8 SDK 和 Windows SDK 后，在当前目录运行：
+
+```powershell
+npm ci
+.\packaging\build-msi.ps1 -Version 1.0.0
+```
+
+WiX SDK 和扩展按项目固定版本获取。生成 MSI 位于 `../AppPackages/Desktop/`。未签名安装包以 `-unsigned` 标记，发布页注明签名状态并提供 SHA-256 校验值。使用可信证书时可以传入 `-CertificateThumbprint` 签名并验证时间戳。导入账户可使用现有的加密备份恢复入口。
 
 ## 运行
 

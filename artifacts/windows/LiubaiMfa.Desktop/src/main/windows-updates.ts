@@ -1,5 +1,9 @@
 const repository = 'Southertly/liubai-mfa';
-const tagPrefix = 'windows-preview-v';
+const releaseChannels = {
+  preview: {tagPrefix: 'windows-preview-v', packagePrefix: 'LiubaiMfa-Preview', extension: 'msix', versionParts: 4},
+  stable: {tagPrefix: 'windows-v', packagePrefix: 'LiubaiMfa', extension: 'msi', versionParts: 3},
+} as const;
+type ReleaseChannel = keyof typeof releaseChannels;
 const buildVersion = /^(?:0|[1-9]\d{0,4})(?:\.(?:0|[1-9]\d{0,4})){2,3}$/;
 
 type WindowsRelease = { version: string; releaseUrl: string };
@@ -25,17 +29,21 @@ function compareVersions(first: string, second: string): number {
   return 0;
 }
 
-export function selectWindowsRelease(releases: readonly unknown[]): WindowsRelease | undefined {
+export function selectWindowsRelease(releases: readonly unknown[], channel: ReleaseChannel = 'preview'): WindowsRelease | undefined {
+  const {tagPrefix, packagePrefix, extension, versionParts} = releaseChannels[channel];
   let latest: WindowsRelease | undefined;
   for (const release of releases) {
     if (!isRecord(release) || release.draft !== false || typeof release.tag_name !== 'string') continue;
+    if (channel === 'stable' && release.prerelease !== false) continue;
     const tag = release.tag_name;
     if (!tag.startsWith(tagPrefix)) continue;
     const version = tag.slice(tagPrefix.length);
-    if (!isVersion(version) || version.split('.').length !== 4) continue;
-    const filename = `LiubaiMfa-Preview-${version}-x64.msix`;
+    if (!isVersion(version) || version.split('.').length !== versionParts) continue;
+    const filename = `${packagePrefix}-${version}-x64`;
+    const filenames = [`${filename}.${extension}`];
+    if (channel === 'stable') filenames.push(`${filename}-unsigned.${extension}`);
     if (!Array.isArray(release.assets) || !release.assets.some(asset =>
-      isRecord(asset) && asset.name === filename && asset.state === 'uploaded' &&
+      isRecord(asset) && typeof asset.name === 'string' && filenames.includes(asset.name) && asset.state === 'uploaded' &&
       typeof asset.size === 'number' && asset.size > 0
     )) continue;
     if (!latest || compareVersions(version, latest.version) > 0) {
@@ -45,7 +53,7 @@ export function selectWindowsRelease(releases: readonly unknown[]): WindowsRelea
   return latest;
 }
 
-export async function checkWindowsRelease(currentVersion: string, request = fetch): Promise<UpdateResult> {
+export async function checkWindowsRelease(currentVersion: string, request = fetch, channel: ReleaseChannel = 'preview'): Promise<UpdateResult> {
   if (!isVersion(currentVersion)) throw new Error('无法识别当前版本。');
   const signal = AbortSignal.timeout(8000);
   let latest: WindowsRelease | undefined;
@@ -59,7 +67,7 @@ export async function checkWindowsRelease(currentVersion: string, request = fetc
     if (!response.ok) throw new Error('无法取得发布列表。');
     const releases: unknown = await response.json();
     if (!Array.isArray(releases)) throw new Error('发布列表格式无效。');
-    const candidate = selectWindowsRelease(releases);
+    const candidate = selectWindowsRelease(releases, channel);
     if (candidate && (!latest || compareVersions(candidate.version, latest.version) > 0)) latest = candidate;
     if (releases.length < 100) break;
   }

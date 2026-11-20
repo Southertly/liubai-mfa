@@ -1,0 +1,33 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="留白 MFA" Manufacturer="Liubai MFA" Language="2052" Codepage="936"
+           Version="$(var.ApplicationVersion)" UpgradeCode="d6777106-a66c-4de7-b65e-5e1cd3364a4c" Scope="perUserOrMachine">
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="本机已安装更新版本的留白 MFA。" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="medium" />
+    <Property Id="WINDOWSBUILDNUMBER" Secure="yes">
+      <RegistrySearch Id="ReadWindowsBuild" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="CurrentBuildNumber" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR (VersionNT64 AND (WINDOWSBUILDNUMBER &gt;= 22000))" Message="留白 MFA 需要 Windows 11 x64。" />
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="NOT Installed" />
+    </UI>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Liubai MFA">
+        <Component Id="ApplicationExecutable" Guid="0e8dffc3-9d26-4b16-9e8f-71c602e40a85">
+          <File Id="LiubaiMfaExe" Source="$(var.PayloadDirectory)\LiubaiMfa.exe" KeyPath="yes">
+            <Shortcut Id="LaunchLiubaiMfa" Name="留白 MFA" Directory="ProgramMenuFolder" Advertise="yes" WorkingDirectory="INSTALLFOLDER" />
+          </File>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <Feature Id="Application" Title="留白 MFA" Level="1">
+      <ComponentRef Id="ApplicationExecutable" />
+      <Files Directory="INSTALLFOLDER" Include="$(var.PayloadDirectory)\**">
+        <Exclude Files="$(var.PayloadDirectory)\LiubaiMfa.exe" />
+      </Files>
+    </Feature>
+  </Package>
+</Wix>

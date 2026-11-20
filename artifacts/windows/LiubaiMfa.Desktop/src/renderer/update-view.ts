@@ -1,6 +1,7 @@
 type UpdateViewResult = { status: 'unpublished' | 'current' } | { status: 'available'; version: string };
 declare const mfaUpdates: {
   version(): Promise<string>;
+  channel(): Promise<'stable' | 'preview'>;
   check(): Promise<UpdateViewResult>;
   open(): Promise<boolean>;
 };
@@ -14,8 +15,11 @@ namespace UpdateView {
   export let check = (): Promise<UpdateViewResult> => mfaUpdates.check();
   export let open = (): Promise<boolean> => mfaUpdates.open();
 
-  void mfaUpdates.version().then(value => {
-    version.textContent = `预览版 ${value}`;
+  let stable = false;
+  void Promise.all([mfaUpdates.version(), mfaUpdates.channel()]).then(([value, channel]) => {
+    stable = channel === 'stable';
+    document.title = stable ? '留白 MFA' : '留白 MFA · 预览版';
+    version.textContent = `${stable ? '正式版' : '预览版'} ${value}`;
   }).catch(() => {});
 
   checkButton.onclick = async () => {
@@ -28,7 +32,9 @@ namespace UpdateView {
         status.textContent = `发现新版 ${result.version}`;
         openButton.hidden = false;
       } else {
-        status.textContent = result.status === 'current' ? '当前版本无需更新。' : '还没有发布 Windows 预览版。';
+        status.textContent = result.status === 'current'
+          ? '当前版本无需更新。'
+          : `还没有发布 Windows ${stable ? '正式版' : '预览版'}。`;
       }
     } catch {
       status.textContent = '暂时无法检查更新，请稍后重试。';
