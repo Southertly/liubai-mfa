@@ -2,6 +2,13 @@
 
 本文件记录留白 MFA 的用户可见变更。版本号遵循语义化版本的主版本、次版本和修订版本结构；不同平台的安装包仍使用各自独立的系统版本号与签名体系。
 
+## 1.0.0（Windows）- 2026-11-20
+
+- Windows 11 x64 首次公开发布。使用 Electron 界面和 C# / .NET 8 本地核心，提供可自选安装目录的未签名 MSI。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)
+- 支持账户搜索、服务图标、自定义分组、账户拖拽、二维码导入，以及加密备份与恢复。
+- 提供 Windows 身份验证、可配置的自动锁定和手动检查更新。
+- 正式版与预览版使用独立账户库。从预览版转入时，先备份再恢复。安装、重启及迁移后的账户可用性见 [Windows 验证记录](artifacts/windows/VERIFICATION.md)。
+
 ## 1.1.1（Android）- 2026-11-19
 
 ### 界面
@@ -63,9 +70,9 @@
 
 ### 分发
 
-- GitHub Release 当前只提供 Android APK 和 SHA-256 校验文件。
+- 该版本的 GitHub Release 提供 Android APK 和 SHA-256 校验文件。
 - HarmonyOS 当时通过应用市场邀请测试分发，后续正式上架记录见 1.1.2。
-- Windows MSIX 尚未发布，Windows 11 x64 真机验收待完成。
+- 该版本发布时，Windows 仍处于原型验证阶段。
 
 ## [1.0.0] - 2026-07-03
 

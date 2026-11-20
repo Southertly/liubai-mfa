@@ -20,7 +20,11 @@ Windows 正式发布使用 `windows-v<三段版本>` 标签和同版本的 `Liub
 
 ## 正式版 MSI
 
-MSI 可以选择程序安装目录，例如 `D:\软件\留白 MFA`。自定义目录应只允许当前用户、系统和管理员修改程序文件。账户库位于当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`，应用程序的安装和卸载不会操作该目录。升级时选择原来的程序安装目录。保留原有预览版时，两者使用独立账户库。
+Windows 11 x64 的 1.0.0 安装包及 SHA-256 校验文件可在 GitHub 下载。该版本 MSI 未签名。[Windows 1.0.0 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.0)
+
+MSI 可以选择程序安装目录。自定义目录应只允许当前用户、系统和管理员修改程序文件。账户库位于当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`，应用程序的安装和卸载不会操作该目录。升级时选择原来的程序安装目录。
+
+预览版和正式版使用独立账户库。转入时先在预览版导出加密备份并单独保存恢复密钥，再在正式版「设置 → 从备份恢复」导入。确认正式版的账户和验证码可用后再卸载预览版。
 
 在 Windows 11 x64 上安装 Node.js 22、.NET 8 SDK 和 Windows SDK 后，在当前目录运行：
 
