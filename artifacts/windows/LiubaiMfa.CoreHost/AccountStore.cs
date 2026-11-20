@@ -151,60 +151,6 @@ internal sealed class AccountStore(string directory) : IDisposable
         vaultDirectory = migrated;
     }
 
-    internal bool MigrationEligible()
-    {
-        if (failed) return false;
-        try {
-            EnsureNoReparse(directory);
-            return !new[] { "device-key.v1.bin", "accounts.v2.json", "initialized.v1", "migration.initialized.v1", "migrated-v1" }
-                .Any(name => Exists(Path.Combine(directory, name)));
-        } catch { return false; }
-    }
-
-    internal void PublishMigration(byte[] protectedKey, List<MfaAccount> accounts)
-    {
-        _ = Load();
-        if (!MigrationEligible()) throw new MigrationOperationException("MIGRATION_TARGET_NOT_EMPTY", "当前账户库已初始化，无法迁移旧账户。");
-        var stage = Path.Combine(directory, ".migration-" + Guid.NewGuid().ToString("N"));
-        var marker = Path.Combine(directory, "migration.initialized.v1");
-        var destination = Path.Combine(directory, "migrated-v1");
-        bool markerWritten = false, published = false;
-        try {
-            Directory.CreateDirectory(stage);
-            var key = DeviceKey.Unprotect(protectedKey);
-            try {
-                var envelope = BackupCrypto.Encrypt(JsonSerializer.Serialize(accounts, JsonOptions), Convert.ToBase64String(key));
-                AtomicWrite(Path.Combine(stage, "device-key.v1.bin"), protectedKey, false);
-                AtomicWrite(Path.Combine(stage, "accounts.v2.json"), JsonSerializer.SerializeToUtf8Bytes(envelope, JsonOptions), false);
-            } finally { CryptographicOperations.ZeroMemory(key); }
-            AtomicWrite(Path.Combine(stage, "initialized.v1"), "initialized"u8.ToArray(), false);
-            AtomicWrite(Path.Combine(stage, "protection.initialized.v1"), "initialized"u8.ToArray(), false);
-            AtomicWrite(Path.Combine(stage, "protection.v1.json"), "{\"enabled\":true}"u8.ToArray(), false);
-            using (var verification = new AccountStore(stage)) {
-                if (!verification.Load().SequenceEqual(accounts) || !verification.ReadProtection()) throw new IOException();
-            }
-            if (!MigrationEligible()) throw new MigrationOperationException("MIGRATION_TARGET_NOT_EMPTY", "当前账户库已初始化，无法迁移旧账户。");
-            AtomicWrite(marker, "initialized"u8.ToArray(), false); markerWritten = true;
-            Directory.Move(stage, destination); published = true;
-            vaultDirectory = destination;
-        } catch (MigrationOperationException) { throw; }
-        catch { throw new MigrationOperationException("MIGRATION_WRITE_FAILED", "无法保存迁移账户，请检查存储位置后重新预览。"); }
-        finally {
-            if (!published) {
-                try {
-                    EnsureNoReparse(directory); EnsureNoReparse(stage);
-                    if (Directory.Exists(stage)) {
-                        var children = Directory.GetFileSystemEntries(stage);
-                        foreach (var child in children) { EnsureNoReparse(child); if (Directory.Exists(child)) throw new IOException(); }
-                        foreach (var child in children) File.Delete(child);
-                        Directory.Delete(stage);
-                    }
-                    if (markerWritten && !Exists(destination)) { EnsureNoReparse(marker); File.Delete(marker); }
-                } catch { /* 清理不完整时保留标记，后续读取拒绝覆盖。 */ }
-            }
-        }
-    }
-
     internal static bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
     internal static void EnsureNoReparse(string path)
     {
