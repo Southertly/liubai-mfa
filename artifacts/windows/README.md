@@ -1,5 +1,9 @@
 # 留白 MFA Windows
 
+新版 Electron 预览版位于 [LiubaiMfa.Desktop](LiubaiMfa.Desktop/README.md)，使用 C# 本地核心和独立的 Windows 包标识。预览版的运行、数据位置、签名打包及检查更新流程见其 README。
+
+## 旧版 WinUI 3
+
 这是与 Android、HarmonyOS NEXT 分离的 Windows 11 x64 原生客户端。它使用 WinUI 3 / C#，复用现有 TOTP、`otpauth://`、账户字段和 v2 加密备份规则，但不复用 Expo 的安全存储、系统认证、相机、剪贴板或分享实现。
 
 ## 已实现范围
