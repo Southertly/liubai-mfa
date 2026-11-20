@@ -1,6 +1,6 @@
 # 留白 MFA Windows
 
-Windows 正式版面向 Windows 11 x64，使用 Electron 界面和 C# / .NET 8 本地核心。[Windows 1.0.3 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.3)
+Windows 正式版面向 Windows 11 x64，使用 Electron 界面和 C# / .NET 8 本地核心。[Windows 1.0.4 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.4)
 
 安装、数据位置、应用内更新和打包见 [Windows 客户端说明](LiubaiMfa.Desktop/README.md)，实机回归见 [Windows 验证记录](VERIFICATION.md)。
 
