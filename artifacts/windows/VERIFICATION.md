@@ -1,5 +1,9 @@
 # Windows 版本验证记录
 
+## Electron 正式版 1.0.4
+
+用独立产品标识、包含中文和空格的 MSI 文件路径与安装目录，确认修正后的参数可由 Windows 安装程序用于覆盖升级。启动阶段退出码和更新下载回归均通过。[Windows 1.0.4 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.4)
+
 ## Electron 正式版 1.0.3
 
 用独立产品标识和临时目录验证从 1.0.2 覆盖升级。升级后桌面和开始菜单快捷方式指向新版本的独立图标资源，Windows 读取到的图标与蓝色盾牌源图一致。测试安装已卸载。[Windows 1.0.3 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.3)

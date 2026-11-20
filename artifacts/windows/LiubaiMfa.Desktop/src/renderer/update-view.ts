@@ -6,7 +6,7 @@ declare const mfaUpdates: {
   open(): Promise<boolean>;
   download(): Promise<boolean>;
   cancel(): Promise<boolean>;
-  install(): Promise<boolean | 'download-required'>;
+  install(): Promise<boolean | 'download-required' | number>;
   onProgress(callback: (percent: number) => void): void;
 };
 
@@ -75,6 +75,10 @@ namespace UpdateView {
           status.textContent = '安装包已失效，请重新下载。';
           downloaded = false;
           downloadButton.textContent = '下载更新';
+        } else if (typeof result === 'number') {
+          status.textContent = result === 1602
+            ? '已取消安装。可再次安装，或打开发布页。'
+            : `Windows 安装程序启动失败（${result}）。可重试，或打开发布页。`;
         } else if (!result) {
           status.textContent = '安装尚未启动。可再次安装，或打开发布页。';
         }
