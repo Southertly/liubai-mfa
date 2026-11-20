@@ -5,9 +5,10 @@ import { CoreBridge } from './core-bridge';
 import { readQr } from './qr-import';
 import { AutoLockTimer, loadAutoLockSeconds, saveAutoLockSeconds } from './auto-lock';
 import {
-  checkWindowsRelease, discardWindowsUpdate, downloadWindowsUpdate, prepareWindowsInstaller, verifyWindowsUpdate,
+  checkWindowsRelease, discardWindowsUpdate, downloadWindowsUpdate, verifyWindowsUpdate,
   type UpdateResult
 } from './windows-updates';
+import { prepareWindowsInstaller } from './windows-installer';
 
 const releaseChannel = app.isPackaged && app.getName() === 'LiubaiMfa' ? 'stable' : 'preview';
 const root = path.resolve(__dirname, '../..');
@@ -168,9 +169,13 @@ else {
             return 'download-required';
           }
           if (mustLock || closing || busy || connecting) return false;
-          await launch();
-          app.quit();
-          return true;
+          busy = true;
+          try {
+            const exitCode = await launch();
+            if (exitCode !== null) return exitCode;
+            app.quit();
+            return true;
+          } finally { busy = false; }
         }
         return false;
       } finally { updateBusy = false; }

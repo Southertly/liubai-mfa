@@ -1,9 +1,7 @@
-import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdtemp, open, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
 const repository = 'Southertly/liubai-mfa';
 const installerLimit = 512 * 1024 * 1024;
@@ -179,38 +177,4 @@ export async function verifyWindowsUpdate(file: string, asset: WindowsUpdateDown
     hash.update(chunk);
   }
   return bytes === asset.size && hash.digest('hex') === asset.sha256;
-}
-
-const findInstalledScope = `
-$ErrorActionPreference = 'Stop'
-$installer = New-Object -ComObject WindowsInstaller.Installer
-$products = $installer.RelatedProducts('{D6777106-A66C-4DE7-B65E-5E1CD3364A4C}')
-for ($index = 0; $index -lt $products.Count; $index++) {
-  $product = $products.Item($index)
-  if ($installer.ProductState($product) -ne 5) { continue }
-  $executable = $installer.ComponentPath($product, '{0E8DFFC3-9D26-4B16-9E8F-71C602E40A85}')
-  if ($executable -eq $env:LIUBAI_MFA_UPDATE_EXE) {
-    $installer.ProductInfo($product, 'AssignmentType')
-  }
-}
-`;
-
-export async function prepareWindowsInstaller(file: string, executable: string): Promise<() => Promise<void>> {
-  const root = process.env.SystemRoot;
-  if (!root || !path.isAbsolute(root)) throw new Error('无法定位 Windows 安装程序。');
-  const system = path.join(root, 'System32');
-  const {stdout} = await promisify(execFile)(
-    path.join(system, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    ['-NoProfile', '-NonInteractive', '-Command', findInstalledScope],
-    {windowsHide: true, timeout: 8000, env: {...process.env, LIUBAI_MFA_UPDATE_EXE: executable}}
-  );
-  const scope = stdout.trim();
-  if (scope !== '0' && scope !== '1') throw new Error('无法确认原安装范围，请从发布页手动升级。');
-  const args = ['/i', file, '/norestart', `INSTALLFOLDER=${path.dirname(executable)}`,
-    ...(scope === '1' ? ['ALLUSERS=1'] : ['ALLUSERS=2', 'MSIINSTALLPERUSER=1'])];
-  return () => new Promise((resolve, reject) => {
-    const installer = spawn(path.join(system, 'msiexec.exe'), args, {detached: true, stdio: 'ignore'});
-    installer.once('error', reject);
-    installer.once('spawn', () => { installer.unref(); resolve(); });
-  });
 }

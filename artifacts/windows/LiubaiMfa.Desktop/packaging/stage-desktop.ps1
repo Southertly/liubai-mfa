@@ -47,7 +47,7 @@ $main = Join-Path $application 'dist\main'
 New-Item -ItemType Directory -Path $main | Out-Null
 @{name = $appName; version = $Version.ToString(); main = 'dist/main/main.js'} |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $application 'package.json') -Encoding ascii
-foreach ($file in @('main.js', 'core-bridge.js', 'qr-import.js', 'auto-lock.js', 'windows-updates.js')) {
+foreach ($file in @('main.js', 'core-bridge.js', 'qr-import.js', 'auto-lock.js', 'windows-updates.js', 'windows-installer.js')) {
     Copy-Item -LiteralPath (Join-Path $desktop "dist\main\$file") -Destination $main
 }
 foreach ($folder in @('preload', 'renderer')) {
