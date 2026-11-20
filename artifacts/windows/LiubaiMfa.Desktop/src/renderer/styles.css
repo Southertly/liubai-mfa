@@ -199,6 +199,7 @@ body:not([data-state="connected"]) .empty h2{font-size:26px}
 .update-result{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--border);padding:8px 12px}
 .update-result:has(.setting-hint:empty){display:none}
 .update-result .setting-hint{margin:0}
+.update-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
 .seg{display:flex;border:1px solid var(--border);padding:3px;border-radius:9px;background:var(--soft);flex-shrink:0}
 .seg button{padding:4px 9px;border:0;border-radius:6px;font-size:12px;background:transparent;min-height:26px}
 .seg button[aria-pressed="true"]{background:var(--surface);box-shadow:0 1px 3px #0001}

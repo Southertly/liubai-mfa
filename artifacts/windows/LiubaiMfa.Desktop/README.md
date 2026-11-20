@@ -14,13 +14,15 @@
 
 在「设置 → 关于」可以查看当前版本并手动检查更新。发现新版时点「查看新版」，到项目的 GitHub 发布页下载对应渠道的 Windows x64 安装包。
 
+从 1.0.2 起，正式版在新版 MSI 提供 SHA-256 摘要时会显示「下载更新」。下载期间可以取消。校验通过后点击「安装更新」并确认，应用会退出并打开 Windows 安装程序，沿用原目录和安装范围。遇到下载或校验失败时，可以重试或打开 GitHub 发布页。
+
 发布 Windows 预览版时，在 [项目发布页](https://github.com/Southertly/liubai-mfa/releases) 使用 `windows-preview-v<四段版本>` 标签，并上传同版本的 `LiubaiMfa-Preview-<四段版本>-x64.msix`。例如发布 `0.1.13.0` 时，标签是 `windows-preview-v0.1.13.0`，附件是 `LiubaiMfa-Preview-0.1.13.0-x64.msix`。发布后才会被检查到。升级包沿用同一 MSIX 包标识及受信任的签名。
 
 Windows 正式发布使用 `windows-v<三段版本>` 标签和同版本的 `LiubaiMfa-<三段版本>-x64.msi` 或 `LiubaiMfa-<三段版本>-x64-unsigned.msi` 附件。正式版只检查正式发布，预览版只检查预览发布。
 
 ## 正式版 MSI
 
-Windows 11 x64 的 1.0.1 安装包及 SHA-256 校验文件可在 GitHub 下载。该版本 MSI 未签名。[Windows 1.0.1 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.1)
+Windows 11 x64 的 1.0.2 安装包及 SHA-256 校验文件可在 GitHub 下载。该版本 MSI 未签名。[Windows 1.0.2 发布页](https://github.com/Southertly/liubai-mfa/releases/tag/windows-v1.0.2)
 
 MSI 可以选择程序安装目录，并在桌面和开始菜单创建快捷方式。自定义目录应只允许当前用户、系统和管理员修改程序文件。账户库位于当前 Windows 用户的 `%APPDATA%\LiubaiMfa\accounts`，应用程序的安装和卸载不会操作该目录。升级时选择原来的程序安装目录。
 
@@ -30,7 +32,7 @@ MSI 可以选择程序安装目录，并在桌面和开始菜单创建快捷方�
 
 ```powershell
 npm ci
-.\packaging\build-msi.ps1 -Version 1.0.1
+.\packaging\build-msi.ps1 -Version 1.0.2
 ```
 
 WiX SDK 和扩展按项目固定版本获取。生成 MSI 位于 `../AppPackages/Desktop/`。未签名安装包以 `-unsigned` 标记，发布页注明签名状态并提供 SHA-256 校验值。使用可信证书时可以传入 `-CertificateThumbprint` 签名并验证时间戳。导入账户可使用现有的加密备份恢复入口。

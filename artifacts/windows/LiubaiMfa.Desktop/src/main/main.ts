@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { CoreBridge } from './core-bridge';
 import { readQr } from './qr-import';
 import { AutoLockTimer, loadAutoLockSeconds, saveAutoLockSeconds } from './auto-lock';
-import { checkWindowsRelease } from './windows-updates';
+import {
+  checkWindowsRelease, discardWindowsUpdate, downloadWindowsUpdate, prepareWindowsInstaller, verifyWindowsUpdate,
+  type UpdateResult
+} from './windows-updates';
 
 const releaseChannel = app.isPackaged && app.getName() === 'LiubaiMfa' ? 'stable' : 'preview';
 const root = path.resolve(__dirname, '../..');
@@ -38,10 +41,11 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { window?.show(); window?.focus(); });
   let closing = false;
+  let closeUpdate = async (): Promise<void> => {};
   app.on('before-quit', event => {
     if (closing || !bridge) return;
     event.preventDefault(); closing = true; autoLock.cancel();
-    void bridge.close().finally(() => app.quit());
+    void Promise.allSettled([bridge.close(), closeUpdate()]).then(() => app.quit());
   });
   app.on('window-all-closed', () => app.quit());
   void app.whenReady().then(async () => {
@@ -88,28 +92,88 @@ else {
         throw new Error('请求来源无效。');
       }
     };
-    let updateCheck: ReturnType<typeof checkWindowsRelease> | undefined;
-    let releaseUrl: string | undefined;
+    let update: Extract<UpdateResult, {status: 'available'}> | undefined;
+    let updateFile: string | undefined;
+    let updateBusy = false;
+    let updateCancel: AbortController | undefined;
+    let updateDownload: Promise<string> | undefined;
+    closeUpdate = async () => {
+      updateCancel?.abort();
+      await updateDownload?.catch(() => {});
+    };
     ipcMain.handle('update:request', async (event, method: unknown, ...args: unknown[]) => {
       verifyApplicationFrame(event);
       if (args.length) throw new Error('输入内容无效。');
       if (method === 'version') return app.getVersion();
       if (method === 'channel') return releaseChannel;
-      if (method === 'check') {
-        releaseUrl = undefined;
-        updateCheck ??= checkWindowsRelease(app.getVersion(), fetch, releaseChannel).finally(() => { updateCheck = undefined; });
-        const result = await updateCheck;
-        if (result.status === 'available') {
-          releaseUrl = result.releaseUrl;
-          return {status: result.status, version: result.version};
-        }
-        return result;
-      }
-      if (method === 'open' && releaseUrl && !mustLock) {
-        await shell.openExternal(releaseUrl);
+      if (method === 'cancel' && updateCancel) {
+        updateCancel.abort();
         return true;
       }
-      return false;
+      if (mustLock || closing || updateBusy) return false;
+      updateBusy = true;
+      try {
+        if (method === 'check') {
+          update = undefined;
+          if (updateFile) {
+            await discardWindowsUpdate(updateFile);
+            updateFile = undefined;
+          }
+          const result = await checkWindowsRelease(app.getVersion(), fetch, releaseChannel);
+          if (result.status !== 'available') return result;
+          update = result;
+          return {status: result.status, version: result.version, canDownload: !!result.download};
+        }
+        if (method === 'open' && update) {
+          await shell.openExternal(update.releaseUrl);
+          return true;
+        }
+        if (!update?.download) return false;
+        const {download: asset, version} = update;
+        if (method === 'download') {
+          if (updateFile) return true;
+          let previous = -1;
+          const controller = new AbortController();
+          updateCancel = controller;
+          updateDownload = downloadWindowsUpdate(asset, app.getPath('temp'), bytes => {
+            const percent = Math.min(99, Math.floor(bytes * 100 / asset.size));
+            if (percent !== previous && !contents.isDestroyed()) contents.send('update:progress', percent);
+            previous = percent;
+          }, fetch, controller.signal);
+          try {
+            updateFile = await updateDownload;
+            return true;
+          } catch (error) {
+            if (controller.signal.aborted) return false;
+            throw error;
+          } finally {
+            updateCancel = undefined;
+            updateDownload = undefined;
+          }
+        }
+        if (method === 'install' && updateFile && window && !busy && !connecting) {
+          const launch = await prepareWindowsInstaller(updateFile, process.execPath);
+          if (mustLock || closing || busy || connecting) return false;
+          const {response} = await dialog.showMessageBox(window, {
+            type: 'question', message: `安装留白 MFA ${version}？`,
+            detail: asset.unsigned
+              ? '安装包已通过 SHA-256 校验，未做代码签名。继续后将关闭应用，并打开 Windows 安装程序。'
+              : '安装包已通过 SHA-256 校验。继续后将关闭应用，并打开 Windows 安装程序。',
+            buttons: ['安装更新', '取消'], defaultId: 1, cancelId: 1, noLink: true,
+          });
+          if (response !== 0 || mustLock || closing || busy || connecting) return false;
+          if (!await verifyWindowsUpdate(updateFile, asset).catch(() => false)) {
+            await discardWindowsUpdate(updateFile);
+            updateFile = undefined;
+            return 'download-required';
+          }
+          if (mustLock || closing || busy || connecting) return false;
+          await launch();
+          app.quit();
+          return true;
+        }
+        return false;
+      } finally { updateBusy = false; }
     });
     window.removeMenu();
     window.on('blur', scheduleAutoLock);

@@ -1,4 +1,12 @@
+import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, open, rm, rmdir } from 'node:fs/promises';
+import path from 'node:path';
+import { promisify } from 'node:util';
+
 const repository = 'Southertly/liubai-mfa';
+const installerLimit = 512 * 1024 * 1024;
 const releaseChannels = {
   preview: {tagPrefix: 'windows-preview-v', packagePrefix: 'LiubaiMfa-Preview', extension: 'msix', versionParts: 4},
   stable: {tagPrefix: 'windows-v', packagePrefix: 'LiubaiMfa', extension: 'msi', versionParts: 3},
@@ -6,7 +14,14 @@ const releaseChannels = {
 type ReleaseChannel = keyof typeof releaseChannels;
 const buildVersion = /^(?:0|[1-9]\d{0,4})(?:\.(?:0|[1-9]\d{0,4})){2,3}$/;
 
-type WindowsRelease = { version: string; releaseUrl: string };
+export type WindowsUpdateDownload = {
+  name: string;
+  url: string;
+  size: number;
+  sha256: string;
+  unsigned: boolean;
+};
+type WindowsRelease = { version: string; releaseUrl: string; download?: WindowsUpdateDownload };
 export type UpdateResult =
   | { status: 'unpublished' | 'current' }
   | ({ status: 'available' } & WindowsRelease);
@@ -42,12 +57,26 @@ export function selectWindowsRelease(releases: readonly unknown[], channel: Rele
     const filename = `${packagePrefix}-${version}-x64`;
     const filenames = [`${filename}.${extension}`];
     if (channel === 'stable') filenames.push(`${filename}-unsigned.${extension}`);
-    if (!Array.isArray(release.assets) || !release.assets.some(asset =>
+    if (!Array.isArray(release.assets)) continue;
+    const assets = release.assets.filter((asset): asset is Record<string, unknown> & {name: string; size: number} =>
       isRecord(asset) && typeof asset.name === 'string' && filenames.includes(asset.name) && asset.state === 'uploaded' &&
       typeof asset.size === 'number' && asset.size > 0
-    )) continue;
+    );
+    if (!assets.length) continue;
     if (!latest || compareVersions(version, latest.version) > 0) {
       latest = {version, releaseUrl: `https://github.com/${repository}/releases/tag/${tag}`};
+      if (channel !== 'stable') continue;
+      for (const name of filenames) {
+        const asset = assets.find(asset => asset.name === name);
+        if (!asset || !Number.isSafeInteger(asset.size) || asset.size > installerLimit ||
+            typeof asset.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/i.test(asset.digest)) continue;
+        latest.download = {
+          name, size: asset.size, sha256: asset.digest.slice(7).toLowerCase(),
+          unsigned: name.endsWith('-unsigned.msi'),
+          url: `https://github.com/${repository}/releases/download/${tag}/${name}`,
+        };
+        break;
+      }
     }
   }
   return latest;
@@ -74,4 +103,114 @@ export async function checkWindowsRelease(currentVersion: string, request = fetc
   if (!latest) return {status: 'unpublished'};
   if (compareVersions(latest.version, currentVersion) <= 0) return {status: 'current'};
   return {status: 'available', ...latest};
+}
+
+async function installerResponse(url: string, request: typeof fetch, signal: AbortSignal): Promise<Response> {
+  for (let hop = 0; hop < 4; hop++) {
+    const response = await request(url, {credentials: 'omit', redirect: 'manual', signal});
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get('location');
+    await response.body?.cancel();
+    if (!location) break;
+    const next = new URL(location, url);
+    if (next.protocol !== 'https:' || next.port || next.username || next.password ||
+        !['release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(next.hostname)) break;
+    url = next.href;
+  }
+  throw new Error('安装包下载地址无效。');
+}
+
+export async function discardWindowsUpdate(file: string): Promise<void> {
+  await rm(file, {force: true}).catch(() => {});
+  await rmdir(path.dirname(file)).catch(() => {});
+}
+
+export async function downloadWindowsUpdate(
+  asset: WindowsUpdateDownload, temp: string, progress: (bytes: number) => void,
+  request = fetch, cancel?: AbortSignal
+): Promise<string> {
+  const folder = await mkdtemp(path.join(temp, 'liubai-mfa-update-'));
+  const file = path.join(folder, asset.name);
+  const idle = new AbortController();
+  const timeout = setTimeout(() => idle.abort(new Error('安装包下载超时。')), 60_000);
+  timeout.unref();
+  const signal = cancel ? AbortSignal.any([cancel, idle.signal]) : idle.signal;
+  try {
+    const response = await installerResponse(asset.url, request, signal);
+    if (!response.ok || !response.body) {
+      await response.body?.cancel();
+      throw new Error('无法下载安装包。');
+    }
+    const reader = response.body.getReader();
+    try {
+      const output = await open(file, 'wx', 0o600);
+      try {
+        const hash = createHash('sha256');
+        let bytes = 0;
+        for (;;) {
+          const {done, value} = await reader.read();
+          if (done) break;
+          timeout.refresh();
+          bytes += value.length;
+          if (bytes > asset.size) throw new Error('安装包大小与发布记录不符。');
+          await output.writeFile(value);
+          hash.update(value);
+          progress(bytes);
+        }
+        if (bytes !== asset.size || hash.digest('hex') !== asset.sha256) {
+          throw new Error('安装包校验失败。');
+        }
+      } finally { await output.close(); }
+    } finally { await reader.cancel().catch(() => {}); }
+    signal.throwIfAborted();
+    return file;
+  } catch (error) {
+    await discardWindowsUpdate(file);
+    throw error;
+  } finally { clearTimeout(timeout); }
+}
+
+export async function verifyWindowsUpdate(file: string, asset: WindowsUpdateDownload): Promise<boolean> {
+  const hash = createHash('sha256');
+  let bytes = 0;
+  for await (const chunk of createReadStream(file)) {
+    bytes += chunk.length;
+    if (bytes > asset.size) return false;
+    hash.update(chunk);
+  }
+  return bytes === asset.size && hash.digest('hex') === asset.sha256;
+}
+
+const findInstalledScope = `
+$ErrorActionPreference = 'Stop'
+$installer = New-Object -ComObject WindowsInstaller.Installer
+$products = $installer.RelatedProducts('{D6777106-A66C-4DE7-B65E-5E1CD3364A4C}')
+for ($index = 0; $index -lt $products.Count; $index++) {
+  $product = $products.Item($index)
+  if ($installer.ProductState($product) -ne 5) { continue }
+  $executable = $installer.ComponentPath($product, '{0E8DFFC3-9D26-4B16-9E8F-71C602E40A85}')
+  if ($executable -eq $env:LIUBAI_MFA_UPDATE_EXE) {
+    $installer.ProductInfo($product, 'AssignmentType')
+  }
+}
+`;
+
+export async function prepareWindowsInstaller(file: string, executable: string): Promise<() => Promise<void>> {
+  const root = process.env.SystemRoot;
+  if (!root || !path.isAbsolute(root)) throw new Error('无法定位 Windows 安装程序。');
+  const system = path.join(root, 'System32');
+  const {stdout} = await promisify(execFile)(
+    path.join(system, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ['-NoProfile', '-NonInteractive', '-Command', findInstalledScope],
+    {windowsHide: true, timeout: 8000, env: {...process.env, LIUBAI_MFA_UPDATE_EXE: executable}}
+  );
+  const scope = stdout.trim();
+  if (scope !== '0' && scope !== '1') throw new Error('无法确认原安装范围，请从发布页手动升级。');
+  const args = ['/i', file, '/norestart', `INSTALLFOLDER=${path.dirname(executable)}`,
+    ...(scope === '1' ? ['ALLUSERS=1'] : ['ALLUSERS=2', 'MSIINSTALLPERUSER=1'])];
+  return () => new Promise((resolve, reject) => {
+    const installer = spawn(path.join(system, 'msiexec.exe'), args, {detached: true, stdio: 'ignore'});
+    installer.once('error', reject);
+    installer.once('spawn', () => { installer.unref(); resolve(); });
+  });
 }
